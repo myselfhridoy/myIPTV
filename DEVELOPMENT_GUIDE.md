@@ -41,6 +41,11 @@ Because Live TV and VOD have completely different user experience requirements o
 - Uses `PlayerView` but hides default controllers (`useController = false`).
 - A custom semi-transparent overlay slides in from the top with the Channel Logo and Name.
 - The overlay auto-hides after 5 seconds and can be toggled by pressing the DPad Center (OK) button on a remote.
+- Includes advanced features:
+  - **Native System PiP (Picture-in-Picture)** via Android's `enterPictureInPictureMode`.
+  - **Aspect Ratio Toggling** (Stretch, Fit, Zoom) using ExoPlayer's `AspectRatioFrameLayout`.
+  - **Quality/Track Selection Dialog** using `DefaultTrackSelector`.
+  - **Mute/Unmute** volume control.
 
 #### `VodPlayerScreen.kt`
 - Includes a custom Compose-based Seekbar (`Slider`).
@@ -68,5 +73,4 @@ Instead of hardcoding stream scrapers natively, the app runs external JavaScript
 
 ## 📝 Next Steps for Future Development
 - **Favorites System**: Add a local Room Database to save favorite Live Channels or TMDB media.
-- **Player Quality Selection**: Parse the HLS `.m3u8` master playlist and add an ExoPlayer Track Selector to manually switch between qualities (e.g., 720p, 1080p).
 - **Subtitles**: Utilize `MediaItem.SubtitleConfiguration` to pass parsed VOD subtitles to ExoPlayer.
