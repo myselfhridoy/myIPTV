@@ -4,10 +4,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -41,16 +50,70 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkNavyBackground)
-            .padding(16.dp)
+            .background(Color(0xFF151A25)) // Match mockup
     ) {
-        Text(
-            text = categoryName,
-            color = WhiteText,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+        // Custom Top Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "Back",
+                tint = WhiteText,
+                modifier = Modifier
+                    .size(28.dp)
+                    .clickable { navController.popBackStack() }
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = categoryName,
+                color = WhiteText,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = WhiteText,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color(0xFF1E2638), CircleShape)
+                    .padding(8.dp)
+                    .clickable { /* TODO */ }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Icon(
+                imageVector = Icons.Default.Star,
+                contentDescription = "Favorites",
+                tint = WhiteText,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color(0xFF1E2638), CircleShape)
+                    .padding(8.dp)
+                    .clickable { /* TODO */ }
+            )
+        }
+
+        // Chips Row
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item { FilterChipItem(text = "Chose", icon = Icons.Default.List, isSelected = false) }
+            item { FilterChipItem(text = "All", icon = Icons.Default.Check, isSelected = true) }
+            // Dynamic generation of chips could go here
+            item { FilterChipItem(text = "Sports", icon = null, isSelected = false) }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (channels == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -62,7 +125,8 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 120.dp),
+                columns = GridCells.Fixed(4), // Mockup shows 4 columns
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -78,47 +142,95 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 }
 
 @Composable
+fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, isSelected: Boolean) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .height(36.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { /* TODO */ }
+            .border(
+                width = 1.dp,
+                color = if (isFocused || isSelected) WhiteText else Color.Gray,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .background(
+                color = if (isSelected) Color(0xFF353C4B) else Color.Transparent,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = WhiteText,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+            text = text,
+            color = WhiteText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
 fun ChannelCard(channel: Channel, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f)
+            .aspectRatio(0.85f) // Adjust height to fit text below
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .border(
-                width = if (isFocused) 3.dp else 0.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) TealAccent else Color(0xFF2B3648),
                 shape = RoundedCornerShape(12.dp)
             ),
-        colors = CardDefaults.cardColors(containerColor = DarkNavySurface),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxSize().padding(8.dp)
         ) {
-            if (channel.logo.isNotEmpty()) {
-                AsyncImage(
-                    model = channel.logo,
-                    contentDescription = channel.name,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+            // Circular Logo background
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF242C3D)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (channel.logo.isNotEmpty()) {
+                    AsyncImage(
+                        model = channel.logo,
+                        contentDescription = channel.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(36.dp).clip(CircleShape)
+                    )
+                }
             }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
             Text(
                 text = channel.name,
                 color = WhiteText,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                maxLines = 2
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
