@@ -98,10 +98,10 @@ fun LivePlayerScreen(
             insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
         
-        // Delay before forcing landscape to allow enter transition to complete
+        // Allow user to rotate device freely (sensor based) instead of forcing landscape
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val runnable = Runnable {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
         }
         handler.postDelayed(runnable, 400)
         
