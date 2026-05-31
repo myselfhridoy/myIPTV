@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -64,18 +65,41 @@ fun LivePlayerScreen(
     var showOverlay by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
+    var isInPiP by remember { mutableStateOf(false) }
 
     var currentPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
 
-    // Lock Screen Orientation to Landscape
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+    var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
+
+    // Lock Screen Orientation to Landscape with delay for smooth transition
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
+        
+        // Setup PiP listener
+        val pipObserver = androidx.core.util.Consumer<androidx.core.app.PictureInPictureModeChangedInfo> { info ->
+            isInPiP = info.isInPictureInPictureMode
+            if (isInPiP) {
+                showOverlay = false
+            }
+        }
+        activity?.addOnPictureInPictureModeChangedListener(pipObserver)
+        
         val originalOrientation = activity?.requestedOrientation
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        
+        // Delay before forcing landscape to allow enter transition to complete
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val runnable = Runnable {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        handler.postDelayed(runnable, 400)
+        
         onDispose {
+            activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
+            handler.removeCallbacks(runnable)
             if (originalOrientation != null) {
-                activity.requestedOrientation = originalOrientation
+                activity?.requestedOrientation = originalOrientation
             }
         }
     }
@@ -149,7 +173,7 @@ fun LivePlayerScreen(
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    this.resizeMode = resizeMode
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -159,7 +183,7 @@ fun LivePlayerScreen(
         )
 
         // Overlay UI
-        if (showOverlay) {
+        if (showOverlay && !isInPiP) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                 if (isLocked) {
                     // Locked State UI
@@ -191,10 +215,17 @@ fun LivePlayerScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Box(
                             modifier = Modifier
+                                .weight(1f, fill = false)
                                 .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
                         ) {
-                            Text(text = channel.name, color = Color.White, fontSize = 14.sp)
+                            Text(
+                                text = channel.name, 
+                                color = Color.White, 
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
                         }
 
                         Spacer(modifier = Modifier.weight(1f))
@@ -204,7 +235,26 @@ fun LivePlayerScreen(
                             IconButton(onClick = { isLocked = true }) {
                                 Icon(Icons.Default.Lock, "Lock", tint = Color.White)
                             }
-                            IconButton(onClick = { onEnterPiP() }) {
+                            IconButton(onClick = {
+                                val modes = listOf(
+                                    AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                                    AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                )
+                                val nextIndex = (modes.indexOf(resizeMode) + 1) % modes.size
+                                resizeMode = modes[nextIndex]
+                            }) {
+                                Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
+                            }
+                            IconButton(onClick = { 
+                                val activity = context as? ComponentActivity
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    val params = android.app.PictureInPictureParams.Builder().build()
+                                    activity?.enterPictureInPictureMode(params)
+                                } else {
+                                    onEnterPiP()
+                                }
+                            }) {
                                 Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
                             }
                             IconButton(onClick = { showTrackSelector = true }) {
@@ -273,18 +323,16 @@ fun LivePlayerScreen(
                         )
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Volume", tint = Color.White)
-                    }
-
-                    // Share Icon (Right Middle)
-                    IconButton(
-                        onClick = { /* TODO */ },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 24.dp)
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.Share, "Share", tint = Color.White)
+                        IconButton(onClick = {
+                            isMuted = !isMuted
+                            exoPlayer.volume = if (isMuted) 0f else 1f
+                        }) {
+                            Icon(
+                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, 
+                                contentDescription = "Volume", 
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }

@@ -51,16 +51,6 @@ fun AppNavigation(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel) {
             .setTrackSelector(trackSelector)
             .build()
     }
-    
-    var isMiniPlayerActive by remember { mutableStateOf(false) }
-    
-    // Stop Mini Player when navigating to Live Player
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    LaunchedEffect(navBackStackEntry?.destination?.route) {
-        if (navBackStackEntry?.destination?.route == Routes.LIVE_PLAYER) {
-            isMiniPlayerActive = false
-        }
-    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -83,8 +73,7 @@ fun AppNavigation(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel) {
                     exoPlayer = globalExoPlayer,
                     trackSelector = trackSelector,
                     onEnterPiP = {
-                        isMiniPlayerActive = true
-                        navController.popBackStack()
+                        // Handled natively inside LivePlayerScreen
                     }
                 )
             }
@@ -100,52 +89,6 @@ fun AppNavigation(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel) {
                         videoTitle = media?.displayTitle ?: "VOD Stream",
                         navController = navController
                     )
-                }
-            }
-        }
-        
-        // Global Mini Player Overlay
-        if (isMiniPlayerActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 80.dp, end = 16.dp), // Adjust position to be above bottom nav
-                contentAlignment = Alignment.BottomEnd
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(220.dp)
-                        .aspectRatio(16f / 9f)
-                        .background(Color.Black)
-                        .clickable {
-                            isMiniPlayerActive = false
-                            navController.navigate(Routes.LIVE_PLAYER)
-                        }
-                ) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                player = globalExoPlayer
-                                useController = false
-                            }
-                        }
-                    )
-                    
-                    // Close Button
-                    IconButton(
-                        onClick = {
-                            isMiniPlayerActive = false
-                            globalExoPlayer.stop()
-                        },
-                        modifier = Modifier.align(Alignment.TopEnd).size(32.dp).padding(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color.White
-                        )
-                    }
                 }
             }
         }

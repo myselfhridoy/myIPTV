@@ -40,6 +40,7 @@ import com.myselfhridoy.streambdplayer.ui.theme.TealAccent
 import com.myselfhridoy.streambdplayer.ui.theme.WhiteText
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavController) {
     val selectedCategory by viewModel.selectedCategory.collectAsState()
@@ -49,15 +50,24 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     val allChannels = allChannelsMap[categoryName]
 
     var selectedGroup by remember { mutableStateOf("All") }
-    var isGroupsDropdownExpanded by remember { mutableStateOf(false) }
+    var isGroupsModalExpanded by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState()
+    
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
 
     val groups = remember(allChannels) {
         val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()
         listOf("All") + uniqueGroups
     }
 
-    val filteredChannels = remember(allChannels, selectedGroup) {
-        if (selectedGroup == "All") allChannels else allChannels?.filter { it.group == selectedGroup }
+    val filteredChannels = remember(allChannels, selectedGroup, searchQuery) {
+        val groupFiltered = if (selectedGroup == "All") allChannels else allChannels?.filter { it.group == selectedGroup }
+        if (searchQuery.isBlank()) {
+            groupFiltered
+        } else {
+            groupFiltered?.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
     }
 
     Column(
@@ -78,39 +88,63 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 tint = WhiteText,
                 modifier = Modifier
                     .size(28.dp)
-                    .clickable { navController.popBackStack() }
+                    .clickable { 
+                        if (isSearchActive) {
+                            isSearchActive = false
+                            searchQuery = ""
+                        } else {
+                            navController.popBackStack() 
+                        }
+                    }
             )
             Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = categoryName,
-                color = WhiteText,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search",
-                tint = WhiteText,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFF1E2638), CircleShape)
-                    .padding(8.dp)
-                    .clickable { /* TODO */ }
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Icon(
-                imageVector = Icons.Default.Star,
-                contentDescription = "Favorites",
-                tint = WhiteText,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFF1E2638), CircleShape)
-                    .padding(8.dp)
-                    .clickable { /* TODO */ }
-            )
+            
+            if (isSearchActive) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search channels...", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TealAccent,
+                        unfocusedBorderColor = Color.DarkGray,
+                        focusedTextColor = WhiteText,
+                        unfocusedTextColor = WhiteText,
+                        cursorColor = TealAccent
+                    ),
+                    modifier = Modifier.weight(1f).height(50.dp)
+                )
+            } else {
+                Text(
+                    text = categoryName,
+                    color = WhiteText,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = WhiteText,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0xFF1E2638), CircleShape)
+                        .padding(8.dp)
+                        .clickable { isSearchActive = true }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = "Favorites",
+                    tint = WhiteText,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0xFF1E2638), CircleShape)
+                        .padding(8.dp)
+                        .clickable { /* TODO */ }
+                )
+            }
         }
 
         // Chips Row
@@ -121,29 +155,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             verticalAlignment = Alignment.CenterVertically
         ) {
             item {
-                Box {
-                    FilterChipItem(
-                        text = "Groups",
-                        icon = Icons.AutoMirrored.Filled.List,
-                        isSelected = false,
-                        onClick = { isGroupsDropdownExpanded = true }
-                    )
-                    DropdownMenu(
-                        expanded = isGroupsDropdownExpanded,
-                        onDismissRequest = { isGroupsDropdownExpanded = false },
-                        modifier = Modifier.background(Color(0xFF242C3D))
-                    ) {
-                        groups.forEach { group ->
-                            DropdownMenuItem(
-                                text = { Text(group, color = WhiteText) },
-                                onClick = {
-                                    selectedGroup = group
-                                    isGroupsDropdownExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
+                FilterChipItem(
+                    text = "Groups",
+                    icon = Icons.AutoMirrored.Filled.List,
+                    isSelected = false,
+                    onClick = { isGroupsModalExpanded = true }
+                )
             }
             
             items(groups.take(10)) { group -> // Limit to first 10 for horizontal scroll performance
@@ -179,6 +196,50 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         navController.navigate(Routes.LIVE_PLAYER)
                     }
                 }
+            }
+        }
+    }
+
+    if (isGroupsModalExpanded) {
+        ModalBottomSheet(
+            onDismissRequest = { isGroupsModalExpanded = false },
+            sheetState = sheetState,
+            containerColor = Color(0xFF1C2230)
+        ) {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    Text(
+                        text = "Select Group", 
+                        color = WhiteText, 
+                        fontSize = 20.sp, 
+                        fontWeight = FontWeight.Bold, 
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                }
+                items(groups) { group ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedGroup = group
+                                isGroupsModalExpanded = false
+                            }
+                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (selectedGroup == group) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                        } else {
+                            Spacer(modifier = Modifier.width(32.dp))
+                        }
+                        Text(group, color = if (selectedGroup == group) TealAccent else WhiteText, fontSize = 16.sp)
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(32.dp)) }
             }
         }
     }
