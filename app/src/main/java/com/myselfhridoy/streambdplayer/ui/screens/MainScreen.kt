@@ -18,11 +18,13 @@ import androidx.navigation.NavController
 import com.myselfhridoy.streambdplayer.ui.theme.BottomNavBackground
 import com.myselfhridoy.streambdplayer.ui.theme.DarkNavyBackground
 import com.myselfhridoy.streambdplayer.ui.theme.SelectedItemColor
+import com.myselfhridoy.streambdplayer.ui.theme.WhiteText
 import com.myselfhridoy.streambdplayer.ui.theme.UnselectedItemColor
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
+import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 
 @Composable
-fun MainScreen(viewModel: MainViewModel, navController: NavController) {
+fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navController: NavController) {
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Live TV", "VOD")
 
@@ -55,8 +57,8 @@ fun MainScreen(viewModel: MainViewModel, navController: NavController) {
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedTab) {
-                0 -> LiveTvScreen(viewModel, navController)
-                1 -> VodScreen(viewModel, navController)
+                0 -> LiveTvScreen(mainViewModel, navController)
+                1 -> VodScreen(tmdbViewModel, navController)
             }
         }
     }

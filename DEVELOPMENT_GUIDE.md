@@ -31,7 +31,8 @@ The UI is fully built with **Jetpack Compose**. To support both touch (Mobile) a
 **Important UI Screens (`ui/screens`):**
 - `MainScreen.kt`: The entry point Scaffold with a Bottom Navigation Bar.
 - `LiveTvScreen.kt` & `LiveCategoryChannelsScreen.kt`: Displays IPTV categories and their respective channels.
-- `VodScreen.kt` & `VodBrowseScreen.kt`: Lists available Javascript Addons and provides a test screen to resolve VOD streams for a TMDB ID.
+- `VodScreen.kt`: A rich TMDB Dashboard showing Trending Movies, Trending TV Shows, and a Search bar.
+- `TmdbDetailsScreen.kt`: Displays media metadata (Poster, Synopsis) and fetches streams dynamically when the user clicks "Watch Now".
 
 ### 2. Video Player Implementations
 Because Live TV and VOD have completely different user experience requirements on TV, two separate player screens were created:
@@ -66,6 +67,6 @@ Instead of hardcoding stream scrapers natively, the app runs external JavaScript
 4. For TV testing, create an Android TV emulator in the AVD Manager.
 
 ## 📝 Next Steps for Future Development
-- **VOD Search / TMDB Integration**: Currently `VodBrowseScreen.kt` hardcodes a single movie (Deadpool) for testing. A full search UI querying the TMDB API should be implemented so the user can browse trending movies.
-- **Favorites System**: Add a local Room Database to save favorite Live Channels.
+- **Favorites System**: Add a local Room Database to save favorite Live Channels or TMDB media.
 - **Player Quality Selection**: Parse the HLS `.m3u8` master playlist and add an ExoPlayer Track Selector to manually switch between qualities (e.g., 720p, 1080p).
+- **Subtitles**: Utilize `MediaItem.SubtitleConfiguration` to pass parsed VOD subtitles to ExoPlayer.

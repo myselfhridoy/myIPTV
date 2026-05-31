@@ -7,15 +7,17 @@ import androidx.activity.viewModels
 import com.myselfhridoy.streambdplayer.ui.navigation.AppNavigation
 import com.myselfhridoy.streambdplayer.ui.theme.StreamBDPlayerTheme
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
+import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: MainViewModel by viewModels()
+    private val mainViewModel: MainViewModel by viewModels()
+    private val tmdbViewModel: TmdbViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             StreamBDPlayerTheme {
-                AppNavigation(viewModel)
+                AppNavigation(mainViewModel, tmdbViewModel)
             }
         }
     }

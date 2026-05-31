@@ -11,13 +11,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.myselfhridoy.streambdplayer.data.models.StreamSource
 import com.myselfhridoy.streambdplayer.ui.navigation.Routes
 import com.myselfhridoy.streambdplayer.ui.theme.DarkNavyBackground
@@ -25,62 +28,111 @@ import com.myselfhridoy.streambdplayer.ui.theme.DarkNavySurface
 import com.myselfhridoy.streambdplayer.ui.theme.TealAccent
 import com.myselfhridoy.streambdplayer.ui.theme.WhiteText
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
+import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 
 @Composable
-fun VodBrowseScreen(viewModel: MainViewModel, navController: NavController) {
+fun TmdbDetailsScreen(
+    mainViewModel: MainViewModel,
+    tmdbViewModel: TmdbViewModel,
+    navController: NavController
+) {
     val context = LocalContext.current
-    val isResolving by viewModel.isResolvingStreams.collectAsState()
-    val streams by viewModel.availableStreams.collectAsState()
-    val addon by viewModel.selectedAddon.collectAsState()
+    val media by tmdbViewModel.selectedMedia.collectAsState()
+    val isResolving by mainViewModel.isResolvingStreams.collectAsState()
+    val streams by mainViewModel.availableStreams.collectAsState()
+
+    if (media == null) return
+
+    val m = media!!
+
+    // Reset streams when entering a new media
+    LaunchedEffect(m.id) {
+        // Optionally clear previous streams here
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkNavyBackground)
-            .padding(16.dp)
+            .padding(24.dp)
     ) {
-        Text(
-            text = "Browse: ${addon?.name ?: "Unknown"}",
-            color = WhiteText,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        var btnFocused by remember { mutableStateOf(false) }
-        Button(
-            onClick = {
-                // Fetch streams for a test movie (Deadpool: TMDB ID 293660)
-                viewModel.fetchVodStreams(context, "movie", 293660)
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { btnFocused = it.isFocused }
-                .border(
-                    width = if (btnFocused) 3.dp else 0.dp,
-                    color = if (btnFocused) Color.White else Color.Transparent,
-                    shape = RoundedCornerShape(50)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Poster
+            AsyncImage(
+                model = m.posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(180.dp)
+                    .height(270.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+            
+            Spacer(modifier = Modifier.width(24.dp))
+            
+            // Details
+            Column {
+                Text(
+                    text = m.displayTitle,
+                    color = WhiteText,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
                 )
-        ) {
-            Text("Fetch Test Movie (Deadpool)", color = Color.White)
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "${if (m.isMovie) "Movie" else "TV Show"} • ${m.displayDate}",
+                    color = TealAccent,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = m.overview ?: "No overview available.",
+                    color = Color.LightGray,
+                    fontSize = 14.sp,
+                    maxLines = 5
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+
+                var btnFocused by remember { mutableStateOf(false) }
+                Button(
+                    onClick = {
+                        val type = if (m.isMovie) "movie" else "tv"
+                        mainViewModel.fetchVodStreams(context, type, m.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent),
+                    modifier = Modifier
+                        .onFocusChanged { btnFocused = it.isFocused }
+                        .border(
+                            width = if (btnFocused) 3.dp else 0.dp,
+                            color = if (btnFocused) Color.White else Color.Transparent,
+                            shape = RoundedCornerShape(50)
+                        )
+                ) {
+                    Text("Watch Now", color = Color.White, fontSize = 16.sp, modifier = Modifier.padding(8.dp))
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
+        // Streams Section
         if (isResolving) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = TealAccent)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Resolving streams from Javascript Addon...", color = WhiteText)
+                    Text("Searching Addons for streams...", color = WhiteText)
                 }
             }
         } else if (streams.isNotEmpty()) {
             Text(
                 text = "Available Streams",
                 color = WhiteText,
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
@@ -89,7 +141,7 @@ fun VodBrowseScreen(viewModel: MainViewModel, navController: NavController) {
             ) {
                 items(streams) { stream ->
                     StreamCard(stream = stream) {
-                        viewModel.selectStream(stream)
+                        mainViewModel.selectStream(stream)
                         navController.navigate(Routes.VOD_PLAYER)
                     }
                 }
