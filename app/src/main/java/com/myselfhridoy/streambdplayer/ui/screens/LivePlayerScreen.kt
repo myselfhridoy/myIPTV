@@ -282,11 +282,23 @@ fun LivePlayerScreen(
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyUp) {
                     when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                        android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (!showOverlay) {
+                                viewModel.selectNextChannel()
+                                true
+                            } else false
+                        }
+                        android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
                             viewModel.selectNextChannel()
                             true
                         }
-                        android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            if (!showOverlay) {
+                                viewModel.selectPreviousChannel()
+                                true
+                            } else false
+                        }
+                        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
                             viewModel.selectPreviousChannel()
                             true
                         }
