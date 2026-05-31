@@ -22,11 +22,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.myselfhridoy.streambdplayer.ui.screens.LiveCategoryChannelsScreen
-import com.myselfhridoy.streambdplayer.ui.screens.LivePlayerScreen
-import com.myselfhridoy.streambdplayer.ui.screens.MainScreen
-import com.myselfhridoy.streambdplayer.ui.screens.TmdbDetailsScreen
-import com.myselfhridoy.streambdplayer.ui.screens.VodPlayerScreen
+import com.myselfhridoy.streambdplayer.ui.screens.live.LiveCategoryChannelsScreen
+import com.myselfhridoy.streambdplayer.ui.screens.live.LivePlayerScreen
+import com.myselfhridoy.streambdplayer.ui.screens.main.MainScreen
+import com.myselfhridoy.streambdplayer.ui.screens.vod.TmdbDetailsScreen
+import com.myselfhridoy.streambdplayer.ui.screens.vod.VodPlayerScreen
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 

@@ -1,4 +1,4 @@
-package com.myselfhridoy.streambdplayer.ui.screens
+package com.myselfhridoy.streambdplayer.ui.screens.live
 
 import android.content.pm.ActivityInfo
 import android.view.ViewGroup
@@ -44,7 +44,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.myselfhridoy.streambdplayer.ui.components.TvIconButton
-import com.myselfhridoy.streambdplayer.ui.screens.components.TrackSelectionDialog
+import com.myselfhridoy.streambdplayer.ui.components.TrackSelectionDialog
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.delay
 

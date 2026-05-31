@@ -1,5 +1,7 @@
-package com.myselfhridoy.streambdplayer.ui.screens
+package com.myselfhridoy.streambdplayer.ui.screens.main
 
+import com.myselfhridoy.streambdplayer.ui.screens.live.LiveTvScreen
+import com.myselfhridoy.streambdplayer.ui.screens.vod.VodScreen
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row

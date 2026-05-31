@@ -1,4 +1,4 @@
-package com.myselfhridoy.streambdplayer.ui.screens.components
+package com.myselfhridoy.streambdplayer.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

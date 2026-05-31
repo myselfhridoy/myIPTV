@@ -1,4 +1,4 @@
-package com.myselfhridoy.streambdplayer.ui.screens
+package com.myselfhridoy.streambdplayer.ui.screens.live
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
