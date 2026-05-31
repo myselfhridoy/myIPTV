@@ -1,0 +1,113 @@
+package com.myselfhridoy.streambdplayer.ui.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.myselfhridoy.streambdplayer.data.models.Addon
+import com.myselfhridoy.streambdplayer.data.models.Channel
+import com.myselfhridoy.streambdplayer.data.models.LiveCategory
+import com.myselfhridoy.streambdplayer.data.models.StreamSource
+import com.myselfhridoy.streambdplayer.data.repository.LiveRepository
+import com.myselfhridoy.streambdplayer.utils.AddonManager
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import android.content.Context
+
+class MainViewModel : ViewModel() {
+    private val liveRepository = LiveRepository()
+
+    private val _liveCategories = MutableStateFlow<List<LiveCategory>>(emptyList())
+    val liveCategories: StateFlow<List<LiveCategory>> = _liveCategories.asStateFlow()
+
+    private val _isLoadingLive = MutableStateFlow(false)
+    val isLoadingLive: StateFlow<Boolean> = _isLoadingLive.asStateFlow()
+
+    private val _addons = MutableStateFlow<List<Addon>>(emptyList())
+    val addons: StateFlow<List<Addon>> = _addons.asStateFlow()
+
+    private val _isLoadingAddons = MutableStateFlow(false)
+    val isLoadingAddons: StateFlow<Boolean> = _isLoadingAddons.asStateFlow()
+
+    private val _categoryChannels = MutableStateFlow<Map<String, List<Channel>>>(emptyMap())
+    val categoryChannels: StateFlow<Map<String, List<Channel>>> = _categoryChannels.asStateFlow()
+
+    private val _selectedCategory = MutableStateFlow<LiveCategory?>(null)
+    val selectedCategory: StateFlow<LiveCategory?> = _selectedCategory.asStateFlow()
+
+    private val _selectedChannel = MutableStateFlow<Channel?>(null)
+    val selectedChannel: StateFlow<Channel?> = _selectedChannel.asStateFlow()
+
+    private val _selectedAddon = MutableStateFlow<Addon?>(null)
+    val selectedAddon: StateFlow<Addon?> = _selectedAddon.asStateFlow()
+
+    private val _selectedStream = MutableStateFlow<StreamSource?>(null)
+    val selectedStream: StateFlow<StreamSource?> = _selectedStream.asStateFlow()
+
+    private val _availableStreams = MutableStateFlow<List<StreamSource>>(emptyList())
+    val availableStreams: StateFlow<List<StreamSource>> = _availableStreams.asStateFlow()
+
+    private val _isResolvingStreams = MutableStateFlow(false)
+    val isResolvingStreams: StateFlow<Boolean> = _isResolvingStreams.asStateFlow()
+
+    fun selectCategory(category: LiveCategory) {
+        _selectedCategory.value = category
+        fetchChannelsForCategory(category.name, category.url)
+    }
+
+    fun selectChannel(channel: Channel) {
+        _selectedChannel.value = channel
+    }
+
+    fun selectAddon(addon: Addon) {
+        _selectedAddon.value = addon
+    }
+
+    fun selectStream(stream: StreamSource) {
+        _selectedStream.value = stream
+    }
+
+    fun fetchVodStreams(context: Context, type: String, tmdbId: Int) {
+        viewModelScope.launch {
+            _isResolvingStreams.value = true
+            _availableStreams.value = emptyList()
+            val sources = AddonManager.resolveFromAddons(context, type, tmdbId)
+            _availableStreams.value = sources
+            _isResolvingStreams.value = false
+        }
+    }
+
+    init {
+        fetchLiveCategories()
+        fetchAddons()
+    }
+
+    private fun fetchLiveCategories() {
+        viewModelScope.launch {
+            _isLoadingLive.value = true
+            val categories = liveRepository.getLiveCategories()
+            _liveCategories.value = categories
+            _isLoadingLive.value = false
+        }
+    }
+
+    private fun fetchAddons() {
+        viewModelScope.launch {
+            _isLoadingAddons.value = true
+            val fetchedAddons = AddonManager.getAddons()
+            _addons.value = fetchedAddons
+            _isLoadingAddons.value = false
+        }
+    }
+
+    fun fetchChannelsForCategory(categoryName: String, url: String) {
+        if (_categoryChannels.value.containsKey(categoryName)) return
+
+        viewModelScope.launch {
+            val channels = liveRepository.getChannelsForCategory(url)
+            val currentMap = _categoryChannels.value.toMutableMap()
+            currentMap[categoryName] = channels
+            _categoryChannels.value = currentMap
+        }
+    }
+}
