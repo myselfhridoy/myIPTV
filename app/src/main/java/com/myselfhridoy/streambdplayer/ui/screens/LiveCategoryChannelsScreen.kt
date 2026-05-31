@@ -92,6 +92,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 tint = WhiteText,
                 modifier = Modifier
                     .size(28.dp)
+                    .tvFocusBorder(CircleShape)
                     .clickable { 
                         if (isSearchActive) {
                             isSearchActive = false
@@ -133,9 +134,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                     tint = WhiteText,
                     modifier = Modifier
                         .size(40.dp)
+                        .tvFocusBorder(CircleShape)
                         .background(Color(0xFF1E2638), CircleShape)
-                        .padding(8.dp)
                         .clickable { isSearchActive = true }
+                        .padding(8.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Icon(
@@ -144,9 +146,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                     tint = WhiteText,
                     modifier = Modifier
                         .size(40.dp)
+                        .tvFocusBorder(CircleShape)
                         .background(Color(0xFF1E2638), CircleShape)
-                        .padding(8.dp)
                         .clickable { /* TODO */ }
+                        .padding(8.dp)
                 )
             }
         }
@@ -259,8 +262,8 @@ fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.Image
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .border(
-                width = 1.dp,
-                color = if (isFocused || isSelected) WhiteText else Color.Gray,
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) TealAccent else if (isSelected) WhiteText else Color.Gray,
                 shape = RoundedCornerShape(18.dp)
             )
             .background(

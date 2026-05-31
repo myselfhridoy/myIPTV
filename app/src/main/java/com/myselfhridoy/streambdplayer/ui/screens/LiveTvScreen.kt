@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +58,11 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
                 imageVector = Icons.Default.Menu,
                 contentDescription = "Menu",
                 tint = WhiteText,
-                modifier = Modifier.size(28.dp).clickable { /* TODO */ }
+                modifier = Modifier
+                    .size(36.dp)
+                    .tvFocusBorder(CircleShape)
+                    .clickable { /* TODO */ }
+                    .padding(4.dp)
             )
             Spacer(modifier = Modifier.width(24.dp))
             Text(
@@ -73,9 +78,10 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
                 tint = WhiteText,
                 modifier = Modifier
                     .size(40.dp)
+                    .tvFocusBorder(CircleShape)
                     .background(Color(0xFF1E2638), CircleShape)
-                    .padding(8.dp)
                     .clickable { /* TODO */ }
+                    .padding(8.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
             Icon(
@@ -84,9 +90,10 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
                 tint = WhiteText,
                 modifier = Modifier
                     .size(40.dp)
+                    .tvFocusBorder(CircleShape)
                     .background(Color(0xFF1E2638), CircleShape)
-                    .padding(8.dp)
                     .clickable { /* TODO */ }
+                    .padding(8.dp)
             )
         }
 
@@ -164,4 +171,15 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
             )
         }
     }
+}
+
+fun Modifier.tvFocusBorder(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)): Modifier = composed {
+    var isFocused by remember { mutableStateOf(false) }
+    this
+        .onFocusChanged { isFocused = it.isFocused }
+        .border(
+            width = if (isFocused) 2.dp else 0.dp,
+            color = if (isFocused) TealAccent else Color.Transparent,
+            shape = shape
+        )
 }
