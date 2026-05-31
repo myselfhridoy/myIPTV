@@ -24,7 +24,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,6 +79,7 @@ fun LivePlayerScreen(
 
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
+    val playPauseFocusRequester = remember { FocusRequester() }
 
     // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
     DisposableEffect(Unit) {
@@ -234,8 +239,12 @@ fun LivePlayerScreen(
         }
     }
 
-    // Auto-hide overlay
-    LaunchedEffect(showOverlay, isPlaying) {
+    // Auto-hide overlay and manage focus
+    LaunchedEffect(showOverlay, isPlaying, isLocked) {
+        if (showOverlay && !isLocked) {
+            delay(100) // Wait for layout to settle
+            try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
+        }
         if (showOverlay && isPlaying && !isLocked) {
             delay(5000)
             showOverlay = false
@@ -273,6 +282,12 @@ fun LivePlayerScreen(
                         android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
                             viewModel.selectPreviousChannel()
                             true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
+                            if (!showOverlay) {
+                                showOverlay = true
+                                true
+                            } else false
                         }
                         else -> false
                     }
@@ -312,7 +327,7 @@ fun LivePlayerScreen(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                 if (isLocked) {
                     // Locked State UI
-                    IconButton(
+                    TvIconButton(
                         onClick = { isLocked = false },
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -331,7 +346,7 @@ fun LivePlayerScreen(
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
+                        TvIconButton(
                             onClick = { 
                                 val activity = context as? ComponentActivity
                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -371,10 +386,10 @@ fun LivePlayerScreen(
 
                         // Top Right Icons
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconButton(onClick = { isLocked = true }) {
+                            TvIconButton(onClick = { isLocked = true }) {
                                 Icon(Icons.Default.Lock, "Lock", tint = Color.White)
                             }
-                            IconButton(onClick = {
+                            TvIconButton(onClick = {
                                 val modes = listOf(
                                     AspectRatioFrameLayout.RESIZE_MODE_FILL,
                                     AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -385,7 +400,7 @@ fun LivePlayerScreen(
                             }) {
                                 Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
                             }
-                            IconButton(onClick = { 
+                            TvIconButton(onClick = { 
                                 val activity = context as? ComponentActivity
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     val params = android.app.PictureInPictureParams.Builder().build()
@@ -396,7 +411,7 @@ fun LivePlayerScreen(
                             }) {
                                 Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
                             }
-                            IconButton(onClick = { showTrackSelector = true }) {
+                            TvIconButton(onClick = { showTrackSelector = true }) {
                                 Icon(Icons.Default.Settings, "Tracks", tint = Color.White) // Mockup has multiple icons, using Settings for track
                             }
                         }
@@ -408,18 +423,18 @@ fun LivePlayerScreen(
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
+                        TvIconButton(
                             onClick = { viewModel.selectPreviousChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Channel", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
-                        IconButton(
+                        TvIconButton(
                             onClick = {
                                 if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                             },
-                            modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape).focusRequester(playPauseFocusRequester)
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -429,7 +444,7 @@ fun LivePlayerScreen(
                             )
                         }
 
-                        IconButton(
+                        TvIconButton(
                             onClick = { viewModel.selectNextChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
@@ -462,7 +477,7 @@ fun LivePlayerScreen(
                         )
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(16.dp))
-                        IconButton(onClick = {
+                        TvIconButton(onClick = {
                             isMuted = !isMuted
                             exoPlayer.volume = if (isMuted) 0f else 1f
                         }) {
@@ -500,4 +515,25 @@ private fun formatTime(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+@Composable
+fun TvIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color(0xFF00E5FF) else Color.Transparent, // TealAccent equivalent
+                shape = CircleShape
+            )
+    ) {
+        icon()
+    }
 }
