@@ -24,6 +24,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.navigation.NavController
 import com.myselfhridoy.streambdplayer.ui.theme.BottomNavBackground
 import com.myselfhridoy.streambdplayer.ui.theme.DarkNavyBackground
@@ -53,25 +60,32 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
 
     if (isTv) {
         Row(modifier = Modifier.fillMaxSize().background(DarkNavyBackground)) {
+            // Premium TV Sidebar (Floating Dock Style)
             NavigationRail(
-                containerColor = BottomNavBackground,
+                containerColor = BottomNavBackground.copy(alpha = 0.95f),
                 modifier = Modifier
+                    .padding(vertical = 24.dp, horizontal = 12.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
             ) {
+                androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
                 tabs.forEachIndexed { index, title ->
                     NavigationRailItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        icon = { Text(if (index == 0) "📺" else "🎬") },
-                        label = { Text(title) },
+                        icon = { Text(if (index == 0) "📺" else "🎬", fontSize = 24.sp) },
+                        label = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationRailItemDefaults.colors(
                             selectedIconColor = SelectedItemColor,
                             selectedTextColor = SelectedItemColor,
                             unselectedIconColor = UnselectedItemColor,
                             unselectedTextColor = UnselectedItemColor,
-                            indicatorColor = BottomNavBackground
-                        )
+                            indicatorColor = SelectedItemColor.copy(alpha = 0.15f)
+                        ),
+                        modifier = Modifier.padding(vertical = 8.dp)
                     )
                 }
+                androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
             }
             Box(modifier = Modifier.weight(1f)) {
                 when (selectedTab) {
@@ -84,21 +98,25 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
         Scaffold(
             containerColor = DarkNavyBackground,
             bottomBar = {
+                // Premium Mobile Bottom Bar (Rounded Top Corners & Floating Shadow Effect)
                 NavigationBar(
-                    containerColor = BottomNavBackground
+                    containerColor = BottomNavBackground.copy(alpha = 0.98f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 ) {
                     tabs.forEachIndexed { index, title ->
                         NavigationBarItem(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            icon = { Text(if (index == 0) "📺" else "🎬") },
-                            label = { Text(title) },
+                            icon = { Text(if (index == 0) "📺" else "🎬", fontSize = 24.sp) },
+                            label = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = SelectedItemColor,
                                 selectedTextColor = SelectedItemColor,
                                 unselectedIconColor = UnselectedItemColor,
                                 unselectedTextColor = UnselectedItemColor,
-                                indicatorColor = BottomNavBackground
+                                indicatorColor = SelectedItemColor.copy(alpha = 0.15f)
                             )
                         )
                     }
