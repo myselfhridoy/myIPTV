@@ -54,7 +54,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 
     var selectedGroup by remember { mutableStateOf("All") }
     var isGroupsModalExpanded by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
     
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -73,8 +72,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
         }
     }
     
-    val focusManager = LocalFocusManager.current
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -209,45 +206,50 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     }
 
     if (isGroupsModalExpanded) {
-        ModalBottomSheet(
-            onDismissRequest = { isGroupsModalExpanded = false },
-            sheetState = sheetState,
-            containerColor = Color(0xFF1C2230)
-        ) {
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+        androidx.compose.ui.window.Dialog(onDismissRequest = { isGroupsModalExpanded = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.8f)
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                item {
-                    Text(
-                        text = "Select Group", 
-                        color = WhiteText, 
-                        fontSize = 20.sp, 
-                        fontWeight = FontWeight.Bold, 
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                }
-                items(groups) { group ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedGroup = group
-                                isGroupsModalExpanded = false
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Select Group", 
+                            color = WhiteText, 
+                            fontSize = 20.sp, 
+                            fontWeight = FontWeight.Bold, 
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
+                    items(groups) { group ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusBorder(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    selectedGroup = group
+                                    isGroupsModalExpanded = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (selectedGroup == group) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                            } else {
+                                Spacer(modifier = Modifier.width(32.dp))
                             }
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (selectedGroup == group) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                        } else {
-                            Spacer(modifier = Modifier.width(32.dp))
+                            Text(group, color = if (selectedGroup == group) TealAccent else WhiteText, fontSize = 16.sp)
                         }
-                        Text(group, color = if (selectedGroup == group) TealAccent else WhiteText, fontSize = 16.sp)
                     }
                 }
-                item { Spacer(modifier = Modifier.height(32.dp)) }
             }
         }
     }
