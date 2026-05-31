@@ -47,6 +47,13 @@ import com.myselfhridoy.streambdplayer.ui.screens.components.TrackSelectionDialo
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.delay
 
+enum class VideoScaleMode(val title: String) {
+    FILL("Fill Screen"),
+    FIT("Original (Fit)"),
+    ZOOM("Zoom / Fill to Width"),
+    CINEMA("Cinema (18:9)")
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun LivePlayerScreen(
@@ -77,7 +84,7 @@ fun LivePlayerScreen(
     var currentPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
 
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
+    var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
     val playPauseFocusRequester = remember { FocusRequester() }
 
@@ -300,27 +307,40 @@ fun LivePlayerScreen(
                 showOverlay = !showOverlay 
             }
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
+        val isCinema = scaleMode == VideoScaleMode.CINEMA
+        
+        Box(
+            modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center) else Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                modifier = if (isCinema) Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp)) else Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                update = { playerView ->
+                    val exoResizeMode = when (scaleMode) {
+                        VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    }
+                    if (playerView.resizeMode != exoResizeMode) {
+                        playerView.resizeMode = exoResizeMode
+                    }
+                    if (playerView.player != exoPlayer) {
+                        playerView.player = exoPlayer
+                    }
                 }
-            },
-            update = { playerView ->
-                if (playerView.resizeMode != resizeMode) {
-                    playerView.resizeMode = resizeMode
-                }
-                if (playerView.player != exoPlayer) {
-                    playerView.player = exoPlayer
-                }
-            }
-        )
+            )
+        }
 
         // Overlay UI
         if (showOverlay && !isInPiP) {
@@ -390,13 +410,10 @@ fun LivePlayerScreen(
                                 Icon(Icons.Default.Lock, "Lock", tint = Color.White)
                             }
                             TvIconButton(onClick = {
-                                val modes = listOf(
-                                    AspectRatioFrameLayout.RESIZE_MODE_FILL,
-                                    AspectRatioFrameLayout.RESIZE_MODE_FIT,
-                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                )
-                                val nextIndex = (modes.indexOf(resizeMode) + 1) % modes.size
-                                resizeMode = modes[nextIndex]
+                                val modes = VideoScaleMode.values()
+                                val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
+                                scaleMode = modes[nextIndex]
+                                android.widget.Toast.makeText(context, scaleMode.title, android.widget.Toast.LENGTH_SHORT).show()
                             }) {
                                 Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
                             }
