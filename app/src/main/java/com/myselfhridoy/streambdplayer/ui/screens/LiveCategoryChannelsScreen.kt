@@ -185,7 +185,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(4), // Mockup shows 4 columns
+                columns = GridCells.Adaptive(minSize = 80.dp), // Automatically adapts to TV and Mobile width
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
