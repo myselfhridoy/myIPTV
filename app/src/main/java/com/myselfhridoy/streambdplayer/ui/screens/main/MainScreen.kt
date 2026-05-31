@@ -39,7 +39,17 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
     val tabs = listOf("Live TV", "VOD")
 
     val configuration = LocalConfiguration.current
-    val isTv = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTv = remember(configuration) {
+        val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+        if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) {
+            true
+        } else {
+            val pm = context.packageManager
+            !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) || 
+            pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        }
+    }
 
     if (isTv) {
         Row(modifier = Modifier.fillMaxSize().background(DarkNavyBackground)) {
