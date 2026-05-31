@@ -5,9 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,7 +46,19 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     val allChannelsMap by viewModel.categoryChannels.collectAsState()
 
     val categoryName = selectedCategory?.name ?: ""
-    val channels = allChannelsMap[categoryName]
+    val allChannels = allChannelsMap[categoryName]
+
+    var selectedGroup by remember { mutableStateOf("All") }
+    var isGroupsDropdownExpanded by remember { mutableStateOf(false) }
+
+    val groups = remember(allChannels) {
+        val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()
+        listOf("All") + uniqueGroups
+    }
+
+    val filteredChannels = remember(allChannels, selectedGroup) {
+        if (selectedGroup == "All") allChannels else allChannels?.filter { it.group == selectedGroup }
+    }
 
     Column(
         modifier = Modifier
@@ -107,19 +120,50 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            item { FilterChipItem(text = "Chose", icon = Icons.Default.List, isSelected = false) }
-            item { FilterChipItem(text = "All", icon = Icons.Default.Check, isSelected = true) }
-            // Dynamic generation of chips could go here
-            item { FilterChipItem(text = "Sports", icon = null, isSelected = false) }
+            item {
+                Box {
+                    FilterChipItem(
+                        text = "Groups",
+                        icon = Icons.Default.List,
+                        isSelected = false,
+                        onClick = { isGroupsDropdownExpanded = true }
+                    )
+                    DropdownMenu(
+                        expanded = isGroupsDropdownExpanded,
+                        onDismissRequest = { isGroupsDropdownExpanded = false },
+                        modifier = Modifier.background(Color(0xFF242C3D))
+                    ) {
+                        groups.forEach { group ->
+                            DropdownMenuItem(
+                                text = { Text(group, color = WhiteText) },
+                                onClick = {
+                                    selectedGroup = group
+                                    isGroupsDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            
+            items(groups.take(10)) { group -> // Limit to first 10 for horizontal scroll performance
+                val icon = if (group == "All") Icons.Default.Check else null
+                FilterChipItem(
+                    text = group,
+                    icon = if (selectedGroup == group) Icons.Default.Check else null,
+                    isSelected = selectedGroup == group,
+                    onClick = { selectedGroup = group }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (channels == null) {
+        if (allChannels == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TealAccent)
             }
-        } else if (channels.isEmpty()) {
+        } else if (filteredChannels.isNullOrEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No channels available.", color = WhiteText)
             }
@@ -130,7 +174,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(channels) { channel ->
+                gridItems(filteredChannels) { channel ->
                     ChannelCard(channel = channel) {
                         viewModel.selectChannel(channel)
                         navController.navigate(Routes.LIVE_PLAYER)
@@ -142,14 +186,14 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 }
 
 @Composable
-fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, isSelected: Boolean) {
+fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, isSelected: Boolean, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .height(36.dp)
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { /* TODO */ }
+            .clickable { onClick() }
             .border(
                 width = 1.dp,
                 color = if (isFocused || isSelected) WhiteText else Color.Gray,
@@ -187,7 +231,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.85f) // Adjust height to fit text below
+            .aspectRatio(0.75f) // Adjust height to fit text below without clipping
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .border(
@@ -201,7 +245,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxSize().padding(8.dp)
+            modifier = Modifier.fillMaxSize().padding(6.dp)
         ) {
             // Circular Logo background
             Box(
@@ -221,12 +265,12 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
                 }
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             
             Text(
                 text = channel.name,
                 color = WhiteText,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
