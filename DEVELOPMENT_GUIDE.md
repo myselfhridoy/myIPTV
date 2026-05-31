@@ -4,7 +4,7 @@ This document explains the architecture, technology stack, and implementation de
 
 ## 🎯 Project Overview
 StreamBD IPTV is a unified streaming application designed for both **Android Mobile** and **Android TV / TV Box**. It features two main components:
-1. **Live TV**: Parses an external M3U JSON playlist and streams HLS/TS links.
+1. **Live TV**: Parses complex M3U/PLS/JSON playlists. Features a robust parsing engine (`M3UParser`, `TokenParser`, `JSDecoder`) supporting Prysm formats, `#EXTVLCOPT` headers, `#KODIPROP` DRM (Widevine, ClearKey), and dynamic stream resolution (InfinityFree, CricHD bypass).
 2. **Video on Demand (VOD)**: Uses an **Addon-based architecture** where external JavaScript files extract stream links dynamically.
 
 ## 🛠 Technology Stack
@@ -43,9 +43,11 @@ Because Live TV and VOD have completely different user experience requirements o
 - The overlay auto-hides after 5 seconds and can be toggled by pressing the DPad Center (OK) button on a remote.
 - Includes advanced features:
   - **Native System PiP (Picture-in-Picture)** via Android's `enterPictureInPictureMode`.
-  - **Aspect Ratio Toggling** (Stretch, Fit, Zoom) using ExoPlayer's `AspectRatioFrameLayout`.
+  - **Aspect Ratio Toggling** (Stretch, Fit, Zoom) using ExoPlayer's `AspectRatioFrameLayout`. Defaults to `FIT` to prevent video cropping.
   - **Quality/Track Selection Dialog** using `DefaultTrackSelector`.
   - **Mute/Unmute** volume control.
+  - **Dynamic Stream Resolution & Bypasses**: Uses `TokenParser` to resolve tokens (`if`, `crichd`, `fetchiframe`, `/1`) and decode JS before playback.
+  - **DRM Support**: Automatically configures ExoPlayer with `ClearKey`, `Widevine`, or `PlayReady` using native DRM builders based on playlist properties.
 
 #### `VodPlayerScreen.kt`
 - Includes a custom Compose-based Seekbar (`Slider`).
