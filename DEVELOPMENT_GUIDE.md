@@ -25,14 +25,16 @@ StreamBD IPTV is a unified streaming application designed for both **Android Mob
 ### 1. User Interface (UI) & TV Compatibility
 The UI is fully built with **Jetpack Compose**. To support both touch (Mobile) and DPad/Remote (Android TV), we utilized:
 - `Modifier.onFocusChanged`: To detect when a TV remote focuses on an element.
-- `Modifier.border`: Focus indicators are drawn as a `TealAccent` border dynamically based on focus state.
-- `TvLazyVerticalGrid` (or standard `LazyVerticalGrid` with focus wrappers) for grid layouts.
+- `Modifier.tvFocusBorder()`: A custom modifier (in `ui/components/TvComponents.kt`) that draws a `TealAccent` border dynamically based on focus state.
+- **TV Detection Engine**: Generic TV Boxes (like TX3 Mini) often do not declare `UI_MODE_TYPE_TELEVISION`. We use a custom detection system in `MainScreen` that checks `PackageManager.FEATURE_TOUCHSCREEN` and `PackageManager.FEATURE_LEANBACK` to reliably render the TV interface.
+- **Overlays & Modals**: For Android TV, standard `ModalBottomSheet` traps D-Pad focus. We use standard `androidx.compose.ui.window.Dialog` instead to ensure native remote control focus behavior.
+- **Premium Aesthetics**: The Mobile `NavigationBar` features rounded top corners and a subtle shadow, while the TV `NavigationRail` uses a floating-dock style with semi-transparent glass effects and glowing active states.
 
-**Important UI Screens (`ui/screens`):**
-- `MainScreen.kt`: The entry point Scaffold with a Bottom Navigation Bar.
-- `LiveTvScreen.kt` & `LiveCategoryChannelsScreen.kt`: Displays IPTV categories and their respective channels.
-- `VodScreen.kt`: A rich TMDB Dashboard showing Trending Movies, Trending TV Shows, and a Search bar.
-- `TmdbDetailsScreen.kt`: Displays media metadata (Poster, Synopsis) and fetches streams dynamically when the user clicks "Watch Now".
+**Important UI Screens (Refactored by Feature):**
+- `ui/screens/main/MainScreen.kt`: The entry point Scaffold with the adaptive premium Navigation Bar/Rail.
+- `ui/screens/live/`: Contains `LiveTvScreen.kt`, `LiveCategoryChannelsScreen.kt`, and `LivePlayerScreen.kt`.
+- `ui/screens/vod/`: Contains `VodScreen.kt` (Dashboard), `TmdbDetailsScreen.kt` (Details), and `VodPlayerScreen.kt`.
+- `ui/components/`: Shared global components like `TvIconButton.kt`, `TvComponents.kt`, and `TrackSelectionDialog.kt`.
 
 ### 2. Video Player Implementations
 Because Live TV and VOD have completely different user experience requirements on TV, two separate player screens were created:
