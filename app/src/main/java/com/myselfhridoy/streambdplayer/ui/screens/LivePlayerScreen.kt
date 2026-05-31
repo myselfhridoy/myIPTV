@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.input.key.*
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -73,7 +76,7 @@ fun LivePlayerScreen(
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
 
-    // Lock Screen Orientation to Landscape with delay for smooth transition
+    // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
         
@@ -87,6 +90,13 @@ fun LivePlayerScreen(
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
         
         val originalOrientation = activity?.requestedOrientation
+        val window = activity?.window
+        
+        if (window != null) {
+            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
         
         // Delay before forcing landscape to allow enter transition to complete
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -101,14 +111,30 @@ fun LivePlayerScreen(
             if (originalOrientation != null) {
                 activity?.requestedOrientation = originalOrientation
             }
+            if (window != null) {
+                val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 
     // Handle ExoPlayer Media Setup
     LaunchedEffect(channel.url) {
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != channel.url) {
+            val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
+                channel.userAgent?.let { setUserAgent(it) }
+                val headers = mutableMapOf<String, String>()
+                channel.cookie?.let { headers["Cookie"] = it }
+                channel.httpReferer?.let { headers["Referer"] = it }
+                channel.origin?.let { headers["Origin"] = it }
+                if (headers.isNotEmpty()) {
+                    setDefaultRequestProperties(headers)
+                }
+            }
             val mediaItem = MediaItem.fromUri(channel.url)
-            exoPlayer.setMediaItem(mediaItem)
+            val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
+            
+            exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
         }
@@ -152,6 +178,10 @@ fun LivePlayerScreen(
         if (isLocked) {
             showOverlay = true
         } else {
+            val activity = context as? ComponentActivity
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             navController.popBackStack()
         }
     }
@@ -160,6 +190,21 @@ fun LivePlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp) {
+                    when (event.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                            viewModel.selectNextChannel()
+                            true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                            viewModel.selectPreviousChannel()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -173,11 +218,18 @@ fun LivePlayerScreen(
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
-                    this.resizeMode = resizeMode
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
+                }
+            },
+            update = { playerView ->
+                if (playerView.resizeMode != resizeMode) {
+                    playerView.resizeMode = resizeMode
+                }
+                if (playerView.player != exoPlayer) {
+                    playerView.player = exoPlayer
                 }
             }
         )
@@ -207,28 +259,40 @@ fun LivePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = { navController.popBackStack() },
+                            onClick = { 
+                                val activity = context as? ComponentActivity
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                exoPlayer.stop()
+                                exoPlayer.clearMediaItems()
+                                navController.popBackStack() 
+                            },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
+                        
+                        // Title Area
                         Box(
                             modifier = Modifier
-                                .weight(1f, fill = false)
-                                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .weight(1f)
+                                .padding(end = 16.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            Text(
-                                text = channel.name, 
-                                color = Color.White, 
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = channel.name, 
+                                    color = Color.White, 
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
                         }
-
-                        Spacer(modifier = Modifier.weight(1f))
 
                         // Top Right Icons
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -270,10 +334,10 @@ fun LivePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = { exoPlayer.seekTo(exoPlayer.currentPosition - 10000) },
+                            onClick = { viewModel.selectPreviousChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Replay10, contentDescription = "Rewind", tint = Color.White, modifier = Modifier.size(28.dp))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Channel", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
                         IconButton(
@@ -291,10 +355,10 @@ fun LivePlayerScreen(
                         }
 
                         IconButton(
-                            onClick = { exoPlayer.seekTo(exoPlayer.currentPosition + 10000) },
+                            onClick = { viewModel.selectNextChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Forward10, contentDescription = "Forward", tint = Color.White, modifier = Modifier.size(28.dp))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Channel", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                     }
 

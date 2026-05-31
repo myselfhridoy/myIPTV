@@ -59,6 +59,33 @@ class MainViewModel : ViewModel() {
         _selectedChannel.value = channel
     }
 
+    fun selectNextChannel() {
+        val categoryName = _selectedCategory.value?.name ?: return
+        val currentChannels = _categoryChannels.value[categoryName] ?: return
+        val currentChannel = _selectedChannel.value ?: return
+        
+        // Ensure we are only navigating within the same group if the user is in a group context
+        // Since we don't store selectedGroup in ViewModel, we navigate within all channels of category
+        // To be strictly correct, we can just find index in the full category list.
+        val currentIndex = currentChannels.indexOf(currentChannel)
+        if (currentIndex != -1) {
+            val nextIndex = if (currentIndex < currentChannels.size - 1) currentIndex + 1 else 0
+            selectChannel(currentChannels[nextIndex])
+        }
+    }
+
+    fun selectPreviousChannel() {
+        val categoryName = _selectedCategory.value?.name ?: return
+        val currentChannels = _categoryChannels.value[categoryName] ?: return
+        val currentChannel = _selectedChannel.value ?: return
+
+        val currentIndex = currentChannels.indexOf(currentChannel)
+        if (currentIndex != -1) {
+            val prevIndex = if (currentIndex > 0) currentIndex - 1 else currentChannels.size - 1
+            selectChannel(currentChannels[prevIndex])
+        }
+    }
+
     fun selectAddon(addon: Addon) {
         _selectedAddon.value = addon
     }
