@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.composed
+import com.myselfhridoy.streambdplayer.ui.components.tvFocusBorder
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -171,15 +172,4 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
             )
         }
     }
-}
-
-fun Modifier.tvFocusBorder(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)): Modifier = composed {
-    var isFocused by remember { mutableStateOf(false) }
-    this
-        .onFocusChanged { isFocused = it.isFocused }
-        .border(
-            width = if (isFocused) 2.dp else 0.dp,
-            color = if (isFocused) TealAccent else Color.Transparent,
-            shape = shape
-        )
 }

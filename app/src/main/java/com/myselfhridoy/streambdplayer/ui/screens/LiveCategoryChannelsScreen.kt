@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.myselfhridoy.streambdplayer.data.models.Channel
+import com.myselfhridoy.streambdplayer.ui.components.tvFocusBorder
 import com.myselfhridoy.streambdplayer.ui.navigation.Routes
 import com.myselfhridoy.streambdplayer.ui.theme.DarkNavyBackground
 import com.myselfhridoy.streambdplayer.ui.theme.DarkNavySurface

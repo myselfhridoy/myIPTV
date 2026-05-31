@@ -43,6 +43,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.myselfhridoy.streambdplayer.ui.components.TvIconButton
 import com.myselfhridoy.streambdplayer.ui.screens.components.TrackSelectionDialog
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.delay
@@ -544,25 +545,4 @@ private fun formatTime(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
-}
-
-@Composable
-fun TvIconButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    icon: @Composable () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    IconButton(
-        onClick = onClick,
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) Color(0xFF00E5FF) else Color.Transparent, // TealAccent equivalent
-                shape = CircleShape
-            )
-    ) {
-        icon()
-    }
 }
