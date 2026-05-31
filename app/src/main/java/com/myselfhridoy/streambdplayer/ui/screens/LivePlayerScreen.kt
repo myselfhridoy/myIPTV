@@ -73,7 +73,7 @@ fun LivePlayerScreen(
     var currentPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
 
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FILL) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
 
     // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
@@ -109,7 +109,8 @@ fun LivePlayerScreen(
             activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
             handler.removeCallbacks(runnable)
             if (originalOrientation != null) {
-                activity?.requestedOrientation = originalOrientation
+                // Ensure we return to portrait to avoid landscape list rendering
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
             if (window != null) {
                 val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
@@ -247,10 +248,14 @@ fun LivePlayerScreen(
             showOverlay = true
         } else {
             val activity = context as? ComponentActivity
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
-            navController.popBackStack()
+            
+            // Small delay to allow orientation to change before popping backstack
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                navController.popBackStack()
+            }, 100)
         }
     }
 
@@ -329,10 +334,12 @@ fun LivePlayerScreen(
                         IconButton(
                             onClick = { 
                                 val activity = context as? ComponentActivity
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 exoPlayer.stop()
                                 exoPlayer.clearMediaItems()
-                                navController.popBackStack() 
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    navController.popBackStack()
+                                }, 100)
                             },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
