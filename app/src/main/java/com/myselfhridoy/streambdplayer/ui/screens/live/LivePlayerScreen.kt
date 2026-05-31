@@ -88,6 +88,7 @@ fun LivePlayerScreen(
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
     val playPauseFocusRequester = remember { FocusRequester() }
+    val unlockFocusRequester = remember { FocusRequester() }
 
     // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
     DisposableEffect(Unit) {
@@ -249,11 +250,14 @@ fun LivePlayerScreen(
 
     // Auto-hide overlay and manage focus
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
-        if (showOverlay && !isLocked) {
+        if (showOverlay) {
             delay(100) // Wait for layout to settle
-            try { playPauseFocusRequester.requestFocus() } catch (e: Exception) {}
+            try { 
+                if (isLocked) unlockFocusRequester.requestFocus() 
+                else playPauseFocusRequester.requestFocus() 
+            } catch (e: Exception) {}
         }
-        if (showOverlay && isPlaying && !isLocked) {
+        if (showOverlay && isPlaying) {
             delay(5000)
             showOverlay = false
         }
@@ -366,6 +370,7 @@ fun LivePlayerScreen(
                             .align(Alignment.TopStart)
                             .padding(16.dp)
                             .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .focusRequester(unlockFocusRequester)
                     ) {
                         Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
                     }
