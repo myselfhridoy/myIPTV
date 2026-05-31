@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
 fun VodPlayerScreen(
     videoUrl: String,
     videoTitle: String,
-    navController: NavController
+    @Suppress("UNUSED_PARAMETER") navController: NavController
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current

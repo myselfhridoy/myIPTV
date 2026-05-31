@@ -12,9 +12,9 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
@@ -73,7 +73,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowBack,
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
                 tint = WhiteText,
                 modifier = Modifier
@@ -124,7 +124,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 Box {
                     FilterChipItem(
                         text = "Groups",
-                        icon = Icons.Default.List,
+                        icon = Icons.AutoMirrored.Filled.List,
                         isSelected = false,
                         onClick = { isGroupsDropdownExpanded = true }
                     )
@@ -147,7 +147,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
             
             items(groups.take(10)) { group -> // Limit to first 10 for horizontal scroll performance
-                val icon = if (group == "All") Icons.Default.Check else null
                 FilterChipItem(
                     text = group,
                     icon = if (selectedGroup == group) Icons.Default.Check else null,

@@ -55,7 +55,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
                 viewModel.search(it)
             },
             placeholder = { Text("Search movies or TV shows...", color = Color.Gray) },
-            colors = TextFieldDefaults.outlinedTextFieldColors(
+            colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = TealAccent,
                 unfocusedBorderColor = Color.DarkGray,
                 focusedTextColor = WhiteText,

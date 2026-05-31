@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -184,7 +186,7 @@ fun LivePlayerScreen(
                             onClick = { navController.popBackStack() },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Box(
@@ -271,7 +273,7 @@ fun LivePlayerScreen(
                         )
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(Icons.Default.VolumeUp, contentDescription = "Volume", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "Volume", tint = Color.White)
                     }
 
                     // Share Icon (Right Middle)
