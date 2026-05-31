@@ -119,24 +119,92 @@ fun LivePlayerScreen(
     }
 
     // Handle ExoPlayer Media Setup
-    LaunchedEffect(channel.url) {
-        if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != channel.url) {
+    LaunchedEffect(channel) {
+        isLoading = true // Show loading while resolving
+
+        // Build initial headers from channel
+        val initialHeaders = mutableMapOf<String, String>()
+        channel.userAgent?.let { initialHeaders["User-Agent"] = it }
+        channel.cookie?.let { initialHeaders["Cookie"] = it }
+        channel.httpReferer?.let { initialHeaders["Referer"] = it }
+        channel.origin?.let { initialHeaders["Origin"] = it }
+
+        // Resolve token if present
+        val resolved = if (!channel.tokenUrl.isNullOrEmpty()) {
+            com.myselfhridoy.streambdplayer.utils.TokenParser.resolveTokenForUrl(
+                context = context,
+                baseUrl = channel.url,
+                tokenUrl = channel.tokenUrl,
+                tokenId = channel.tokenId?.toString(),
+                headers = initialHeaders,
+                tokenMatch = channel.tokenMatch,
+                tokenReplace = channel.tokenReplace
+            )
+        } else {
+            null
+        }
+
+        val finalUrl = resolved?.url ?: channel.url
+        val finalHeaders = resolved?.headers ?: initialHeaders
+        val finalDrm = resolved?.drm ?: channel.drm
+
+        if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
-                channel.userAgent?.let { setUserAgent(it) }
-                val headers = mutableMapOf<String, String>()
-                channel.cookie?.let { headers["Cookie"] = it }
-                channel.httpReferer?.let { headers["Referer"] = it }
-                channel.origin?.let { headers["Origin"] = it }
-                if (headers.isNotEmpty()) {
-                    setDefaultRequestProperties(headers)
+                finalHeaders["User-Agent"]?.let { setUserAgent(it) }
+                val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                if (requestHeaders.isNotEmpty()) {
+                    setDefaultRequestProperties(requestHeaders)
                 }
             }
-            val mediaItem = MediaItem.fromUri(channel.url)
+            
+            val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
+
+            // DRM Setup
+            if (finalDrm != null && finalDrm.type != null) {
+                val drmScheme = when (finalDrm.type.lowercase()) {
+                    "widevine" -> androidx.media3.common.C.WIDEVINE_UUID
+                    "playready" -> androidx.media3.common.C.PLAYREADY_UUID
+                    "clearkey" -> androidx.media3.common.C.CLEARKEY_UUID
+                    else -> androidx.media3.common.C.WIDEVINE_UUID
+                }
+
+                val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
+
+                if (finalDrm.licenseServer != null) {
+                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                } else if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
+                    // Handle Raw ClearKey (kid:key) pair format natively for ExoPlayer
+                    val parts = finalDrm.rawKeyPair.split(":")
+                    if (parts.size == 2) {
+                        try {
+                            val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                            val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+                            val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                            val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+
+                            val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
+                            val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(clearkeyJson.toByteArray(), android.util.Base64.NO_WRAP)
+                            drmBuilder.setLicenseUri(clearkeyDataUri)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
+                // Attach Headers to License Request
+                drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
+                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
+            }
+
+            val mediaItem = mediaItemBuilder.build()
             val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
             
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
+        } else {
+            isLoading = exoPlayer.playbackState == Player.STATE_BUFFERING
         }
     }
 
