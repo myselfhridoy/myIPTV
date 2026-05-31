@@ -73,7 +73,7 @@ fun LivePlayerScreen(
     var currentPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
 
-    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
 
     // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
@@ -98,10 +98,10 @@ fun LivePlayerScreen(
             insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
         
-        // Allow user to rotate device freely (sensor based) instead of forcing landscape
+        // Delay before forcing landscape to allow enter transition to complete
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val runnable = Runnable {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
         handler.postDelayed(runnable, 400)
         

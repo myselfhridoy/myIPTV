@@ -78,15 +78,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF151A25)) // Match mockup
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                focusManager.clearFocus()
-                if (searchQuery.isEmpty()) {
-                    isSearchActive = false
-                }
-            }
     ) {
         // Custom Top Bar
         Row(
