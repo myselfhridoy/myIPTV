@@ -37,13 +37,17 @@ fun PlaylistsScreen(
     navController: NavController
 ) {
     val playlists by playlistViewModel.playlists.collectAsState()
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf(false) }
+    var playlistToEdit by remember { mutableStateOf<Playlist?>(null) }
 
     Scaffold(
         containerColor = DarkNavyBackground,
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = { 
+                    playlistToEdit = null
+                    showDialog = true 
+                },
                 containerColor = TealAccent
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add Playlist", tint = DarkNavyBackground)
@@ -77,6 +81,10 @@ fun PlaylistsScreen(
                                 val encodedUrl = URLEncoder.encode(playlist.url, "UTF-8")
                                 navController.navigate("playlist_channels/${playlist.title}/$encodedUrl")
                             },
+                            onEdit = {
+                                playlistToEdit = playlist
+                                showDialog = true
+                            },
                             onDelete = { playlistViewModel.deletePlaylist(playlist) }
                         )
                     }
@@ -85,12 +93,17 @@ fun PlaylistsScreen(
         }
     }
 
-    if (showAddDialog) {
-        AddPlaylistDialog(
-            onDismiss = { showAddDialog = false },
-            onAdd = { title, url ->
-                playlistViewModel.addPlaylist(title, url)
-                showAddDialog = false
+    if (showDialog) {
+        PlaylistDialog(
+            playlist = playlistToEdit,
+            onDismiss = { showDialog = false },
+            onSave = { title, url ->
+                if (playlistToEdit != null) {
+                    playlistViewModel.updatePlaylist(playlistToEdit!!.copy(title = title, url = url))
+                } else {
+                    playlistViewModel.addPlaylist(title, url)
+                }
+                showDialog = false
             }
         )
     }
@@ -100,6 +113,7 @@ fun PlaylistsScreen(
 fun PlaylistCard(
     playlist: Playlist,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -142,12 +156,18 @@ fun PlaylistCard(
                         text = playlist.url,
                         color = Color.Gray,
                         fontSize = 12.sp,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
+            Row {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = Color.Gray)
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
+                }
             }
         }
     }
@@ -155,18 +175,19 @@ fun PlaylistCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddPlaylistDialog(
+fun PlaylistDialog(
+    playlist: Playlist? = null,
     onDismiss: () -> Unit,
-    onAdd: (String, String) -> Unit
+    onSave: (String, String) -> Unit
 ) {
-    var title by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf(playlist?.title ?: "") }
+    var url by remember { mutableStateOf(playlist?.url ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkNavySurface,
         title = {
-            Text("Add New Playlist", color = WhiteText, fontWeight = FontWeight.Bold)
+            Text(if (playlist == null) "Add New Playlist" else "Edit Playlist", color = WhiteText, fontWeight = FontWeight.Bold)
         },
         text = {
             Column {
@@ -200,11 +221,11 @@ fun AddPlaylistDialog(
             TextButton(
                 onClick = {
                     if (title.isNotBlank() && url.isNotBlank()) {
-                        onAdd(title, url)
+                        onSave(title, url)
                     }
                 }
             ) {
-                Text("ADD", color = TealAccent)
+                Text("SAVE", color = TealAccent)
             }
         },
         dismissButton = {
