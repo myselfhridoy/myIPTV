@@ -144,7 +144,7 @@ fun LivePlayerScreen(
         channel.httpReferer?.let { initialHeaders["Referer"] = it }
         channel.origin?.let { initialHeaders["Origin"] = it }
 
-        // Resolve token if present
+        // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
         val resolved = if (!channel.tokenUrl.isNullOrEmpty()) {
             com.myselfhridoy.streambdplayer.utils.TokenParser.resolveTokenForUrl(
                 context = context,
@@ -156,7 +156,46 @@ fun LivePlayerScreen(
                 tokenReplace = channel.tokenReplace
             )
         } else {
-            null
+            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+            val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
+            if (!extRegex.containsMatchIn(channel.url) && !protoRegex.containsMatchIn(channel.url)) {
+                // Pre-resolve non-standard extensions (like .php) to find actual media URL and Content-Type
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .followRedirects(true)
+                            .followSslRedirects(true)
+                            .build()
+                        val req = okhttp3.Request.Builder().url(channel.url).apply {
+                            initialHeaders.forEach { (k, v) -> header(k, v) }
+                        }.head().build() // Use HEAD first
+                        
+                        var res = client.newCall(req).execute()
+                        if (!res.isSuccessful && res.code == 405) {
+                            res.close()
+                            val getReq = req.newBuilder().get().build()
+                            res = client.newCall(getReq).execute()
+                        }
+                        
+                        res.use { response ->
+                            if (response.isSuccessful) {
+                                val finalUrl = response.request.url.toString()
+                                val contentType = response.header("Content-Type")?.lowercase()
+                                var mimeType: String? = null
+                                if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                
+                                com.myselfhridoy.streambdplayer.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
+                            } else null
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            } else {
+                null
+            }
         }
 
         val finalUrl = resolved?.url ?: channel.url
@@ -165,6 +204,7 @@ fun LivePlayerScreen(
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
+                setAllowCrossProtocolRedirects(true)
                 finalHeaders["User-Agent"]?.let { setUserAgent(it) }
                 val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
                 if (requestHeaders.isNotEmpty()) {
