@@ -137,8 +137,8 @@ object TokenParser {
         if (lowerTokenUrl == "jsdecode") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
-                    addHeader("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> addHeader(k, v) }
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
@@ -161,8 +161,8 @@ object TokenParser {
         if (lowerTokenUrl == "crichd") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
-                    addHeader("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> addHeader(k, v) }
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
@@ -184,8 +184,8 @@ object TokenParser {
         if (lowerTokenUrl == "fetchiframe") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
-                    addHeader("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> addHeader(k, v) }
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
@@ -219,8 +219,8 @@ object TokenParser {
         if (lowerTokenUrl == "/3") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
-                    addHeader("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> addHeader(k, v) }
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
@@ -240,8 +240,8 @@ object TokenParser {
             // Simplified handler logic
             try {
                 val req = Request.Builder().url(baseUrl).apply {
-                    addHeader("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> addHeader(k, v) }
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {

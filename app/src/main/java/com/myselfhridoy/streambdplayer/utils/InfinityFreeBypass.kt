@@ -30,13 +30,13 @@ object InfinityFreeBypass {
 
             var requestBuilder = Request.Builder()
                 .url(bypassUrl)
-                .addHeader("User-Agent", USER_AGENT)
-                .addHeader("Accept", "*/*")
-                .addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
-                .addHeader("Pragma", "no-cache")
-                .addHeader("Expires", "0")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "*/*")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
 
-            headers?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+            headers?.forEach { (k, v) -> requestBuilder.header(k, v) }
             
             val initialRequest = requestBuilder.build()
             val initialResponse = client.newCall(initialRequest).execute()
@@ -100,10 +100,9 @@ object InfinityFreeBypass {
 
                     val finalRequestBuilder = Request.Builder()
                         .url(redirectUrl)
-                        .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Cookie", payloadCookie)
+                        .header("User-Agent", USER_AGENT)
                     
-                    headers?.forEach { (k, v) -> finalRequestBuilder.addHeader(k, v) }
+                    outHeaders.forEach { (k, v) -> finalRequestBuilder.header(k, v) }
                     
                     val finalResponse = client.newCall(finalRequestBuilder.build()).execute()
                     if (finalResponse.isSuccessful) {

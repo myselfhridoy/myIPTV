@@ -114,7 +114,7 @@ object AddonManager {
                         
                         // Parse headers
                         opts["headers"]?.jsonObject?.forEach { (key, value) ->
-                            requestBuilder.addHeader(key, value.jsonPrimitive.content)
+                            requestBuilder.header(key, value.jsonPrimitive.content)
                         }
 
                         // Parse body
