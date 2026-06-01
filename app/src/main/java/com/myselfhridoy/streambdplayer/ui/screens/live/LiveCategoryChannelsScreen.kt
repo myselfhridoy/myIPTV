@@ -197,6 +197,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             ) {
                 gridItems(filteredChannels) { channel ->
                     ChannelCard(channel = channel) {
+                        viewModel.setCurrentPlaylist(filteredChannels)
                         viewModel.selectChannel(channel)
                         navController.navigate(Routes.LIVE_PLAYER)
                     }

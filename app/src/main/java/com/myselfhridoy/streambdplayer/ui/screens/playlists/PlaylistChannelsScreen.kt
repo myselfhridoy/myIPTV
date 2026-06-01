@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -114,6 +116,7 @@ fun PlaylistChannelsScreen(
                         items(channels) { channel ->
                             PlaylistChannelItem(channel) {
                                 viewModel.selectChannel(channel) // local selected state
+                                mainViewModel.setCurrentPlaylist(channels)
                                 mainViewModel.selectChannel(channel) // global selected state for LivePlayerScreen
                                 val encodedUrl = URLEncoder.encode(channel.url, "UTF-8")
                                 navController.navigate("live_player")
@@ -128,11 +131,18 @@ fun PlaylistChannelsScreen(
 
 @Composable
 fun GroupChip(title: String, isSelected: Boolean, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
     Surface(
         color = if (isSelected) TealAccent else DarkNavySurface,
         shape = CircleShape,
         modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) TealAccent else Color.Transparent,
+                shape = CircleShape
+            )
             .padding(2.dp)
     ) {
         Text(
@@ -146,11 +156,18 @@ fun GroupChip(title: String, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun PlaylistChannelItem(channel: Channel, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(0.85f)
-            .clickable { onClick() },
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) TealAccent else Color.Transparent,
+                shape = RoundedCornerShape(12.dp)
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = DarkNavySurface)
     ) {
