@@ -27,8 +27,13 @@ import com.myselfhridoy.streambdplayer.ui.screens.live.LivePlayerScreen
 import com.myselfhridoy.streambdplayer.ui.screens.main.MainScreen
 import com.myselfhridoy.streambdplayer.ui.screens.vod.TmdbDetailsScreen
 import com.myselfhridoy.streambdplayer.ui.screens.vod.VodPlayerScreen
+import com.myselfhridoy.streambdplayer.ui.screens.playlists.PlaylistsScreen
+import com.myselfhridoy.streambdplayer.ui.screens.playlists.PlaylistChannelsScreen
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
+import com.myselfhridoy.streambdplayer.ui.viewmodels.PlaylistViewModel
+import com.myselfhridoy.streambdplayer.ui.viewmodels.PlaylistChannelsViewModel
+import java.net.URLDecoder
 
 object Routes {
     const val MAIN = "main"
@@ -36,11 +41,18 @@ object Routes {
     const val LIVE_PLAYER = "live_player"
     const val TMDB_DETAILS = "tmdb_details"
     const val VOD_PLAYER = "vod_player"
+    const val PLAYLISTS = "playlists"
+    const val PLAYLIST_CHANNELS = "playlist_channels/{title}/{url}"
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun AppNavigation(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel) {
+fun AppNavigation(
+    mainViewModel: MainViewModel, 
+    tmdbViewModel: TmdbViewModel,
+    playlistViewModel: PlaylistViewModel,
+    playlistChannelsViewModel: PlaylistChannelsViewModel
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
     
@@ -90,6 +102,21 @@ fun AppNavigation(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel) {
                         navController = navController
                     )
                 }
+            }
+            composable(Routes.PLAYLISTS) {
+                PlaylistsScreen(playlistViewModel = playlistViewModel, navController = navController)
+            }
+            composable(Routes.PLAYLIST_CHANNELS) { backStackEntry ->
+                val title = backStackEntry.arguments?.getString("title") ?: "Playlist"
+                val url = backStackEntry.arguments?.getString("url")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
+                
+                PlaylistChannelsScreen(
+                    playlistTitle = title,
+                    playlistUrl = url,
+                    viewModel = playlistChannelsViewModel,
+                    mainViewModel = mainViewModel,
+                    navController = navController
+                )
             }
         }
     }

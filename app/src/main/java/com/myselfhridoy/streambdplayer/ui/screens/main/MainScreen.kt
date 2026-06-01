@@ -18,6 +18,7 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +44,7 @@ import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 @Composable
 fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navController: NavController) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Live TV", "VOD")
+    val tabs = listOf("Live TV", "VOD", "Playlists")
 
     val configuration = LocalConfiguration.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -73,7 +74,11 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                     NavigationRailItem(
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
-                        icon = { Text(if (index == 0) "📺" else "🎬", fontSize = 24.sp) },
+                        icon = { Text(when(index) {
+                            0 -> "📺"
+                            1 -> "🎬"
+                            else -> "📁"
+                        }, fontSize = 24.sp) },
                         label = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationRailItemDefaults.colors(
                             selectedIconColor = SelectedItemColor,
@@ -91,6 +96,18 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                 when (selectedTab) {
                     0 -> LiveTvScreen(mainViewModel, navController)
                     1 -> VodScreen(tmdbViewModel, navController)
+                    2 -> {
+                        // The user can add Playlists, so we trigger a navigation to the Playlists screen route
+                        // But since we are within MainScreen's Box, we might just want to navigate to the Playlists screen
+                        // Wait, it's better to just navigate the navController to the Playlists route, 
+                        // OR display PlaylistsScreen content here directly. Since PlaylistsScreen requires its own ViewModel,
+                        // and we didn't pass it to MainScreen, let's navigate to the "playlists" route when selected.
+                        LaunchedEffect(Unit) {
+                            navController.navigate("playlists")
+                            // Reset selected tab so when they press back it's on Live TV
+                            selectedTab = 0 
+                        }
+                    }
                 }
             }
         }
@@ -108,8 +125,18 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                     tabs.forEachIndexed { index, title ->
                         NavigationBarItem(
                             selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            icon = { Text(if (index == 0) "📺" else "🎬", fontSize = 24.sp) },
+                            onClick = { 
+                                if (index == 2) {
+                                    navController.navigate("playlists")
+                                } else {
+                                    selectedTab = index 
+                                }
+                            },
+                            icon = { Text(when(index) {
+                                0 -> "📺"
+                                1 -> "🎬"
+                                else -> "📁"
+                            }, fontSize = 24.sp) },
                             label = { Text(title, fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = SelectedItemColor,
