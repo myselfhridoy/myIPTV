@@ -227,7 +227,9 @@ object TokenParser {
                     val html = res.body?.string() ?: ""
                     val streams = extractAllUrls(html).filter { isStreamUrl(it) }
                     if (streams.isNotEmpty()) {
-                        return@withContext ResolvedToken(url = streams.first(), headers = getStreamHeaders(baseUrl, headers))
+                        val streamUrl = streams.first()
+                        val drm = extractDrmFromBody(html)
+                        return@withContext ResolvedToken(url = streamUrl, headers = getStreamHeaders(baseUrl, headers), drm = drm)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
@@ -251,13 +253,34 @@ object TokenParser {
                         val parsedId = idMatch.groupValues[1].toIntOrNull() ?: 1
                         val idx = parsedId - 1
                         val streamUrl = streams.getOrElse(idx) { streams.first() }
-                        return@withContext ResolvedToken(url = streamUrl, headers = getStreamHeaders(baseUrl, headers))
+                        val drm = extractDrmFromBody(body)
+                        return@withContext ResolvedToken(url = streamUrl, headers = getStreamHeaders(baseUrl, headers), drm = drm)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
         }
 
         null
+    }
+
+    private fun extractDrmFromBody(body: String): DrmConfig? {
+        val kidPattern = Regex("(?:const|let|var)?\\s*kid\\s*=\\s*['\"]([a-fA-F0-9]{32})['\"]", RegexOption.IGNORE_CASE)
+        val keyPattern = Regex("(?:const|let|var)?\\s*key\\s*=\\s*['\"]([a-fA-F0-9]{32})['\"]", RegexOption.IGNORE_CASE)
+        
+        val kidMatch = kidPattern.find(body)
+        val keyMatch = keyPattern.find(body)
+        
+        if (kidMatch != null && keyMatch != null) {
+            return DrmConfig(type = "clearkey", rawKeyPair = "${kidMatch.groupValues[1]}:${keyMatch.groupValues[1]}")
+        }
+        
+        val pairPattern = Regex("([a-fA-F0-9]{32}):([a-fA-F0-9]{32})")
+        val pairMatch = pairPattern.find(body)
+        if (pairMatch != null) {
+            return DrmConfig(type = "clearkey", rawKeyPair = "${pairMatch.groupValues[1]}:${pairMatch.groupValues[2]}")
+        }
+        
+        return null
     }
 
     private fun getStreamHeaders(baseUrl: String, headers: Map<String, String>?): Map<String, String> {
