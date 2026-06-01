@@ -13,7 +13,8 @@ import java.util.regex.Pattern
 data class ResolvedToken(
     val url: String,
     val headers: Map<String, String>? = null,
-    val drm: DrmConfig? = null
+    val drm: DrmConfig? = null,
+    val mimeType: String? = null
 )
 
 object TokenParser {
@@ -107,7 +108,7 @@ object TokenParser {
                     }
                 }
                 if (streamUrl.isNotEmpty()) {
-                    if (!streamUrl.startsWith("http")) return@withContext ResolvedToken(url = bypass.url, headers = bypass.headers)
+                    if (!streamUrl.startsWith("http")) return@withContext ResolvedToken(url = bypass.url, headers = bypass.headers, mimeType = "application/x-mpegURL")
                     return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm)
                 }
             } else if (bypass?.content != null) {

@@ -173,6 +173,7 @@ fun LivePlayerScreen(
             }
             
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
+            resolved?.mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
             // DRM Setup
             if (finalDrm != null && finalDrm.type != null) {
