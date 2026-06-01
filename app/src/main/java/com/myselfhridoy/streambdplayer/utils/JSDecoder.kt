@@ -42,7 +42,7 @@ object JSDecoder {
                 }
             } else {
                 // Check for generic eval packer
-                val evalMatch = Pattern.compile("<script>(var\\s+_[0-9a-zA-Z]+=\\[.*?\\];\\s*function\\s+_[0-9a-zA-Z]+\\(.*?\\)\\{.*?\\}\\s*)eval\\((function\\(.*?\\)\\{.*?\\}\\(.*?\\))\\)\\s*</script>").matcher(text)
+                val evalMatch = Pattern.compile("<script>(var\\s+_[0-9a-zA-Z]+=\\[.*?\\];\\s*function\\s+_[0-9a-zA-Z]+\\(.*?\\)\\{.*?\\}\\s*)eval\\((function\\(.*?\\)\\{.*?\\}\\(.*?\\))\\)\\s*</script>", Pattern.DOTALL).matcher(text)
                 if (evalMatch.find()) {
                     val setupCode = evalMatch.group(1) ?: ""
                     val evalBody = evalMatch.group(2) ?: ""
@@ -79,9 +79,9 @@ object JSDecoder {
             }
 
             if (decrypted.isNotEmpty()) {
-                val urlPattern = Pattern.compile("(?:const|let|var)\\s+(?:mpdUrl|url)\\s*=\\s*'(.*?)';", Pattern.CASE_INSENSITIVE)
-                val kidPattern = Pattern.compile("(?:const|let)\\s+kid\\s*=\\s*'(.*?)';", Pattern.CASE_INSENSITIVE)
-                val keyStrPattern = Pattern.compile("(?:const|let)\\s+key\\s*=\\s*'(.*?)';", Pattern.CASE_INSENSITIVE)
+                val urlPattern = Pattern.compile("(?:const|let|var)\\s+(?:mpdUrl|url)\\s*=\\s*['\"](.*?)['\"];", Pattern.CASE_INSENSITIVE)
+                val kidPattern = Pattern.compile("(?:const|let|var)\\s+kid\\s*=\\s*['\"](.*?)['\"];", Pattern.CASE_INSENSITIVE)
+                val keyStrPattern = Pattern.compile("(?:const|let|var)\\s+key\\s*=\\s*['\"](.*?)['\"];", Pattern.CASE_INSENSITIVE)
 
                 val urlMatcher = urlPattern.matcher(decrypted)
                 val kidMatcher = kidPattern.matcher(decrypted)
