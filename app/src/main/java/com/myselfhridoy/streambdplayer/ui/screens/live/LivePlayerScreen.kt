@@ -175,6 +175,8 @@ fun LivePlayerScreen(
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
             resolved?.mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
+
             // DRM Setup
             if (finalDrm != null && finalDrm.type != null) {
                 val drmScheme = when (finalDrm.type.lowercase()) {
@@ -186,9 +188,7 @@ fun LivePlayerScreen(
 
                 val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
 
-                if (finalDrm.licenseServer != null) {
-                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                } else if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
+                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
                     // Handle Raw ClearKey (kid:key) pair format natively for ExoPlayer
                     val parts = finalDrm.rawKeyPair.split(":")
                     if (parts.size == 2) {
@@ -200,21 +200,27 @@ fun LivePlayerScreen(
                             val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
 
                             val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                            val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(clearkeyJson.toByteArray(), android.util.Base64.NO_WRAP)
-                            drmBuilder.setLicenseUri(clearkeyDataUri)
+                            
+                            val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearkeyJson.toByteArray())
+                            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                                .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                                .build(localMediaDrmCallback)
+                            
+                            mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     }
+                } else if (finalDrm.licenseServer != null) {
+                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                    drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
                 }
 
-                // Attach Headers to License Request
-                drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
                 mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
             }
 
             val mediaItem = mediaItemBuilder.build()
-            val mediaSource = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
+            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
             
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
