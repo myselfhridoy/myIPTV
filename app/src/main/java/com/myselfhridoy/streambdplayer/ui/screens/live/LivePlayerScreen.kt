@@ -90,7 +90,7 @@ fun LivePlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
-    // Lock Screen Orientation to Landscape with delay for smooth transition and hide system UI
+    // Lock Screen Orientation to Landscape and hide system UI
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
         
@@ -112,18 +112,14 @@ fun LivePlayerScreen(
             insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
         
-        // Delay before forcing landscape to allow enter transition to complete
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
-        val runnable = Runnable {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
-        handler.postDelayed(runnable, 400)
+        // Set landscape immediately
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         
         onDispose {
             activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
-            handler.removeCallbacks(runnable)
             if (originalOrientation != null) {
-                // Ensure we return to portrait to avoid landscape list rendering
+                activity?.requestedOrientation = originalOrientation
+            } else {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
             if (window != null) {
@@ -319,11 +315,7 @@ fun LivePlayerScreen(
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
-            
-            // Small delay to allow orientation to change before popping backstack
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                navController.popBackStack()
-            }, 100)
+            navController.popBackStack()
         }
     }
 
@@ -437,9 +429,7 @@ fun LivePlayerScreen(
                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 exoPlayer.stop()
                                 exoPlayer.clearMediaItems()
-                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                    navController.popBackStack()
-                                }, 100)
+                                navController.popBackStack()
                             },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
