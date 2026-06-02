@@ -1,255 +1,433 @@
 package com.myselfhridoy.streambdplayer.utils
 
+import android.annotation.SuppressLint
 import android.content.Context
-import android.util.Log
-import app.cash.quickjs.QuickJs
-import com.myselfhridoy.streambdplayer.data.models.Addon
-import com.myselfhridoy.streambdplayer.data.models.StreamSource
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URL
 import java.util.concurrent.TimeUnit
-
-interface AndroidBridge {
-    fun fetchSync(url: String, optionsJson: String): String
-    fun onResult(resultJson: String)
-    fun onError(error: String)
-    fun getAddonCode(): String
-}
+import kotlin.coroutines.resume
+import com.myselfhridoy.streambdplayer.data.models.Addon
+import com.myselfhridoy.streambdplayer.data.models.StreamSource
+import com.myselfhridoy.streambdplayer.data.models.Subtitle
 
 object AddonManager {
     private const val DEFAULT_REGISTRY_URL = "https://streambd-iptv.netlify.app/addons/StreamBD_IPTV_Addon.json"
+    private const val ADDONS_PREF_NAME = "prysm_addons_prefs"
+    private const val ADDONS_KEY = "addons_list"
+
     private var cachedAddons: List<Addon>? = null
     private val addonScriptsCache = mutableMapOf<String, String>()
     
-    private val json = Json { ignoreUnknownKeys = true }
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val cookieJar = object : okhttp3.CookieJar {
+        private val cookieStore = mutableMapOf<String, MutableList<okhttp3.Cookie>>()
 
-    suspend fun getAddons(forceSync: Boolean = false): List<Addon> = withContext(Dispatchers.IO) {
-        if (!forceSync && cachedAddons != null) {
-            return@withContext cachedAddons!!
+        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+            val host = url.host
+            val existingCookies = cookieStore[host] ?: mutableListOf()
+            
+            // Overwrite existing cookies or add new ones
+            for (cookie in cookies) {
+                val index = existingCookies.indexOfFirst { it.name == cookie.name }
+                if (index != -1) {
+                    existingCookies[index] = cookie
+                } else {
+                    existingCookies.add(cookie)
+                }
+            }
+            cookieStore[host] = existingCookies
         }
-        
-        try {
-            val response = URL(DEFAULT_REGISTRY_URL).readText()
-            val addons: List<Addon> = json.decodeFromString(response)
-            cachedAddons = addons
-            return@withContext addons
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return@withContext emptyList()
+
+        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+            val host = url.host
+            val cookies = mutableListOf<okhttp3.Cookie>()
+            
+            // Add cookies for exact host
+            cookieStore[host]?.let { cookies.addAll(it) }
+            
+            // Add cookies for parent domains (e.g., .domain.com)
+            cookieStore.keys.filter { host.endsWith(it) && host != it }.forEach { key ->
+                cookieStore[key]?.let { cookies.addAll(it) }
+            }
+            
+            return cookies
         }
     }
 
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .cookieJar(cookieJar)
+        .build()
+    private val gson = Gson()
+
+    suspend fun getAddons(context: Context, forceSync: Boolean = false): List<Addon> = withContext(Dispatchers.IO) {
+        if (!forceSync && cachedAddons != null) {
+            return@withContext cachedAddons!!
+        }
+
+        val prefs = context.getSharedPreferences(ADDONS_PREF_NAME, Context.MODE_PRIVATE)
+        val savedAddonsJson = prefs.getString(ADDONS_KEY, null)
+        
+        var addons = mutableListOf<Addon>()
+        if (savedAddonsJson != null) {
+            val type = object : TypeToken<List<Addon>>() {}.type
+            addons = gson.fromJson(savedAddonsJson, type)
+        }
+
+        if (forceSync || addons.isEmpty()) {
+            try {
+                val req = Request.Builder().url(DEFAULT_REGISTRY_URL).build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val body = res.body?.string()
+                    if (body != null) {
+                        val type = object : TypeToken<List<Addon>>() {}.type
+                        val registryAddons: List<Addon> = gson.fromJson(body, type)
+                        
+                        var changed = false
+                        for (rAddon in registryAddons) {
+                            val existingIndex = addons.indexOfFirst { it.id == rAddon.id }
+                            if (existingIndex >= 0) {
+                                if (addons[existingIndex].url != rAddon.url || addons[existingIndex].name != rAddon.name) {
+                                    addons[existingIndex] = rAddon
+                                    changed = true
+                                }
+                            } else {
+                                addons.add(rAddon)
+                                changed = true
+                            }
+                        }
+                        
+                        if (changed) {
+                            prefs.edit().putString(ADDONS_KEY, gson.toJson(addons)).apply()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        cachedAddons = addons
+        return@withContext addons
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     suspend fun resolveFromAddons(
         context: Context,
         type: String, // "movie" or "tv"
         tmdbId: Int,
         season: Int? = null,
-        episode: Int? = null
-    ): List<StreamSource> = withContext(Dispatchers.IO) {
-        val addons = getAddons().filter { it.enabled }
-        val allSources = mutableListOf<StreamSource>()
-
-        // Load CryptoJS once
+        episode: Int? = null,
+        onSourceFound: (List<StreamSource>) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val addons = getAddons(context)
+        val activeAddons = addons.filter { it.enabled }
+        
+        // Load crypto-js from assets
         val cryptoJsCode = try {
             context.assets.open("crypto-js.min.js").bufferedReader().use { it.readText() }
         } catch (e: Exception) {
+            e.printStackTrace()
             ""
         }
 
-        for (addon in addons) {
-            try {
-                var jsCode = addonScriptsCache[addon.id]
-                if (jsCode == null) {
-                    jsCode = URL(addon.url).readText()
-                    addonScriptsCache[addon.id] = jsCode
-                }
+        val deferredResults = activeAddons.map { addon ->
+            async {
+                try {
+                    var jsCode = addonScriptsCache[addon.id]
+                    if (jsCode == null) {
+                        val req = Request.Builder().url(addon.url).build()
+                        val res = client.newCall(req).execute()
+                        if (res.isSuccessful) {
+                            jsCode = res.body?.string()
+                            if (jsCode != null) {
+                                addonScriptsCache[addon.id] = jsCode
+                            }
+                        }
+                    }
 
-                val sources = executeJsInQuickJs(cryptoJsCode, jsCode, type, tmdbId, season, episode)
-                val mappedSources = sources.map { s -> 
-                    s.copy(provider = s.provider.ifEmpty { addon.name }) 
+                    if (jsCode != null) {
+                        // 60 seconds timeout for each addon to prevent hanging on complex addons
+                        val sourcesJson = withTimeoutOrNull(60000L) {
+                            executeAddonInWebView(context, cryptoJsCode, jsCode, addon.name, addon.url, null, type, tmdbId, season, episode)
+                        }
+                        
+                        if (sourcesJson != null && sourcesJson.isNotEmpty() && sourcesJson != "null" && sourcesJson != "undefined") {
+                            val sourceType = object : TypeToken<List<StreamSource>>() {}.type
+                            val parsedSources: List<StreamSource> = gson.fromJson(sourcesJson, sourceType)
+                            val mapped = parsedSources.map { s ->
+                                s.copy(provider = if (s.provider.isBlank()) addon.name else s.provider)
+                            }
+                            if (mapped.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    onSourceFound(mapped)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                allSources.addAll(mappedSources)
-            } catch (e: Exception) {
-                Log.e("AddonManager", "Error executing addon ${addon.name}: ${e.message}")
             }
         }
-        return@withContext allSources
+        
+        // Wait for all addons to finish (or timeout)
+        deferredResults.awaitAll()
     }
 
-    private fun executeJsInQuickJs(
+    private suspend fun executeAddonInWebView(
+        context: Context,
         cryptoJsCode: String,
-        addonJsCode: String,
+        addonCode: String,
+        addonName: String,
+        addonUrl: String,
+        functionName: String?,
         type: String,
         tmdbId: Int,
         season: Int?,
         episode: Int?
-    ): List<StreamSource> {
-        val quickJs = QuickJs.create()
-        var resultList = emptyList<StreamSource>()
-        var errorMsg: String? = null
+    ): String = withContext(Dispatchers.Main) {
+        suspendCancellableCoroutine { continuation ->
+            val webView = WebView(context)
+            webView.settings.javaScriptEnabled = true
+            webView.settings.domStorageEnabled = true
 
-        try {
-            val bridge = object : AndroidBridge {
-                override fun fetchSync(url: String, optionsJson: String): String {
-                    try {
-                        val requestBuilder = Request.Builder().url(url)
-                        val opts = json.parseToJsonElement(optionsJson).jsonObject
-                        
-                        // Parse method
-                        val method = opts["method"]?.jsonPrimitive?.content?.uppercase() ?: "GET"
-                        
-                        // Parse headers
-                        opts["headers"]?.jsonObject?.forEach { (key, value) ->
-                            requestBuilder.header(key, value.jsonPrimitive.content)
-                        }
+            webView.settings.allowUniversalAccessFromFileURLs = true
+            webView.settings.allowFileAccessFromFileURLs = true
 
-                        // Parse body
-                        var reqBody: okhttp3.RequestBody? = null
-                        if (opts.containsKey("body")) {
-                            val bodyContent = opts["body"]?.jsonPrimitive?.content ?: ""
-                            val contentType = opts["headers"]?.jsonObject?.get("Content-Type")?.jsonPrimitive?.content ?: "application/x-www-form-urlencoded"
-                            reqBody = bodyContent.toRequestBody(contentType.toMediaTypeOrNull())
-                        }
-                        
-                        // Ensure body exists for POST/PUT if empty
-                        if ((method == "POST" || method == "PUT") && reqBody == null) {
-                            reqBody = "".toRequestBody(null)
-                        }
-
-                        requestBuilder.method(method, reqBody)
-                        
-                        val response = httpClient.newCall(requestBuilder.build()).execute()
-                        val resBody = response.body?.string() ?: ""
-                        
-                        // Return JSON string representing the fetch response
-                        val resObj = mapOf(
-                            "code" to response.code.toString(),
-                            "body" to resBody,
-                            "url" to response.request.url.toString()
-                        )
-                        return json.encodeToString(resObj)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        val errObj = mapOf("code" to "500", "body" to "", "error" to (e.message ?: "Network error"))
-                        return json.encodeToString(errObj)
+            val interfaceName = "AndroidBridge"
+            
+            webView.addJavascriptInterface(object : Any() {
+                @JavascriptInterface
+                fun onResult(result: String) {
+                    if (continuation.isActive) {
+                        continuation.resume(result)
+                        webView.post { webView.destroy() }
                     }
                 }
 
-                override fun onResult(resultJson: String) {
-                    try {
-                        resultList = json.decodeFromString(resultJson)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                @JavascriptInterface
+                fun onError(error: String) {
+                    if (continuation.isActive) {
+                        continuation.resume("[]")
+                        webView.post { webView.destroy() }
                     }
                 }
 
-                override fun onError(error: String) {
-                    errorMsg = error
+                @JavascriptInterface
+                fun log(msg: String) {
+                    android.util.Log.d("AddonManagerJS", msg)
                 }
 
-                override fun getAddonCode(): String {
-                    return addonJsCode
+                @JavascriptInterface
+                fun error(msg: String) {
+                    android.util.Log.e("AddonManagerJS", msg)
                 }
-            }
 
-            quickJs.set("AndroidBridge", AndroidBridge::class.java, bridge)
-
-            // Polyfill environment for CryptoJS and Fetch
-            val envPolyfill = """
-                var window = globalThis;
-                var global = globalThis;
-                
-                // Console Polyfill
-                globalThis.console = {
-                    log: function() {},
-                    error: function() {},
-                    warn: function() {},
-                    info: function() {},
-                    debug: function() {}
-                };
-                
-                // Fetch Polyfill
-                globalThis.fetch = function(url, options) {
-                    try {
-                        var optsStr = options ? JSON.stringify(options) : "{}";
-                        var resStr = AndroidBridge.fetchSync(url, optsStr);
-                        var res = JSON.parse(resStr);
-                        
-                        var ok = parseInt(res.code) >= 200 && parseInt(res.code) < 300;
-                        return Promise.resolve({
-                            ok: ok,
-                            status: parseInt(res.code),
-                            url: res.url,
-                            json: function() { 
-                                return Promise.resolve(JSON.parse(res.body)); 
-                            },
-                            text: function() { 
-                                return Promise.resolve(res.body); 
+                @JavascriptInterface
+                fun doFetch(reqId: String, url: String, optionsJson: String?) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val requestBuilder = okhttp3.Request.Builder().url(url)
+                            if (optionsJson != null && optionsJson != "null" && optionsJson != "undefined") {
+                                val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                                val options: Map<String, Any>? = gson.fromJson(optionsJson, type)
+                                if (options != null) {
+                                    val method = (options["method"] as? String)?.uppercase() ?: "GET"
+                                    var contentTypeStr = "text/plain"
+                                    val headersMap = options["headers"] as? Map<String, Any>
+                                    headersMap?.forEach { (k, v) ->
+                                        val valStr = v.toString()
+                                        if (k.equals("content-type", ignoreCase = true)) {
+                                            contentTypeStr = valStr
+                                        }
+                                        requestBuilder.addHeader(k, valStr)
+                                    }
+                                    
+                                    val bodyStr = options["body"]?.toString()
+                                    if (method == "POST" || method == "PUT" || method == "PATCH") {
+                                        val mediaType = contentTypeStr.toMediaTypeOrNull()
+                                        val reqBody = (bodyStr ?: "").toRequestBody(mediaType)
+                                        requestBuilder.method(method, reqBody)
+                                    } else {
+                                        requestBuilder.method(method, null)
+                                    }
+                                }
                             }
-                        });
-                    } catch(e) {
-                        return Promise.reject(e);
-                    }
-                };
-                
-                // Helper to execute Promises
-                function executeAddon(type, tmdbId, season, episode) {
-                    try {
-                        var addonCodeStr = AndroidBridge.getAddonCode();
-                        var parserFunc = new Function("CryptoJS", addonCodeStr)(globalThis.CryptoJS);
-                        var p = parserFunc(type, String(tmdbId), season, episode);
-                        if (p && typeof p.then === 'function') {
-                            p.then(function(res) {
-                                AndroidBridge.onResult(JSON.stringify(res || []));
-                            }).catch(function(err) {
-                                AndroidBridge.onError(err.message);
-                            });
-                        } else {
-                            AndroidBridge.onResult(JSON.stringify(p || []));
+                            
+                            val response = client.newCall(requestBuilder.build()).execute()
+                            
+                            val inputStream = response.body?.byteStream()
+                            val buffer = java.io.ByteArrayOutputStream()
+                            val data = ByteArray(8192)
+                            var totalRead = 0
+                            if (inputStream != null) {
+                                var read = inputStream.read(data)
+                                while (read != -1 && totalRead < 5 * 1024 * 1024) {
+                                    buffer.write(data, 0, read)
+                                    totalRead += read
+                                    read = inputStream.read(data)
+                                }
+                                inputStream.close()
+                            }
+                            val bodyBytes = buffer.toByteArray()
+                            
+                            val status = response.code
+                            
+                            val responseHeadersMap = mutableMapOf<String, String>()
+                            response.headers.names().forEach { name ->
+                                responseHeadersMap[name] = response.headers.values(name).joinToString(", ")
+                            }
+                            val headersJsonStr = gson.toJson(responseHeadersMap)
+                            
+                            withContext(Dispatchers.Main) {
+                                val base64Body = android.util.Base64.encodeToString(bodyBytes, android.util.Base64.NO_WRAP)
+                                val safeHeadersJson = android.util.Base64.encodeToString(headersJsonStr.toByteArray(), android.util.Base64.NO_WRAP)
+                                webView.evaluateJavascript("javascript:window.onAndroidFetchResponse('" + reqId + "', " + status + ", '" + safeHeadersJson + "', '" + base64Body + "');", null)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                webView.evaluateJavascript("javascript:window.onAndroidFetchError('" + reqId + "', '" + (e.message?.replace("'", "\\'") ?: "Error") + "');", null)
+                            }
                         }
-                    } catch(e) {
-                        AndroidBridge.onError(e.message);
                     }
                 }
+            }, interfaceName)
+
+            val seasonArg = season?.toString() ?: "null"
+            val episodeArg = episode?.toString() ?: "null"
+
+            val addonCodeBase64 = android.util.Base64.encodeToString(addonCode.toByteArray(), android.util.Base64.NO_WRAP)
+
+            val html = """
+                <html>
+                <head>
+                    <script>
+                        $cryptoJsCode
+                    </script>
+                    <script>
+                        window.console = {
+                            log: function() { AndroidBridge.log(Array.prototype.slice.call(arguments).join(' ')); },
+                            error: function() { AndroidBridge.error(Array.prototype.slice.call(arguments).join(' ')); },
+                            warn: function() { AndroidBridge.log(Array.prototype.slice.call(arguments).join(' ')); }
+                        };
+                        window.originalFetch = window.fetch;
+                        window.fetchPromises = {};
+                        window.onAndroidFetchResponse = function(reqId, status, headersBase64, base64Body) {
+                            var p = window.fetchPromises[reqId];
+                            if (p) {
+                                var bodyText;
+                                try {
+                                    bodyText = decodeURIComponent(escape(window.atob(base64Body)));
+                                } catch (e) {
+                                    bodyText = window.atob(base64Body);
+                                }
+                                var headersJson = decodeURIComponent(escape(window.atob(headersBase64)));
+                                var headersObj = JSON.parse(headersJson);
+                                var res = {
+                                    status: status,
+                                    ok: status >= 200 && status < 300,
+                                    headers: {
+                                        get: function(name) {
+                                            var key = Object.keys(headersObj).find(function(k) { return k.toLowerCase() === name.toLowerCase(); });
+                                            return key ? headersObj[key] : null;
+                                        }
+                                    },
+                                    text: function() { return Promise.resolve(bodyText); },
+                                    json: function() { return Promise.resolve(JSON.parse(bodyText)); }
+                                };
+                                p.resolve(res);
+                                delete window.fetchPromises[reqId];
+                            }
+                        };
+                        window.onAndroidFetchError = function(reqId, error) {
+                            var p = window.fetchPromises[reqId];
+                            if (p) {
+                                p.reject(new Error(error));
+                                delete window.fetchPromises[reqId];
+                            }
+                        };
+                        window.fetch = function(url, options) {
+                            return new Promise(function(resolve, reject) {
+                                var reqId = Math.random().toString(36).substring(7);
+                                window.fetchPromises[reqId] = { resolve: resolve, reject: reject };
+                                var optionsJson = options ? JSON.stringify(options) : "null";
+                                AndroidBridge.doFetch(reqId, url, optionsJson);
+                            });
+                        };
+
+                        try {
+                            var decodedCode = decodeURIComponent(escape(window.atob("$addonCodeBase64")));
+                            var parserFunc;
+                            try {
+                                parserFunc = new Function("CryptoJS", decodedCode)(CryptoJS);
+                            } catch(e) {
+                                AndroidBridge.log("new Function failed: " + e.toString());
+                            }
+                            
+                            if (typeof parserFunc !== 'function') {
+                                // Snapshot existing window keys before eval
+                                var keysBefore = {};
+                                for (var k in window) { keysBefore[k] = true; }
+                                
+                                eval(decodedCode);
+                                
+                                // Find newly added functions after eval
+                                if (typeof parserFunc !== 'function') {
+                                    for (var k in window) {
+                                        if (!keysBefore[k] && typeof window[k] === 'function') {
+                                            parserFunc = window[k];
+                                            AndroidBridge.log("Auto-discovered function: " + k);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (typeof parserFunc === 'function') {
+                                var result = parserFunc("$type", "$tmdbId", $seasonArg, $episodeArg);
+                                // Handle both Promise and non-Promise returns
+                                if (result && typeof result.then === 'function') {
+                                    result.then(function(sources) {
+                                        AndroidBridge.onResult(JSON.stringify(sources || []));
+                                    }).catch(function(err) {
+                                        AndroidBridge.onError(err.toString());
+                                    });
+                                } else {
+                                    AndroidBridge.onResult(JSON.stringify(result || []));
+                                }
+                            } else {
+                                AndroidBridge.onError("Parser is not a function");
+                            }
+                        } catch(e) {
+                            AndroidBridge.onError(e.toString());
+                        }
+                    </script>
+                </head>
+                <body></body>
+                </html>
             """.trimIndent()
-            
-            quickJs.evaluate(envPolyfill)
-            
-            if (cryptoJsCode.isNotEmpty()) {
-                quickJs.evaluate(cryptoJsCode)
+
+            webView.loadDataWithBaseURL("file:///android_asset/dummy.html", html, "text/html", "UTF-8", null)
+
+            continuation.invokeOnCancellation {
+                webView.post { webView.destroy() }
             }
-
-            // Execute addon logic
-            val runScript = """
-                executeAddon("$type", "$tmdbId", ${season ?: "undefined"}, ${episode ?: "undefined"});
-            """.trimIndent()
-            
-            quickJs.evaluate(runScript)
-            
-            // Note: Since fetch is synchronous in our polyfill, Promise callbacks (microtasks) 
-            // usually execute immediately or pending tasks can be forced. QuickJS executes pending jobs when evaluating.
-
-            errorMsg?.let { throw Exception("Addon JS Error: $it") }
-            
-        } finally {
-            quickJs.close()
         }
-        
-        return resultList
     }
 }

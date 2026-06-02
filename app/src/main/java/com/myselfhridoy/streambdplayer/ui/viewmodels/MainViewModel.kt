@@ -99,15 +99,18 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             _isResolvingStreams.value = true
             _availableStreams.value = emptyList()
-            val sources = AddonManager.resolveFromAddons(context, type, tmdbId)
-            _availableStreams.value = sources
+            AddonManager.resolveFromAddons(context, type, tmdbId) { sources ->
+                val current = _availableStreams.value.toMutableList()
+                current.addAll(sources)
+                _availableStreams.value = current
+            }
             _isResolvingStreams.value = false
         }
     }
 
     init {
         fetchLiveCategories()
-        fetchAddons()
+        // Addons are fetched when the context is available
     }
 
     private fun fetchLiveCategories() {
@@ -119,12 +122,14 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    private fun fetchAddons() {
+    fun fetchAddons(context: Context? = null) {
         viewModelScope.launch {
-            _isLoadingAddons.value = true
-            val fetchedAddons = AddonManager.getAddons()
-            _addons.value = fetchedAddons
-            _isLoadingAddons.value = false
+            if (context != null) {
+                _isLoadingAddons.value = true
+                val fetchedAddons = AddonManager.getAddons(context)
+                _addons.value = fetchedAddons
+                _isLoadingAddons.value = false
+            }
         }
     }
 
