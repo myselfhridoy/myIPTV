@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +72,11 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             groupFiltered?.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
     }
+
+    // Use rememberUpdatedState so the click lambda inside LazyVerticalGrid items
+    // always captures the LATEST filteredChannels, even when Compose skips
+    // recomposition of items whose Channel data hasn't changed.
+    val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
     
     Column(
         modifier = Modifier
@@ -197,7 +203,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             ) {
                 gridItems(filteredChannels) { channel ->
                     ChannelCard(channel = channel) {
-                        viewModel.setCurrentPlaylist(filteredChannels)
+                        viewModel.setCurrentPlaylist(currentPlaylist)
                         viewModel.selectChannel(channel)
                         navController.navigate(Routes.LIVE_PLAYER)
                     }

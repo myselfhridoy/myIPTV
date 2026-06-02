@@ -53,6 +53,11 @@ fun PlaylistChannelsScreen(
     val selectedGroup by viewModel.selectedGroup.collectAsState()
     val channels by viewModel.displayedChannels.collectAsState()
 
+    // Use rememberUpdatedState so the click lambda inside LazyVerticalGrid items
+    // always captures the LATEST channels list, even when Compose skips
+    // recomposition of items whose Channel data hasn't changed.
+    val currentPlaylist by rememberUpdatedState(channels)
+
     LaunchedEffect(playlistUrl) {
         viewModel.loadPlaylist(playlistUrl)
     }
@@ -116,7 +121,7 @@ fun PlaylistChannelsScreen(
                         items(channels) { channel ->
                             PlaylistChannelItem(channel) {
                                 viewModel.selectChannel(channel) // local selected state
-                                mainViewModel.setCurrentPlaylist(channels)
+                                mainViewModel.setCurrentPlaylist(currentPlaylist)
                                 mainViewModel.selectChannel(channel) // global selected state for LivePlayerScreen
                                 val encodedUrl = URLEncoder.encode(channel.url, "UTF-8")
                                 navController.navigate("live_player")
