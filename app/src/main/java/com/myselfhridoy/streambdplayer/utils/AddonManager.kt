@@ -169,6 +169,15 @@ object AddonManager {
                 var window = globalThis;
                 var global = globalThis;
                 
+                // Console Polyfill
+                globalThis.console = {
+                    log: function() {},
+                    error: function() {},
+                    warn: function() {},
+                    info: function() {},
+                    debug: function() {}
+                };
+                
                 // Fetch Polyfill
                 globalThis.fetch = function(url, options) {
                     try {

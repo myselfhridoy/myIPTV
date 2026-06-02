@@ -63,9 +63,12 @@ fun SourceSelectionScreen(
 
     val m = media!!
 
-    // Fetch streams on entry
+    var lastFetchedId by remember { mutableStateOf(-1) }
+
+    // Fetch streams on entry or when media changes
     LaunchedEffect(m.id) {
-        if (streams.isEmpty() && !isResolving) {
+        if (m.id != lastFetchedId) {
+            lastFetchedId = m.id
             val type = if (m.isMovie) "movie" else "tv"
             mainViewModel.fetchVodStreams(context, type, m.id)
         }

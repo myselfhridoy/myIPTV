@@ -248,8 +248,21 @@ fun LivePlayerScreen(
                         }
                     }
                 } else if (finalDrm.licenseServer != null) {
-                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                    drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
+                    if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
+                        // The license "server" is actually a JSON ClearKey payload
+                        try {
+                            val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(finalDrm.licenseServer.trim().toByteArray())
+                            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                                .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                                .build(localMediaDrmCallback)
+                            mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    } else {
+                        drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                        drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
+                    }
                 }
 
                 mediaItemBuilder.setDrmConfiguration(drmBuilder.build())

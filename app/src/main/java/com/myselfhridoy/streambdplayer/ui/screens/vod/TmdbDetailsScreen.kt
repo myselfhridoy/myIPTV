@@ -20,7 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +49,18 @@ fun TmdbDetailsScreen(
     navController: NavController
 ) {
     val media by tmdbViewModel.selectedMedia.collectAsState()
+
+    val watchButtonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(media) {
+        if (media != null) {
+            try {
+                watchButtonFocusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Ignore focus request error during initial composition
+            }
+        }
+    }
 
     if (media == null) return
 
@@ -208,30 +226,62 @@ fun TmdbDetailsScreen(
 
                 // Watch Now Button
                 var watchBtnFocused by remember { mutableStateOf(false) }
+                val buttonScale by animateFloatAsState(
+                    targetValue = if (watchBtnFocused) 1.05f else 1f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "watchBtnScale"
+                )
+
                 Row(
                     modifier = Modifier
+                        .focusRequester(watchButtonFocusRequester)
                         .onFocusChanged { watchBtnFocused = it.isFocused }
-                        .clip(RoundedCornerShape(12.dp))
+                        .graphicsLayer {
+                            scaleX = buttonScale
+                            scaleY = buttonScale
+                        }
+                        .shadow(
+                            elevation = if (watchBtnFocused) 16.dp else 8.dp,
+                            shape = RoundedCornerShape(16.dp),
+                            spotColor = TealAccent,
+                            ambientColor = TealAccent
+                        )
+                        .clip(RoundedCornerShape(16.dp))
                         .clickable {
                             navController.navigate(Routes.SOURCE_SELECTION)
                         }
                         .background(
                             brush = Brush.horizontalGradient(
-                                colors = listOf(TealAccent, Color(0xFF008D94))
+                                colors = if (watchBtnFocused) {
+                                    listOf(TealAccent, Color(0xFF00C6FF))
+                                } else {
+                                    listOf(Color(0xFF0D5D63), Color(0xFF008D94))
+                                }
                             ),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(16.dp)
                         )
                         .border(
-                            width = if (watchBtnFocused) 3.dp else 0.dp,
+                            width = if (watchBtnFocused) 2.dp else 0.dp,
                             color = if (watchBtnFocused) Color.White else Color.Transparent,
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(16.dp)
                         )
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                        .padding(horizontal = 32.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow, 
+                        contentDescription = null, 
+                        tint = Color.White, 
+                        modifier = Modifier.size(24.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Watch Now", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Watch Now", 
+                        color = Color.White, 
+                        fontSize = 18.sp, 
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
                 }
             }
         }
