@@ -1,31 +1,19 @@
 package com.myselfhridoy.streambdplayer.ui.navigation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.ui.PlayerView
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.myselfhridoy.streambdplayer.ui.screens.live.LiveCategoryChannelsScreen
 import com.myselfhridoy.streambdplayer.ui.screens.live.LivePlayerScreen
 import com.myselfhridoy.streambdplayer.ui.screens.main.MainScreen
 import com.myselfhridoy.streambdplayer.ui.screens.vod.TmdbDetailsScreen
+import com.myselfhridoy.streambdplayer.ui.screens.vod.SourceSelectionScreen
 import com.myselfhridoy.streambdplayer.ui.screens.vod.VodPlayerScreen
 import com.myselfhridoy.streambdplayer.ui.screens.playlists.PlaylistsScreen
 import com.myselfhridoy.streambdplayer.ui.screens.playlists.PlaylistChannelsScreen
@@ -40,6 +28,7 @@ object Routes {
     const val LIVE_CATEGORY_CHANNELS = "live_category_channels"
     const val LIVE_PLAYER = "live_player"
     const val TMDB_DETAILS = "tmdb_details"
+    const val SOURCE_SELECTION = "source_selection"
     const val VOD_PLAYER = "vod_player"
     const val PLAYLISTS = "playlists"
     const val PLAYLIST_CHANNELS = "playlist_channels/{title}/{url}"
@@ -92,16 +81,21 @@ fun AppNavigation(
             composable(Routes.TMDB_DETAILS) {
                 TmdbDetailsScreen(mainViewModel = mainViewModel, tmdbViewModel = tmdbViewModel, navController = navController)
             }
+            composable(Routes.SOURCE_SELECTION) {
+                SourceSelectionScreen(
+                    mainViewModel = mainViewModel,
+                    tmdbViewModel = tmdbViewModel,
+                    navController = navController
+                )
+            }
             composable(Routes.VOD_PLAYER) {
-                val stream by mainViewModel.selectedStream.collectAsState()
-                val media by tmdbViewModel.selectedMedia.collectAsState()
-                if (stream != null) {
-                    VodPlayerScreen(
-                        videoUrl = stream!!.url,
-                        videoTitle = media?.displayTitle ?: "VOD Stream",
-                        navController = navController
-                    )
-                }
+                VodPlayerScreen(
+                    mainViewModel = mainViewModel,
+                    tmdbViewModel = tmdbViewModel,
+                    navController = navController,
+                    exoPlayer = globalExoPlayer,
+                    trackSelector = trackSelector
+                )
             }
             composable(Routes.PLAYLISTS) {
                 PlaylistsScreen(playlistViewModel = playlistViewModel, navController = navController)

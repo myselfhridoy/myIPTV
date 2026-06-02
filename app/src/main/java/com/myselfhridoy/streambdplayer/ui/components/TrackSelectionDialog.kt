@@ -1,15 +1,21 @@
 package com.myselfhridoy.streambdplayer.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,18 +41,24 @@ fun TrackSelectionDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF2C3240)),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Tabs
+                // Tabs - Video, Audio, Subtitle
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF222834))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFF1A1F2E), Color(0xFF222834))
+                            )
+                        )
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     TabItem(
                         title = "VIDEO",
@@ -58,6 +70,12 @@ fun TrackSelectionDialog(
                         title = "AUDIO",
                         isSelected = selectedTab == C.TRACK_TYPE_AUDIO,
                         onClick = { selectedTab = C.TRACK_TYPE_AUDIO },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TabItem(
+                        title = "SUBTITLE",
+                        isSelected = selectedTab == C.TRACK_TYPE_TEXT,
+                        onClick = { selectedTab = C.TRACK_TYPE_TEXT },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -73,17 +91,27 @@ fun TrackSelectionDialog(
                         .heightIn(max = 300.dp)
                         .padding(horizontal = 16.dp)
                 ) {
-                    // Auto Option
+                    // Auto / Off Option
                     val hasOverride = parameters.overrides.keys.any { it.type == selectedTab }
                     val isAuto = trackGroups.isEmpty() || !hasOverride
                     item {
                         TrackOptionItem(
-                            title = "Auto",
+                            title = if (selectedTab == C.TRACK_TYPE_TEXT) "Off" else "Auto",
                             isSelected = isAuto,
                             onClick = {
-                                trackSelector.setParameters(
-                                    parameters.buildUpon().clearOverridesOfType(selectedTab).build()
-                                )
+                                if (selectedTab == C.TRACK_TYPE_TEXT) {
+                                    // Disable subtitles
+                                    trackSelector.setParameters(
+                                        parameters.buildUpon()
+                                            .clearOverridesOfType(selectedTab)
+                                            .setRendererDisabled(getRendererIndex(currentTracks, selectedTab), true)
+                                            .build()
+                                    )
+                                } else {
+                                    trackSelector.setParameters(
+                                        parameters.buildUpon().clearOverridesOfType(selectedTab).build()
+                                    )
+                                }
                                 onDismiss()
                             }
                         )
@@ -105,6 +133,7 @@ fun TrackSelectionDialog(
                                     trackSelector.setParameters(
                                         trackSelector.buildUponParameters()
                                             .clearOverridesOfType(selectedTab)
+                                            .setRendererDisabled(getRendererIndex(currentTracks, selectedTab), false)
                                             .addOverride(override)
                                             .build()
                                     )
@@ -115,21 +144,27 @@ fun TrackSelectionDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Action Buttons
+                // Close Button
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("CANCEL", color = WhiteText, fontWeight = FontWeight.Medium)
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    TextButton(onClick = onDismiss) {
-                        Text("OK", color = WhiteText, fontWeight = FontWeight.Medium)
+                    var closeFocused by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .onFocusChanged { closeFocused = it.isFocused }
+                            .border(
+                                width = if (closeFocused) 2.dp else 0.dp,
+                                color = if (closeFocused) TealAccent else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    ) {
+                        Text("CLOSE", color = TealAccent, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -139,41 +174,71 @@ fun TrackSelectionDialog(
 
 @Composable
 private fun TabItem(title: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 16.dp),
+            .background(
+                color = if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) TealAccent else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = title,
             color = if (isSelected) TealAccent else Color.Gray,
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
+            fontSize = 13.sp
         )
     }
 }
 
 @Composable
 private fun TrackOptionItem(title: String, isSelected: Boolean, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .background(
+                color = if (isFocused) TealAccent.copy(alpha = 0.08f) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) TealAccent else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = title,
-            color = WhiteText,
-            fontSize = 16.sp,
+            color = if (isSelected) TealAccent else WhiteText,
+            fontSize = 15.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.weight(1f)
         )
-        RadioButton(
-            selected = isSelected,
-            onClick = onClick,
-            colors = RadioButtonDefaults.colors(selectedColor = TealAccent, unselectedColor = Color.White)
-        )
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Selected",
+                tint = TealAccent,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -183,7 +248,7 @@ private fun formatTrackName(format: Format, trackType: Int): String {
             if (format.width > 0 && format.height > 0) {
                 var name = "${format.width} × ${format.height}"
                 if (format.bitrate > 0) {
-                    name += ", ${format.bitrate / 1000000.0} Mbps"
+                    name += ", ${String.format("%.1f", format.bitrate / 1000000.0)} Mbps"
                 }
                 name
             } else {
@@ -191,8 +256,31 @@ private fun formatTrackName(format: Format, trackType: Int): String {
             }
         }
         C.TRACK_TYPE_AUDIO -> {
-            format.language ?: "Unknown Language"
+            val lang = format.language?.let { java.util.Locale(it).displayLanguage } ?: "Unknown"
+            val channels = when (format.channelCount) {
+                1 -> "Mono"
+                2 -> "Stereo"
+                6 -> "5.1"
+                8 -> "7.1"
+                else -> if (format.channelCount > 0) "${format.channelCount}ch" else ""
+            }
+            if (channels.isNotEmpty()) "$lang ($channels)" else lang
+        }
+        C.TRACK_TYPE_TEXT -> {
+            val lang = format.language?.let { java.util.Locale(it).displayLanguage } ?: "Unknown"
+            val label = format.label
+            if (label != null && label != lang) "$lang — $label" else lang
         }
         else -> "Unknown"
     }
+}
+
+private fun getRendererIndex(tracks: Tracks, trackType: Int): Int {
+    // Find the renderer index for the given track type
+    var rendererIndex = 0
+    for (group in tracks.groups) {
+        if (group.type == trackType) return rendererIndex
+        rendererIndex++
+    }
+    return rendererIndex
 }
