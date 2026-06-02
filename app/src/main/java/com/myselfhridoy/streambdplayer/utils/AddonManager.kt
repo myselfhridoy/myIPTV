@@ -24,6 +24,7 @@ interface AndroidBridge {
     fun fetchSync(url: String, optionsJson: String): String
     fun onResult(resultJson: String)
     fun onError(error: String)
+    fun getAddonCode(): String
 }
 
 object AddonManager {
@@ -160,6 +161,10 @@ object AddonManager {
                 override fun onError(error: String) {
                     errorMsg = error
                 }
+
+                override fun getAddonCode(): String {
+                    return addonJsCode
+                }
             }
 
             quickJs.set("AndroidBridge", AndroidBridge::class.java, bridge)
@@ -203,8 +208,9 @@ object AddonManager {
                 };
                 
                 // Helper to execute Promises
-                function executeAddon(addonCodeStr, type, tmdbId, season, episode) {
+                function executeAddon(type, tmdbId, season, episode) {
                     try {
+                        var addonCodeStr = AndroidBridge.getAddonCode();
                         var parserFunc = new Function("CryptoJS", addonCodeStr)(globalThis.CryptoJS);
                         var p = parserFunc(type, String(tmdbId), season, episode);
                         if (p && typeof p.then === 'function') {
@@ -229,9 +235,8 @@ object AddonManager {
             }
 
             // Execute addon logic
-            val escapeCode = addonJsCode.replace("\"", "\\\"").replace("\n", "\\n")
             val runScript = """
-                executeAddon("$escapeCode", "$type", "$tmdbId", ${season ?: "undefined"}, ${episode ?: "undefined"});
+                executeAddon("$type", "$tmdbId", ${season ?: "undefined"}, ${episode ?: "undefined"});
             """.trimIndent()
             
             quickJs.evaluate(runScript)
