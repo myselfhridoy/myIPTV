@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,6 +52,7 @@ import com.myselfhridoy.streambdplayer.ui.components.TvIconButton
 import com.myselfhridoy.streambdplayer.ui.components.TrackSelectionDialog
 import com.myselfhridoy.streambdplayer.ui.screens.live.VideoScaleMode
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
+import com.myselfhridoy.streambdplayer.ui.theme.TealAccent
 import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 
@@ -84,7 +87,9 @@ fun VodPlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
 
     var currentPosition by remember { mutableStateOf(0L) }
+    var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
+    var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
@@ -113,6 +118,7 @@ fun VodPlayerScreen(
             val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
 
         // Set landscape immediately
@@ -128,6 +134,7 @@ fun VodPlayerScreen(
             if (window != null) {
                 val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }
@@ -299,9 +306,16 @@ fun VodPlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isLoading = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) {
+                    playerError = null
+                }
             }
             override fun onIsPlayingChanged(isPlayingState: Boolean) {
                 isPlaying = isPlayingState
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                playerError = error
+                isLoading = false
             }
         }
         exoPlayer.addListener(listener)
@@ -314,7 +328,16 @@ fun VodPlayerScreen(
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPosition = exoPlayer.currentPosition
+            bufferedPosition = exoPlayer.bufferedPosition
             duration = exoPlayer.duration.coerceAtLeast(0L)
+            delay(500)
+        }
+    }
+    
+    // Fallback for when paused but buffering
+    LaunchedEffect(isLoading) {
+        while (isLoading) {
+            bufferedPosition = exoPlayer.bufferedPosition
             delay(500)
         }
     }
@@ -583,20 +606,36 @@ fun VodPlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(formatVodTime(currentPosition), color = Color.White, fontSize = 12.sp)
-                        Slider(
-                            value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
-                            onValueChange = { value ->
-                                exoPlayer.seekTo((value * duration).toLong())
-                            },
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 16.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = Color.Red,
-                                inactiveTrackColor = Color.Gray
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val bufferFraction = if (duration > 0) (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                            LinearProgressIndicator(
+                                progress = { bufferFraction },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp) // align with slider track
+                                    .height(4.dp)
+                                    .clip(CircleShape),
+                                color = Color.White.copy(alpha = 0.4f),
+                                trackColor = Color.Gray.copy(alpha = 0.3f)
                             )
-                        )
+                            Slider(
+                                value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                                onValueChange = { value ->
+                                    exoPlayer.seekTo((value * duration).toLong())
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color.Red,
+                                    inactiveTrackColor = Color.Transparent
+                                )
+                            )
+                        }
                         Text(formatVodTime(duration), color = Color.White, fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(16.dp))
                         TvIconButton(onClick = {
@@ -619,6 +658,29 @@ fun VodPlayerScreen(
                 color = Color.Red,
                 modifier = Modifier.align(Alignment.Center)
             )
+        } else if (playerError != null) {
+            Column(
+                modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp)).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Default.Error, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        playerError = null
+                        isLoading = true
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Retry", color = Color.White)
+                }
+            }
         }
     }
 

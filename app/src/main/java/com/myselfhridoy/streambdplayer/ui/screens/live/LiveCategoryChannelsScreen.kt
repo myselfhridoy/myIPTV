@@ -17,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -141,18 +140,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         .tvFocusBorder(CircleShape)
                         .background(Color(0xFF1E2638), CircleShape)
                         .clickable { isSearchActive = true }
-                        .padding(8.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Favorites",
-                    tint = WhiteText,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .tvFocusBorder(CircleShape)
-                        .background(Color(0xFF1E2638), CircleShape)
-                        .clickable { /* TODO */ }
                         .padding(8.dp)
                 )
             }

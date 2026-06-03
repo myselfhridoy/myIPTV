@@ -81,7 +81,7 @@ data class StreamHistoryItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StreamScreen(mainViewModel: MainViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
+fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val context = LocalContext.current
 
     val sharedPreferences = context.getSharedPreferences("stream_history_prefs", android.content.Context.MODE_PRIVATE)
@@ -211,6 +211,7 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController, onM
                                             )
                                             
                                             mainViewModel.selectStream(streamSource)
+                                            tmdbViewModel.clearSelectedMedia()
                                             navController.navigate(com.myselfhridoy.streambdplayer.ui.navigation.Routes.VOD_PLAYER)
                                         }
                                         .padding(vertical = 12.dp),
@@ -365,6 +366,7 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController, onM
                         )
                         
                         mainViewModel.selectStream(streamSource)
+                        tmdbViewModel.clearSelectedMedia()
                         navController.navigate(com.myselfhridoy.streambdplayer.ui.navigation.Routes.VOD_PLAYER)
                     }
                 },

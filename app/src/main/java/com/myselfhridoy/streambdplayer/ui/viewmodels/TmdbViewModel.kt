@@ -120,6 +120,11 @@ class TmdbViewModel : ViewModel() {
         _selectedTvDetails.value = null // reset when new media selected
     }
 
+    fun clearSelectedMedia() {
+        _selectedMedia.value = null
+        _selectedTvDetails.value = null
+    }
+
     fun fetchTvDetails(tvId: Int) {
         viewModelScope.launch {
             try {

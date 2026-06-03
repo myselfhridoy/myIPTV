@@ -240,7 +240,7 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                 when (selectedTab) {
                     0 -> LiveTvScreen(mainViewModel, navController)
                     1 -> VodScreen(tmdbViewModel, navController)
-                    2 -> StreamScreen(mainViewModel, navController)
+                    2 -> StreamScreen(mainViewModel, tmdbViewModel, navController)
                 }
             }
         }
@@ -408,7 +408,7 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                     when (selectedTab) {
                         0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                         1 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
-                        2 -> StreamScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                     }
                 }
             }
