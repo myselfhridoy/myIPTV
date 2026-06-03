@@ -74,7 +74,7 @@ fun VodPlayerScreen(
     }
 
     val stream = selectedStream!!
-    val videoTitle = selectedMedia?.displayTitle ?: "VOD Stream"
+    val videoTitle = selectedMedia?.displayTitle
 
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
@@ -468,25 +468,29 @@ fun VodPlayerScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         // Title
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 16.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
+                        if (videoTitle != null) {
                             Box(
                                 modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .weight(1f)
+                                    .padding(end = 16.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
-                                Text(
-                                    text = videoTitle,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = videoTitle,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
 
                         // Top Right Icons

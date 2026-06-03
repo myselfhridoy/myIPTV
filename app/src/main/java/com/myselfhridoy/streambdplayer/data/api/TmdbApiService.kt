@@ -11,14 +11,16 @@ interface TmdbApiService {
     suspend fun getTrendingMovies(
         @Query("api_key") apiKey: String,
         @Query("language") language: String = "en-US",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 
     @GET("trending/tv/week")
     suspend fun getTrendingTv(
         @Query("api_key") apiKey: String,
         @Query("language") language: String = "en-US",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 
     @GET("search/multi")
@@ -26,7 +28,8 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("query") query: String,
         @Query("language") language: String = "en-US",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 
     @GET("tv/{tv_id}")
@@ -41,7 +44,8 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("with_original_language") withOriginalLanguage: String,
         @Query("sort_by") sortBy: String = "popularity.desc",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 
     @GET("discover/tv")
@@ -49,6 +53,7 @@ interface TmdbApiService {
         @Query("api_key") apiKey: String,
         @Query("with_original_language") withOriginalLanguage: String,
         @Query("sort_by") sortBy: String = "popularity.desc",
-        @Query("page") page: Int = 1
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -41,7 +42,7 @@ import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
+fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val trendingMovies by viewModel.trendingMovies.collectAsState()
     val trendingTv by viewModel.trendingTv.collectAsState()
     
@@ -57,12 +58,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
 
     var searchQuery by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0D1117))
-    ) {
-        if (isLoading && trendingMovies.isEmpty()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0D1117))
+        ) {
+            if (isLoading && trendingMovies.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TealAccent)
             }
@@ -307,6 +309,20 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
 
                     Spacer(modifier = Modifier.height(24.dp))
                 }
+            }
+        }
+    }
+        
+    // Menu Overlay
+        if (onMenuClick != null) {
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 16.dp, start = 16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
             }
         }
     }

@@ -15,7 +15,10 @@ import androidx.compose.ui.text.input.ImeAction
 import org.json.JSONObject
 import org.json.JSONArray
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -78,7 +81,7 @@ data class StreamHistoryItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
+fun StreamScreen(mainViewModel: MainViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val context = LocalContext.current
 
     val sharedPreferences = context.getSharedPreferences("stream_history_prefs", android.content.Context.MODE_PRIVATE)
@@ -220,6 +223,16 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
+                                    IconButton(
+                                        onClick = {
+                                            historyUrls.remove(item)
+                                            val array = JSONArray()
+                                            historyUrls.forEach { array.put(it.toJson().toString()) }
+                                            sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
+                                        }
+                                    ) {
+                                        Icon(androidx.compose.material.icons.Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                                    }
                                 }
                                 HorizontalDivider(color = Color.DarkGray)
                             }
@@ -247,12 +260,17 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (onMenuClick != null) {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(androidx.compose.material.icons.Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                    }
+                }
                 Text(
                     text = "Network Stream",
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).padding(start = if (onMenuClick != null) 8.dp else 0.dp)
                 )
                 IconButton(onClick = { showHistoryDialog = true }) {
                     Icon(Icons.Default.History, contentDescription = "History", tint = Color.LightGray)
@@ -265,10 +283,59 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
                     if (mediaStreamUrl.isBlank()) {
                         Toast.makeText(context, "Please Check the Play URL", Toast.LENGTH_SHORT).show()
                     } else {
+                        var finalUrl = mediaStreamUrl
+                        var finalCookie = cookieValue
+                        var finalReferer = refererValue
+                        var finalOrigin = originValue
+                        var finalUa = userAgent
+                        var finalCustomUa = customUserAgent
+                        var finalDrmLicense = drmLicenseUrl
+                        
+                        var tokenUrl: String? = null
+                        var tokenMatch: String? = null
+                        var tokenReplace: String? = null
+                        var tokenId: Int? = null
+
+                        if (mediaStreamUrl.contains("|")) {
+                            val parts = mediaStreamUrl.split("|")
+                            finalUrl = parts[0]
+                            for (i in 1 until parts.size) {
+                                val part = parts[i]
+                                val key = part.substringBefore("=").trim().lowercase()
+                                val value = part.substringAfter("=").trim()
+                                when (key) {
+                                    "cookie" -> finalCookie = value
+                                    "referer", "http-referer", "referrer" -> finalReferer = value
+                                    "origin", "http-origin" -> finalOrigin = value
+                                    "user-agent", "http-user-agent" -> {
+                                        val matchingUa = userAgents.find { it.equals(value, ignoreCase = true) }
+                                        if (matchingUa != null) {
+                                            finalUa = matchingUa
+                                        } else {
+                                            finalUa = "Custom"
+                                            finalCustomUa = value
+                                        }
+                                    }
+                                    "tokenurl" -> tokenUrl = value
+                                    "tokenmatch" -> tokenMatch = value
+                                    "tokenreplace" -> tokenReplace = value
+                                    "tokenid" -> tokenId = value.toIntOrNull()
+                                }
+                            }
+                            
+                            mediaStreamUrl = finalUrl
+                            cookieValue = finalCookie
+                            refererValue = finalReferer
+                            originValue = finalOrigin
+                            userAgent = finalUa
+                            if (finalUa == "Custom") customUserAgent = finalCustomUa
+                            drmLicenseUrl = finalDrmLicense
+                        }
+
                         val newItem = StreamHistoryItem(
-                            mediaStreamUrl, cookieValue, refererValue, originValue, drmLicenseUrl, userAgent, drmScheme
+                            finalUrl, finalCookie, finalReferer, finalOrigin, finalDrmLicense, finalUa, drmScheme
                         )
-                        historyUrls.removeAll { it.url == mediaStreamUrl }
+                        historyUrls.removeAll { it.url == finalUrl }
                         historyUrls.add(0, newItem)
                         
                         // Save to SharedPreferences
@@ -276,21 +343,25 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
                         historyUrls.forEach { array.put(it.toJson().toString()) }
                         sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
                         
-                        val selectedUa = if (userAgent == "Custom") customUserAgent else if (userAgent != "Default") userAgent else null
+                        val selectedUa = if (finalUa == "Custom") finalCustomUa else if (finalUa != "Default") finalUa else null
                         val drmConfig = if (drmScheme != "None" && drmScheme.isNotBlank()) {
-                            DrmConfig(type = drmScheme, licenseServer = drmLicenseUrl.takeIf { it.isNotBlank() })
+                            DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
                         } else null
                         
                         val streamSource = com.myselfhridoy.streambdplayer.data.models.StreamSource(
-                            url = mediaStreamUrl,
+                            url = finalUrl,
                             provider = "Stream",
                             headers = mapOf(
                                 "User-Agent" to (selectedUa ?: ""),
-                                "Cookie" to cookieValue,
-                                "Referer" to refererValue,
-                                "Origin" to originValue
+                                "Cookie" to finalCookie,
+                                "Referer" to finalReferer,
+                                "Origin" to finalOrigin
                             ).filterValues { it.isNotBlank() },
-                            drm = drmConfig
+                            drm = drmConfig,
+                            tokenUrl = tokenUrl,
+                            tokenMatch = tokenMatch,
+                            tokenReplace = tokenReplace,
+                            tokenId = tokenId
                         )
                         
                         mainViewModel.selectStream(streamSource)
@@ -314,33 +385,7 @@ fun StreamScreen(mainViewModel: MainViewModel, navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             
-            StreamTextField("Media Stream URL", mediaStreamUrl) { input -> 
-                if (input.contains("|")) {
-                    val parts = input.split("|")
-                    mediaStreamUrl = parts[0]
-                    for (i in 1 until parts.size) {
-                        val part = parts[i]
-                        val key = part.substringBefore("=").trim().lowercase()
-                        val value = part.substringAfter("=").trim()
-                        when (key) {
-                            "cookie" -> cookieValue = value
-                            "referer", "http-referer", "referrer" -> refererValue = value
-                            "origin", "http-origin" -> originValue = value
-                            "user-agent", "http-user-agent" -> {
-                                val matchingUa = userAgents.find { it.equals(value, ignoreCase = true) }
-                                if (matchingUa != null) {
-                                    userAgent = matchingUa
-                                } else {
-                                    userAgent = "Custom"
-                                    customUserAgent = value
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    mediaStreamUrl = input
-                }
-            }
+            StreamTextField("Media Stream URL", mediaStreamUrl) { mediaStreamUrl = it }
             StreamTextField("Cookie Value", cookieValue) { cookieValue = it }
             StreamTextField("Referer Value", refererValue) { refererValue = it }
             StreamTextField("Origin Value", originValue) { originValue = it }

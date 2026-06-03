@@ -406,22 +406,9 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
             ) { innerPadding ->
                 Box(modifier = Modifier.padding(innerPadding)) {
                     when (selectedTab) {
-                        0 -> LiveTvScreen(mainViewModel, navController)
-                        1 -> VodScreen(tmdbViewModel, navController)
-                        2 -> StreamScreen(mainViewModel, navController)
-                    }
-                    
-                    // Hamburger Menu Button (overlay)
-                    FloatingActionButton(
-                        onClick = { scope.launch { drawerState.open() } },
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp),
-                        containerColor = Color.Black.copy(alpha = 0.4f),
-                        contentColor = Color.White,
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                    ) {
-                        Icon(androidx.compose.material.icons.Icons.Default.Menu, contentDescription = "Menu")
+                        0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        1 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        2 -> StreamScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                     }
                 }
             }

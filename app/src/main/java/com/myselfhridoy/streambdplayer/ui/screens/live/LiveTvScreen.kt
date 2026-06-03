@@ -39,7 +39,7 @@ import com.myselfhridoy.streambdplayer.ui.theme.WhiteText
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 
 @Composable
-fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
+fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val categories by viewModel.liveCategories.collectAsState()
     val isLoading by viewModel.isLoadingLive.collectAsState()
 
@@ -55,19 +55,21 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Menu,
-                contentDescription = "Menu",
-                tint = WhiteText,
-                modifier = Modifier
-                    .size(36.dp)
-                    .tvFocusBorder(CircleShape)
-                    .clickable { /* TODO */ }
-                    .padding(4.dp)
-            )
-            Spacer(modifier = Modifier.width(24.dp))
+            if (onMenuClick != null) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Menu",
+                    tint = WhiteText,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .tvFocusBorder(CircleShape)
+                        .clickable { onMenuClick() }
+                        .padding(4.dp)
+                )
+                Spacer(modifier = Modifier.width(24.dp))
+            }
             Text(
-                text = "Categories",
+                text = "Live TV",
                 color = WhiteText,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -81,19 +83,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController) {
                     .size(40.dp)
                     .tvFocusBorder(CircleShape)
                     .background(Color(0xFF1E2638), CircleShape)
-                    .clickable { /* TODO */ }
-                    .padding(8.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Icon(
-                imageVector = Icons.Default.Star,
-                contentDescription = "Favorites",
-                tint = WhiteText,
-                modifier = Modifier
-                    .size(40.dp)
-                    .tvFocusBorder(CircleShape)
-                    .background(Color(0xFF1E2638), CircleShape)
-                    .clickable { /* TODO */ }
+                    .clickable { /* TODO: Implement search */ }
                     .padding(8.dp)
             )
         }
