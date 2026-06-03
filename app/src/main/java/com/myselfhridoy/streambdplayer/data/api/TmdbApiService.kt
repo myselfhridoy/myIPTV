@@ -28,4 +28,11 @@ interface TmdbApiService {
         @Query("language") language: String = "en-US",
         @Query("page") page: Int = 1
     ): TmdbResponse<TmdbMedia>
+
+    @GET("tv/{tv_id}")
+    suspend fun getTvDetails(
+        @retrofit2.http.Path("tv_id") tvId: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "en-US"
+    ): com.myselfhridoy.streambdplayer.data.models.TmdbTvShowDetails
 }

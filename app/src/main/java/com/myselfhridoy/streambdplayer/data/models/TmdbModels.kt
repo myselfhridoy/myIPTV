@@ -44,3 +44,21 @@ data class TmdbMedia(
     val isMovie: Boolean
         get() = media_type == "movie" || title != null
 }
+
+@Serializable
+data class TmdbTvShowDetails(
+    val id: Int,
+    val name: String,
+    val number_of_episodes: Int? = null,
+    val number_of_seasons: Int? = null,
+    val seasons: List<TmdbSeason> = emptyList()
+)
+
+@Serializable
+data class TmdbSeason(
+    val id: Int,
+    val name: String? = null,
+    val season_number: Int,
+    val episode_count: Int
+)
+

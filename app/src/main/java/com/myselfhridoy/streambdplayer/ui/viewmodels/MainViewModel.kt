@@ -95,11 +95,25 @@ class MainViewModel : ViewModel() {
         _selectedStream.value = stream
     }
 
-    fun fetchVodStreams(context: Context, type: String, tmdbId: Int) {
+    var lastFetchedTmdbId: Int? = null
+    var lastFetchedSeason: Int? = null
+    var lastFetchedEpisode: Int? = null
+
+    var selectedSeason: Int? = null
+    var selectedEpisode: Int? = null
+
+    fun fetchVodStreams(context: Context, type: String, tmdbId: Int, season: Int? = null, episode: Int? = null) {
+        if (tmdbId == lastFetchedTmdbId && season == lastFetchedSeason && episode == lastFetchedEpisode) {
+            return // Prevent re-fetching identical request
+        }
+        lastFetchedTmdbId = tmdbId
+        lastFetchedSeason = season
+        lastFetchedEpisode = episode
+
         viewModelScope.launch {
             _isResolvingStreams.value = true
             _availableStreams.value = emptyList()
-            AddonManager.resolveFromAddons(context, type, tmdbId) { sources ->
+            AddonManager.resolveFromAddons(context, type, tmdbId, season, episode) { sources ->
                 val current = _availableStreams.value.toMutableList()
                 current.addAll(sources)
                 _availableStreams.value = current

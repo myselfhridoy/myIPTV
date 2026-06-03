@@ -51,6 +51,7 @@ fun TmdbDetailsScreen(
     val media by tmdbViewModel.selectedMedia.collectAsState()
 
     val watchButtonFocusRequester = remember { FocusRequester() }
+    val tvDetails by tmdbViewModel.selectedTvDetails.collectAsState()
 
     LaunchedEffect(media) {
         if (media != null) {
@@ -58,6 +59,9 @@ fun TmdbDetailsScreen(
                 watchButtonFocusRequester.requestFocus()
             } catch (e: Exception) {
                 // Ignore focus request error during initial composition
+            }
+            if (media?.isMovie == false) {
+                tmdbViewModel.fetchTvDetails(media!!.id)
             }
         }
     }
@@ -224,6 +228,9 @@ fun TmdbDetailsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                var localSeason by remember { mutableStateOf<Int?>(null) }
+                var localEpisode by remember { mutableStateOf<Int?>(null) }
+
                 // Watch Now Button
                 var watchBtnFocused by remember { mutableStateOf(false) }
                 val buttonScale by animateFloatAsState(
@@ -248,6 +255,8 @@ fun TmdbDetailsScreen(
                         )
                         .clip(RoundedCornerShape(16.dp))
                         .clickable {
+                            mainViewModel.selectedSeason = localSeason
+                            mainViewModel.selectedEpisode = localEpisode
                             navController.navigate(Routes.SOURCE_SELECTION)
                         }
                         .background(
@@ -282,6 +291,129 @@ fun TmdbDetailsScreen(
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 0.5.sp
                     )
+                }
+                
+                // Season and Episode Pickers for TV Shows
+                if (!m.isMovie && tvDetails != null && tvDetails!!.seasons.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    val validSeasons = tvDetails!!.seasons.filter { it.season_number > 0 }
+                    
+                    if (validSeasons.isNotEmpty()) {
+                        if (localSeason == null) {
+                            localSeason = validSeasons.first().season_number
+                        }
+                        
+                        val selectedSeasonObj = validSeasons.find { it.season_number == localSeason } ?: validSeasons.first()
+                        
+                        if (localEpisode == null || localEpisode!! > selectedSeasonObj.episode_count) {
+                            localEpisode = 1
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            // Season Picker
+                            Column {
+                                Text(text = "Season", color = Color.Gray, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E2638))
+                                        .padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "-",
+                                        color = if (localSeason!! > validSeasons.first().season_number) TealAccent else Color.Gray,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable(enabled = localSeason!! > validSeasons.first().season_number) {
+                                                val currentIndex = validSeasons.indexOfFirst { it.season_number == localSeason }
+                                                if (currentIndex > 0) {
+                                                    localSeason = validSeasons[currentIndex - 1].season_number
+                                                    localEpisode = 1
+                                                }
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                                            .tvFocusBorder()
+                                    )
+                                    Text(
+                                        text = "${localSeason}",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                    Text(
+                                        text = "+",
+                                        color = if (localSeason!! < validSeasons.last().season_number) TealAccent else Color.Gray,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable(enabled = localSeason!! < validSeasons.last().season_number) {
+                                                val currentIndex = validSeasons.indexOfFirst { it.season_number == localSeason }
+                                                if (currentIndex < validSeasons.size - 1) {
+                                                    localSeason = validSeasons[currentIndex + 1].season_number
+                                                    localEpisode = 1
+                                                }
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                                            .tvFocusBorder()
+                                    )
+                                }
+                            }
+
+                            // Episode Picker
+                            Column {
+                                Text(text = "Episode", color = Color.Gray, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E2638))
+                                        .padding(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "-",
+                                        color = if (localEpisode!! > 1) TealAccent else Color.Gray,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable(enabled = localEpisode!! > 1) {
+                                                localEpisode = localEpisode!! - 1
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                                            .tvFocusBorder()
+                                    )
+                                    Text(
+                                        text = "${localEpisode}",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                    Text(
+                                        text = "+",
+                                        color = if (localEpisode!! < selectedSeasonObj.episode_count) TealAccent else Color.Gray,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable(enabled = localEpisode!! < selectedSeasonObj.episode_count) {
+                                                localEpisode = localEpisode!! + 1
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                                            .tvFocusBorder()
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

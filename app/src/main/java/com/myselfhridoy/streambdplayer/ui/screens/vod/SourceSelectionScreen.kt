@@ -63,15 +63,16 @@ fun SourceSelectionScreen(
 
     val m = media!!
 
-    var lastFetchedId by remember { mutableStateOf(-1) }
-
     // Fetch streams on entry or when media changes
-    LaunchedEffect(m.id) {
-        if (m.id != lastFetchedId) {
-            lastFetchedId = m.id
-            val type = if (m.isMovie) "movie" else "tv"
-            mainViewModel.fetchVodStreams(context, type, m.id)
-        }
+    LaunchedEffect(m.id, mainViewModel.selectedSeason, mainViewModel.selectedEpisode) {
+        val type = if (m.isMovie) "movie" else "tv"
+        mainViewModel.fetchVodStreams(
+            context = context, 
+            type = type, 
+            tmdbId = m.id, 
+            season = mainViewModel.selectedSeason, 
+            episode = mainViewModel.selectedEpisode
+        )
     }
 
     Column(
@@ -129,8 +130,8 @@ fun SourceSelectionScreen(
         )
 
         // ── Content ──
-        if (isResolving) {
-            // Loading State
+        if (isResolving && streams.isEmpty()) {
+            // Loading State (Full Screen)
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -176,7 +177,7 @@ fun SourceSelectionScreen(
                     )
                 }
             }
-        } else if (streams.isEmpty()) {
+        } else if (streams.isEmpty() && !isResolving) {
             // Empty State
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -219,7 +220,7 @@ fun SourceSelectionScreen(
             ) {
                 item {
                     Text(
-                        text = "${streams.size} source${if (streams.size > 1) "s" else ""} available",
+                        text = if (isResolving) "Found ${streams.size} source(s) so far... (Searching)" else "${streams.size} source${if (streams.size > 1) "s" else ""} available",
                         color = Color.Gray,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(bottom = 4.dp)
@@ -234,6 +235,23 @@ fun SourceSelectionScreen(
                             navController.navigate(Routes.VOD_PLAYER)
                         }
                     )
+                }
+                
+                if (isResolving) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = TealAccent,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

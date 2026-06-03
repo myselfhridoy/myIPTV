@@ -29,6 +29,9 @@ class TmdbViewModel : ViewModel() {
     private val _selectedMedia = MutableStateFlow<TmdbMedia?>(null)
     val selectedMedia: StateFlow<TmdbMedia?> = _selectedMedia.asStateFlow()
 
+    private val _selectedTvDetails = MutableStateFlow<com.myselfhridoy.streambdplayer.data.models.TmdbTvShowDetails?>(null)
+    val selectedTvDetails: StateFlow<com.myselfhridoy.streambdplayer.data.models.TmdbTvShowDetails?> = _selectedTvDetails.asStateFlow()
+
     init {
         fetchTrending()
     }
@@ -73,5 +76,17 @@ class TmdbViewModel : ViewModel() {
 
     fun selectMedia(media: TmdbMedia) {
         _selectedMedia.value = media
+        _selectedTvDetails.value = null // reset when new media selected
+    }
+
+    fun fetchTvDetails(tvId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = tmdbApiService.getTvDetails(tvId, apiKey)
+                _selectedTvDetails.value = response
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 }
