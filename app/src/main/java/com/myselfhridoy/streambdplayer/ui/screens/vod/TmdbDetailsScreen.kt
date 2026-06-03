@@ -4,12 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
@@ -31,9 +34,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.myselfhridoy.streambdplayer.ui.components.tvFocusBorder
@@ -230,6 +235,9 @@ fun TmdbDetailsScreen(
 
                 var localSeason by remember { mutableStateOf<Int?>(null) }
                 var localEpisode by remember { mutableStateOf<Int?>(null) }
+                
+                var expandedSeason by remember { mutableStateOf(false) }
+                var expandedEpisode by remember { mutableStateOf(false) }
 
                 // Watch Now Button
                 var watchBtnFocused by remember { mutableStateOf(false) }
@@ -316,100 +324,147 @@ fun TmdbDetailsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             // Season Picker
-                            Column {
-                                Text(text = "Season", color = Color.Gray, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = "SEASON", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1E2638))
-                                        .padding(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF1A2232))
+                                        .border(1.dp, Color(0xFF2B3648), RoundedCornerShape(12.dp))
+                                        .clickable { expandedSeason = true }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                                        .tvFocusBorder(RoundedCornerShape(12.dp))
                                 ) {
-                                    Text(
-                                        text = "-",
-                                        color = if (localSeason!! > validSeasons.first().season_number) TealAccent else Color.Gray,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable(enabled = localSeason!! > validSeasons.first().season_number) {
-                                                val currentIndex = validSeasons.indexOfFirst { it.season_number == localSeason }
-                                                if (currentIndex > 0) {
-                                                    localSeason = validSeasons[currentIndex - 1].season_number
-                                                    localEpisode = 1
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Season ${localSeason}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent)
+                                    }
+                                    if (expandedSeason) {
+                                        Dialog(onDismissRequest = { expandedSeason = false }) {
+                                            Card(
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
+                                                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+                                            ) {
+                                                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                                                    Text(
+                                                        text = "Select Season", 
+                                                        color = Color.White, 
+                                                        fontSize = 18.sp, 
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                    Spacer(modifier = Modifier.height(16.dp))
+                                                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                                        items(validSeasons) { season ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clickable {
+                                                                        localSeason = season.season_number
+                                                                        localEpisode = 1
+                                                                        expandedSeason = false
+                                                                    }
+                                                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(if (localSeason == season.season_number) TealAccent.copy(alpha = 0.1f) else Color.Transparent)
+                                                                    .tvFocusBorder()
+                                                                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "Season ${season.season_number}",
+                                                                    color = if (localSeason == season.season_number) TealAccent else Color.White,
+                                                                    fontSize = 16.sp,
+                                                                    fontWeight = if (localSeason == season.season_number) FontWeight.Bold else FontWeight.Normal,
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    textAlign = TextAlign.Center
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
-                                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                                            .tvFocusBorder()
-                                    )
-                                    Text(
-                                        text = "${localSeason}",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
-                                    Text(
-                                        text = "+",
-                                        color = if (localSeason!! < validSeasons.last().season_number) TealAccent else Color.Gray,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable(enabled = localSeason!! < validSeasons.last().season_number) {
-                                                val currentIndex = validSeasons.indexOfFirst { it.season_number == localSeason }
-                                                if (currentIndex < validSeasons.size - 1) {
-                                                    localSeason = validSeasons[currentIndex + 1].season_number
-                                                    localEpisode = 1
-                                                }
-                                            }
-                                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                                            .tvFocusBorder()
-                                    )
+                                        }
+                                    }
                                 }
                             }
 
                             // Episode Picker
-                            Column {
-                                Text(text = "Episode", color = Color.Gray, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = "EPISODE", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1E2638))
-                                        .padding(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0xFF1A2232))
+                                        .border(1.dp, Color(0xFF2B3648), RoundedCornerShape(12.dp))
+                                        .clickable { expandedEpisode = true }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                                        .tvFocusBorder(RoundedCornerShape(12.dp))
                                 ) {
-                                    Text(
-                                        text = "-",
-                                        color = if (localEpisode!! > 1) TealAccent else Color.Gray,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable(enabled = localEpisode!! > 1) {
-                                                localEpisode = localEpisode!! - 1
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Episode ${localEpisode}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent)
+                                    }
+                                    if (expandedEpisode) {
+                                        Dialog(onDismissRequest = { expandedEpisode = false }) {
+                                            Card(
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
+                                                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+                                            ) {
+                                                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                                                    Text(
+                                                        text = "Select Episode", 
+                                                        color = Color.White, 
+                                                        fontSize = 18.sp, 
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                    Spacer(modifier = Modifier.height(16.dp))
+                                                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                                        items((1..selectedSeasonObj.episode_count).toList()) { ep ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clickable {
+                                                                        localEpisode = ep
+                                                                        expandedEpisode = false
+                                                                    }
+                                                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(if (localEpisode == ep) TealAccent.copy(alpha = 0.1f) else Color.Transparent)
+                                                                    .tvFocusBorder()
+                                                                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "Episode $ep",
+                                                                    color = if (localEpisode == ep) TealAccent else Color.White,
+                                                                    fontSize = 16.sp,
+                                                                    fontWeight = if (localEpisode == ep) FontWeight.Bold else FontWeight.Normal,
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    textAlign = TextAlign.Center
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
-                                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                                            .tvFocusBorder()
-                                    )
-                                    Text(
-                                        text = "${localEpisode}",
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
-                                    Text(
-                                        text = "+",
-                                        color = if (localEpisode!! < selectedSeasonObj.episode_count) TealAccent else Color.Gray,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clickable(enabled = localEpisode!! < selectedSeasonObj.episode_count) {
-                                                localEpisode = localEpisode!! + 1
-                                            }
-                                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                                            .tvFocusBorder()
-                                    )
+                                        }
+                                    }
                                 }
                             }
                         }
