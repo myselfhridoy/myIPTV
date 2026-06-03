@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.MovieFilter
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +49,7 @@ data class TabItem(
 
 @Composable
 fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navController: NavController) {
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(1) } // Default: Media tab
     val tabs = listOf(
         TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
