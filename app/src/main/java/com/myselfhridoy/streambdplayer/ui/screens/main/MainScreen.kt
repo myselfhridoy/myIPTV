@@ -1,8 +1,7 @@
 package com.myselfhridoy.streambdplayer.ui.screens.main
 
-import com.myselfhridoy.streambdplayer.ui.screens.live.LiveTvScreen
-import com.myselfhridoy.streambdplayer.ui.screens.vod.VodScreen
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -14,19 +13,23 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MovieFilter
+import androidx.compose.material.icons.filled.NetworkWifi
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.MovieFilter
+import androidx.compose.material.icons.outlined.NetworkWifi
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -37,9 +40,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.myselfhridoy.streambdplayer.ui.screens.live.LiveTvScreen
+import com.myselfhridoy.streambdplayer.ui.screens.stream.StreamScreen
+import com.myselfhridoy.streambdplayer.ui.screens.vod.VodScreen
 import com.myselfhridoy.streambdplayer.ui.theme.*
 import com.myselfhridoy.streambdplayer.ui.viewmodels.MainViewModel
 import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
+import kotlinx.coroutines.launch
 
 data class TabItem(
     val title: String,
@@ -50,14 +57,24 @@ data class TabItem(
 @Composable
 fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navController: NavController) {
     var selectedTab by rememberSaveable { mutableStateOf(1) } // Default: Media tab
-    val tabs = listOf(
+    val context = LocalContext.current
+    var showExitDialog by remember { mutableStateOf(false) }
+
+    val tvTabs = listOf(
         TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
-        TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder)
+        TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi),
+        TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder),
+        TabItem("Exit", Icons.AutoMirrored.Filled.ExitToApp, Icons.AutoMirrored.Outlined.ExitToApp)
+    )
+
+    val mobileTabs = listOf(
+        TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
+        TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
+        TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi)
     )
 
     val configuration = LocalConfiguration.current
-    val context = LocalContext.current
     val isTv = remember(configuration) {
         val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
         if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) {
@@ -67,6 +84,40 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
             !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) || 
             pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
         }
+    }
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    BackHandler(enabled = true) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            showExitDialog = true
+        }
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Exit App", color = Color.White) },
+            text = { Text("Are you sure you want to exit?", color = Color.LightGray) },
+            containerColor = DarkNavyBackground,
+            confirmButton = {
+                TextButton(onClick = { 
+                    showExitDialog = false
+                    val activity = context as? android.app.Activity
+                    activity?.finish()
+                }) {
+                    Text("Yes", color = TealAccent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) {
+                    Text("No", color = Color.Gray)
+                }
+            }
+        )
     }
 
     if (isTv) {
@@ -105,8 +156,8 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    tabs.forEachIndexed { index, tab ->
-                        val isSelected = selectedTab == index
+                    tvTabs.forEachIndexed { index, tab ->
+                        val isSelected = selectedTab == index && index < 3
                         var isFocused by remember { mutableStateOf(false) }
 
                         val bgColor by animateColorAsState(
@@ -140,10 +191,10 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                                 .clip(RoundedCornerShape(14.dp))
                                 .onFocusChanged { isFocused = it.isFocused }
                                 .clickable {
-                                    if (index == 2) {
-                                        navController.navigate("playlists")
-                                    } else {
-                                        selectedTab = index
+                                    when (index) {
+                                        3 -> navController.navigate("playlists")
+                                        4 -> showExitDialog = true
+                                        else -> selectedTab = index
                                     }
                                 }
                                 .background(bgColor, RoundedCornerShape(14.dp))
@@ -169,7 +220,6 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1
                             )
-                            // Active Glow Indicator
                             if (isSelected) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Box(
@@ -190,143 +240,189 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                 when (selectedTab) {
                     0 -> LiveTvScreen(mainViewModel, navController)
                     1 -> VodScreen(tmdbViewModel, navController)
-                    2 -> {
-                        LaunchedEffect(Unit) {
-                            navController.navigate("playlists")
-                            selectedTab = 0
-                        }
-                    }
+                    2 -> StreamScreen(mainViewModel, navController)
                 }
             }
         }
     } else {
-        // ── Mobile Layout: Premium Bottom Navigation ──
-        Scaffold(
-            containerColor = DarkNavyBackground,
-            bottomBar = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Transparent)
+        // ── Mobile Layout: Modal Navigation Drawer & Bottom Nav ──
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(
+                    drawerContainerColor = DarkNavyBackground,
+                    drawerContentColor = Color.White
                 ) {
-                    // Gradient fade above the bar
+                    Spacer(Modifier.height(24.dp))
+                    Text(
+                        "StreamBD Player",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TealAccent,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                    Divider(color = Color.DarkGray)
+                    
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Outlined.Folder, contentDescription = null, tint = Color.White) },
+                        label = { Text("Playlists", color = Color.White) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("playlists")
+                        },
+                        colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+                    )
+                    
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.AutoMirrored.Outlined.ExitToApp, contentDescription = null, tint = Color.White) },
+                        label = { Text("Exit App", color = Color.White) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            showExitDialog = true
+                        },
+                        colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+                    )
+                }
+            }
+        ) {
+            Scaffold(
+                containerColor = DarkNavyBackground,
+                bottomBar = {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(20.dp)
-                            .align(Alignment.TopCenter)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        DarkNavyBackground.copy(alpha = 0.8f)
-                                    )
-                                )
-                            )
-                    )
-
-                    // Navigation Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF1A1F2E).copy(alpha = 0.97f),
-                                        Color(0xFF141920).copy(alpha = 0.97f)
-                                    )
-                                )
-                            )
-                            .border(
-                                width = 1.dp,
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.1f),
-                                        Color.White.copy(alpha = 0.03f)
-                                    )
-                                ),
-                                shape = RoundedCornerShape(20.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                            .background(Color.Transparent)
                     ) {
-                        tabs.forEachIndexed { index, tab ->
-                            val isSelected = selectedTab == index
+                        // Gradient fade above the bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(20.dp)
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            DarkNavyBackground.copy(alpha = 0.8f)
+                                        )
+                                    )
+                                )
+                        )
 
-                            val bgColor by animateColorAsState(
-                                targetValue = if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.Transparent,
-                                animationSpec = tween(250),
-                                label = "mobileBg"
-                            )
-                            val iconColor by animateColorAsState(
-                                targetValue = if (isSelected) TealAccent else UnselectedItemColor,
-                                animationSpec = tween(250),
-                                label = "mobileIcon"
-                            )
-                            val textColor by animateColorAsState(
-                                targetValue = if (isSelected) TealAccent else UnselectedItemColor,
-                                animationSpec = tween(250),
-                                label = "mobileText"
-                            )
-                            val pillWidth by animateDpAsState(
-                                targetValue = if (isSelected) 20.dp else 0.dp,
-                                animationSpec = tween(300),
-                                label = "pillWidth"
-                            )
+                        // Navigation Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFF1A1F2E).copy(alpha = 0.97f),
+                                            Color(0xFF141920).copy(alpha = 0.97f)
+                                        )
+                                    )
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.1f),
+                                            Color.White.copy(alpha = 0.03f)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            mobileTabs.forEachIndexed { index, tab ->
+                                val isSelected = selectedTab == index
 
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        if (index == 2) {
-                                            navController.navigate("playlists")
-                                        } else {
+                                val bgColor by animateColorAsState(
+                                    targetValue = if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.Transparent,
+                                    animationSpec = tween(250),
+                                    label = "mobileBg"
+                                )
+                                val iconColor by animateColorAsState(
+                                    targetValue = if (isSelected) TealAccent else UnselectedItemColor,
+                                    animationSpec = tween(250),
+                                    label = "mobileIcon"
+                                )
+                                val textColor by animateColorAsState(
+                                    targetValue = if (isSelected) TealAccent else UnselectedItemColor,
+                                    animationSpec = tween(250),
+                                    label = "mobileText"
+                                )
+                                val pillWidth by animateDpAsState(
+                                    targetValue = if (isSelected) 20.dp else 0.dp,
+                                    animationSpec = tween(300),
+                                    label = "pillWidth"
+                                )
+
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
                                             selectedTab = index
                                         }
-                                    }
-                                    .background(bgColor, RoundedCornerShape(14.dp))
-                                    .padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title,
-                                    tint = iconColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = tab.title,
-                                    color = textColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                                // Animated pill indicator
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .width(pillWidth)
-                                        .height(3.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(if (isSelected) TealAccent else Color.Transparent)
-                                )
+                                        .background(bgColor, RoundedCornerShape(14.dp))
+                                        .padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.title,
+                                        tint = iconColor,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = tab.title,
+                                        color = textColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .width(pillWidth)
+                                            .height(3.dp)
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(if (isSelected) TealAccent else Color.Transparent)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-        ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
-                when (selectedTab) {
-                    0 -> LiveTvScreen(mainViewModel, navController)
-                    1 -> VodScreen(tmdbViewModel, navController)
+            ) { innerPadding ->
+                Box(modifier = Modifier.padding(innerPadding)) {
+                    when (selectedTab) {
+                        0 -> LiveTvScreen(mainViewModel, navController)
+                        1 -> VodScreen(tmdbViewModel, navController)
+                        2 -> StreamScreen(mainViewModel, navController)
+                    }
+                    
+                    // Hamburger Menu Button (overlay)
+                    FloatingActionButton(
+                        onClick = { scope.launch { drawerState.open() } },
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(16.dp),
+                        containerColor = Color.Black.copy(alpha = 0.4f),
+                        contentColor = Color.White,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Default.Menu, contentDescription = "Menu")
+                    }
                 }
             }
         }

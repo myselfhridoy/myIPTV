@@ -17,7 +17,12 @@ data class StreamSource(
     val provider: String,
     val type: String? = null,
     val headers: Map<String, String>? = null,
-    val subtitles: List<Subtitle>? = null
+    val subtitles: List<Subtitle>? = null,
+    val drm: DrmConfig? = null,
+    val tokenUrl: String? = null,
+    val tokenMatch: String? = null,
+    val tokenReplace: String? = null,
+    val tokenId: Int? = null
 )
 
 @Serializable

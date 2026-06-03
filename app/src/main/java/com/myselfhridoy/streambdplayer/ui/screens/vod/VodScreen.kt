@@ -44,6 +44,14 @@ import com.myselfhridoy.streambdplayer.ui.viewmodels.TmdbViewModel
 fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
     val trendingMovies by viewModel.trendingMovies.collectAsState()
     val trendingTv by viewModel.trendingTv.collectAsState()
+    
+    val hindiMovies by viewModel.hindiMovies.collectAsState()
+    val hindiTv by viewModel.hindiTv.collectAsState()
+    val southMovies by viewModel.southMovies.collectAsState()
+    val southTv by viewModel.southTv.collectAsState()
+    val banglaMovies by viewModel.banglaMovies.collectAsState()
+    val banglaTv by viewModel.banglaTv.collectAsState()
+
     val searchResults by viewModel.searchResults.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
@@ -238,6 +246,60 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController) {
 
                     if (trendingTv.isNotEmpty()) {
                         MediaSection(title = "📺 Trending TV Shows", mediaList = trendingTv) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (hindiMovies.isNotEmpty()) {
+                        MediaSection(title = "🎬 Bollywood Hits", mediaList = hindiMovies) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (hindiTv.isNotEmpty()) {
+                        MediaSection(title = "📺 Hindi TV Shows", mediaList = hindiTv) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (southMovies.isNotEmpty()) {
+                        MediaSection(title = "🍿 South Indian Blockbusters", mediaList = southMovies) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (southTv.isNotEmpty()) {
+                        MediaSection(title = "📺 South Indian TV Shows", mediaList = southTv) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (banglaMovies.isNotEmpty()) {
+                        MediaSection(title = "🎥 Bengali Movies", mediaList = banglaMovies) { media ->
+                            viewModel.selectMedia(media)
+                            navController.navigate(Routes.TMDB_DETAILS)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (banglaTv.isNotEmpty()) {
+                        MediaSection(title = "📺 Bengali TV Shows", mediaList = banglaTv) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }

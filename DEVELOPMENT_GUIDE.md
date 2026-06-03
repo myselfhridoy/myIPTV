@@ -72,7 +72,7 @@ Instead of hardcoding stream scrapers natively, the app runs external JavaScript
 ## 🚀 How to build / run
 1. Open the project in **Android Studio**.
 2. Sync Gradle (Make sure you are using JDK 17).
-3. Run `assembleDebug` or click the "Play" button to install the APK on an emulator or physical device.
+3. Run `.\gradlew assembleDebug` or click the "Play" button to install the APK on an emulator or physical device.
 4. For TV testing, create an Android TV emulator in the AVD Manager.
 
 ## 📝 Next Steps for Future Development

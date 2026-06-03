@@ -136,21 +136,77 @@ fun VodPlayerScreen(
     LaunchedEffect(stream) {
         isLoading = true
 
-        val headers = stream.headers?.toMutableMap() ?: mutableMapOf()
+        val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
 
-        val finalUrl = stream.url
+        // Resolve token if present, or pre-resolve generic links
+        val resolved = if (!stream.tokenUrl.isNullOrEmpty()) {
+            com.myselfhridoy.streambdplayer.utils.TokenParser.resolveTokenForUrl(
+                context = context,
+                baseUrl = stream.url,
+                tokenUrl = stream.tokenUrl,
+                tokenId = stream.tokenId?.toString(),
+                headers = initialHeaders,
+                tokenMatch = stream.tokenMatch,
+                tokenReplace = stream.tokenReplace
+            )
+        } else {
+            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+            val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
+            if (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url)) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .followRedirects(true)
+                            .followSslRedirects(true)
+                            .build()
+                        val req = okhttp3.Request.Builder().url(stream.url).apply {
+                            initialHeaders.forEach { (k, v) -> header(k, v) }
+                        }.head().build()
+                        
+                        var res = client.newCall(req).execute()
+                        if (!res.isSuccessful && res.code == 405) {
+                            res.close()
+                            val getReq = req.newBuilder().get().build()
+                            res = client.newCall(getReq).execute()
+                        }
+                        
+                        res.use { response ->
+                            if (response.isSuccessful) {
+                                val finalUrl = response.request.url.toString()
+                                val contentType = response.header("Content-Type")?.lowercase()
+                                var mimeType: String? = null
+                                if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                
+                                com.myselfhridoy.streambdplayer.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
+                            } else null
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            } else {
+                null
+            }
+        }
+
+        val finalUrl = resolved?.url ?: stream.url
+        val finalHeaders = resolved?.headers ?: initialHeaders
+        val finalDrm = resolved?.drm ?: stream.drm
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
                 setAllowCrossProtocolRedirects(true)
-                headers["User-Agent"]?.let { setUserAgent(it) }
-                val requestHeaders = headers.filterKeys { it.lowercase() != "user-agent" }
+                finalHeaders["User-Agent"]?.let { setUserAgent(it) }
+                val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
                 if (requestHeaders.isNotEmpty()) {
                     setDefaultRequestProperties(requestHeaders)
                 }
             }
 
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
+            resolved?.mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
             // Add subtitles from stream source if available
             val subtitleConfigs = stream.subtitles?.map { sub ->
@@ -173,6 +229,59 @@ fun VodPlayerScreen(
             }
 
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+            // DRM Setup
+            if (finalDrm != null && finalDrm.type != null) {
+                val drmScheme = when (finalDrm.type.lowercase()) {
+                    "widevine" -> androidx.media3.common.C.WIDEVINE_UUID
+                    "playready" -> androidx.media3.common.C.PLAYREADY_UUID
+                    "clearkey" -> androidx.media3.common.C.CLEARKEY_UUID
+                    else -> androidx.media3.common.C.WIDEVINE_UUID
+                }
+
+                val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
+
+                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
+                    val parts = finalDrm.rawKeyPair.split(":")
+                    if (parts.size == 2) {
+                        try {
+                            val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                            val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+                            val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                            val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+
+                            val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
+                            
+                            val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearkeyJson.toByteArray())
+                            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                                .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                                .build(localMediaDrmCallback)
+                            
+                            mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                } else if (finalDrm.licenseServer != null) {
+                    if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
+                        try {
+                            val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(finalDrm.licenseServer.trim().toByteArray())
+                            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                                .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                                .build(localMediaDrmCallback)
+                            mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    } else {
+                        drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                        drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
+                    }
+                }
+
+                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
+            }
 
             val mediaItem = mediaItemBuilder.build()
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
