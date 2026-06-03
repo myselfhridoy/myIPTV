@@ -231,229 +231,236 @@ fun TmdbDetailsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                var localSeason by remember { mutableStateOf<Int?>(null) }
-                var localEpisode by remember { mutableStateOf<Int?>(null) }
-                var expandedSeason by remember { mutableStateOf(false) }
-                var expandedEpisode by remember { mutableStateOf(false) }
-
-                // TV Show season/episode init
-                val validSeasons = if (!m.isMovie && tvDetails != null) {
-                    tvDetails!!.seasons.filter { it.season_number > 0 }
-                } else emptyList()
-                val selectedSeasonObj = validSeasons.find { it.season_number == localSeason } ?: validSeasons.firstOrNull()
-
-                if (validSeasons.isNotEmpty() && localSeason == null) {
-                    localSeason = validSeasons.first().season_number
-                }
-                if (localEpisode == null || (selectedSeasonObj != null && localEpisode!! > selectedSeasonObj.episode_count)) {
-                    localEpisode = 1
-                }
-
-                // ── Compact Action Row: [▶ Watch Now] [S1 ▾] [E1 ▾] ──
-                var watchBtnFocused by remember { mutableStateOf(false) }
-                val buttonScale by animateFloatAsState(
-                    targetValue = if (watchBtnFocused) 1.04f else 1f,
-                    animationSpec = tween(durationMillis = 180),
-                    label = "watchBtnScale"
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Watch Now pill button
-                    Row(
-                        modifier = Modifier
-                            .focusRequester(watchButtonFocusRequester)
-                            .onFocusChanged { watchBtnFocused = it.isFocused }
-                            .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
-                            .shadow(
-                                elevation = if (watchBtnFocused) 14.dp else 6.dp,
-                                shape = RoundedCornerShape(50.dp),
-                                spotColor = TealAccent,
-                                ambientColor = TealAccent
-                            )
-                            .clip(RoundedCornerShape(50.dp))
-                            .clickable {
-                                mainViewModel.selectedSeason = localSeason
-                                mainViewModel.selectedEpisode = localEpisode
-                                navController.navigate(Routes.SOURCE_SELECTION)
-                            }
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = if (watchBtnFocused)
-                                        listOf(TealAccent, Color(0xFF00C6FF))
-                                    else
-                                        listOf(Color(0xFF0D5D63), Color(0xFF008D94))
-                                ),
-                                shape = RoundedCornerShape(50.dp)
-                            )
-                            .border(
-                                width = if (watchBtnFocused) 2.dp else 0.dp,
-                                color = if (watchBtnFocused) Color.White else Color.Transparent,
-                                shape = RoundedCornerShape(50.dp)
-                            )
-                            .padding(horizontal = 22.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Watch Now", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp)
-                    }
-
-                    // Season pill (only for TV shows)
-                    if (!m.isMovie && validSeasons.isNotEmpty()) {
-                        var seasonPillFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .onFocusChanged { seasonPillFocused = it.isFocused }
-                                .clip(RoundedCornerShape(50.dp))
-                                .background(
-                                    if (seasonPillFocused) Color(0xFF1E3A45)
-                                    else Color(0xFF1A2232)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (seasonPillFocused) TealAccent else Color(0xFF2B3648),
-                                    RoundedCornerShape(50.dp)
-                                )
-                                .clickable { expandedSeason = true }
-                                .tvFocusBorder(RoundedCornerShape(50.dp))
-                                .padding(horizontal = 14.dp, vertical = 11.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("S${localSeason}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        if (expandedSeason) {
-                            Dialog(onDismissRequest = { expandedSeason = false }) {
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
-                                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                        Text(
-                                            text = "Select Season",
-                                            color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                            items(validSeasons) { season ->
-                                                val isSelected = localSeason == season.season_number
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable {
-                                                            localSeason = season.season_number
-                                                            localEpisode = 1
-                                                            expandedSeason = false
-                                                        }
-                                                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                        .tvFocusBorder()
-                                                        .padding(vertical = 12.dp, horizontal = 16.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "Season ${season.season_number}",
-                                                        color = if (isSelected) TealAccent else Color.White,
-                                                        fontSize = 16.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        textAlign = TextAlign.Center
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Episode pill
-                        var episodePillFocused by remember { mutableStateOf(false) }
-                        Box(
-                            modifier = Modifier
-                                .onFocusChanged { episodePillFocused = it.isFocused }
-                                .clip(RoundedCornerShape(50.dp))
-                                .background(
-                                    if (episodePillFocused) Color(0xFF1E3A45)
-                                    else Color(0xFF1A2232)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (episodePillFocused) TealAccent else Color(0xFF2B3648),
-                                    RoundedCornerShape(50.dp)
-                                )
-                                .clickable { expandedEpisode = true }
-                                .tvFocusBorder(RoundedCornerShape(50.dp))
-                                .padding(horizontal = 14.dp, vertical = 11.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("E${localEpisode}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        if (expandedEpisode && selectedSeasonObj != null) {
-                            Dialog(onDismissRequest = { expandedEpisode = false }) {
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
-                                    modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                        Text(
-                                            text = "Select Episode",
-                                            color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                            items((1..selectedSeasonObj.episode_count).toList()) { ep ->
-                                                val isSelected = localEpisode == ep
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable {
-                                                            localEpisode = ep
-                                                            expandedEpisode = false
-                                                        }
-                                                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                        .tvFocusBorder()
-                                                        .padding(vertical = 12.dp, horizontal = 16.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "Episode $ep",
-                                                        color = if (isSelected) TealAccent else Color.White,
-                                                        fontSize = 16.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        textAlign = TextAlign.Center
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
             }
         }
+
+        // ── Action Row Section ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .offset(y = (-30).dp)
+        ) {
+            var localSeason by remember { mutableStateOf<Int?>(null) }
+            var localEpisode by remember { mutableStateOf<Int?>(null) }
+            var expandedSeason by remember { mutableStateOf(false) }
+            var expandedEpisode by remember { mutableStateOf(false) }
+
+            // TV Show season/episode init
+            val validSeasons = if (!m.isMovie && tvDetails != null) {
+                tvDetails!!.seasons.filter { it.season_number > 0 }
+            } else emptyList()
+            val selectedSeasonObj = validSeasons.find { it.season_number == localSeason } ?: validSeasons.firstOrNull()
+
+            if (validSeasons.isNotEmpty() && localSeason == null) {
+                localSeason = validSeasons.first().season_number
+            }
+            if (localEpisode == null || (selectedSeasonObj != null && localEpisode!! > selectedSeasonObj.episode_count)) {
+                localEpisode = 1
+            }
+
+            // ── Compact Action Row: [▶ Watch Now] [S1 ▾] [E1 ▾] ──
+            var watchBtnFocused by remember { mutableStateOf(false) }
+            val buttonScale by animateFloatAsState(
+                targetValue = if (watchBtnFocused) 1.04f else 1f,
+                animationSpec = tween(durationMillis = 180),
+                label = "watchBtnScale"
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Watch Now pill button
+                Row(
+                    modifier = Modifier
+                        .focusRequester(watchButtonFocusRequester)
+                        .onFocusChanged { watchBtnFocused = it.isFocused }
+                        .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
+                        .shadow(
+                            elevation = if (watchBtnFocused) 14.dp else 6.dp,
+                            shape = RoundedCornerShape(50.dp),
+                            spotColor = TealAccent,
+                            ambientColor = TealAccent
+                        )
+                        .clip(RoundedCornerShape(50.dp))
+                        .clickable {
+                            mainViewModel.selectedSeason = localSeason
+                            mainViewModel.selectedEpisode = localEpisode
+                            navController.navigate(Routes.SOURCE_SELECTION)
+                        }
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = if (watchBtnFocused)
+                                    listOf(TealAccent, Color(0xFF00C6FF))
+                                else
+                                    listOf(Color(0xFF0D5D63), Color(0xFF008D94))
+                            ),
+                            shape = RoundedCornerShape(50.dp)
+                        )
+                        .border(
+                            width = if (watchBtnFocused) 2.dp else 0.dp,
+                            color = if (watchBtnFocused) Color.White else Color.Transparent,
+                            shape = RoundedCornerShape(50.dp)
+                        )
+                        .padding(horizontal = 22.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Watch Now", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp)
+                }
+
+                // Season pill (only for TV shows)
+                if (!m.isMovie && validSeasons.isNotEmpty()) {
+                    var seasonPillFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .onFocusChanged { seasonPillFocused = it.isFocused }
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(
+                                if (seasonPillFocused) Color(0xFF1E3A45)
+                                else Color(0xFF1A2232)
+                            )
+                            .border(
+                                1.dp,
+                                if (seasonPillFocused) TealAccent else Color(0xFF2B3648),
+                                RoundedCornerShape(50.dp)
+                            )
+                            .clickable { expandedSeason = true }
+                            .tvFocusBorder(RoundedCornerShape(50.dp))
+                            .padding(horizontal = 14.dp, vertical = 11.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("S${localSeason}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (expandedSeason) {
+                        Dialog(onDismissRequest = { expandedSeason = false }) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                                    Text(
+                                        text = "Select Season",
+                                        color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                        items(validSeasons) { season ->
+                                            val isSelected = localSeason == season.season_number
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        localSeason = season.season_number
+                                                        localEpisode = 1
+                                                        expandedSeason = false
+                                                    }
+                                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
+                                                    .tvFocusBorder()
+                                                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Season ${season.season_number}",
+                                                    color = if (isSelected) TealAccent else Color.White,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Episode pill
+                    var episodePillFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .onFocusChanged { episodePillFocused = it.isFocused }
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(
+                                if (episodePillFocused) Color(0xFF1E3A45)
+                                else Color(0xFF1A2232)
+                            )
+                            .border(
+                                1.dp,
+                                if (episodePillFocused) TealAccent else Color(0xFF2B3648),
+                                RoundedCornerShape(50.dp)
+                            )
+                            .clickable { expandedEpisode = true }
+                            .tvFocusBorder(RoundedCornerShape(50.dp))
+                            .padding(horizontal = 14.dp, vertical = 11.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("E${localEpisode}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TealAccent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    if (expandedEpisode && selectedSeasonObj != null) {
+                        Dialog(onDismissRequest = { expandedEpisode = false }) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF151A25)),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                                    Text(
+                                        text = "Select Episode",
+                                        color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                        items((1..selectedSeasonObj.episode_count).toList()) { ep ->
+                                            val isSelected = localEpisode == ep
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        localEpisode = ep
+                                                        expandedEpisode = false
+                                                    }
+                                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
+                                                    .tvFocusBorder()
+                                                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Episode $ep",
+                                                    color = if (isSelected) TealAccent else Color.White,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
 
         // ── Overview Section ──
         if (!m.overview.isNullOrEmpty()) {
