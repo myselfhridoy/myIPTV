@@ -119,6 +119,9 @@ object AddonManager {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                try {
+                    com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e)
+                } catch (ce: Exception) {}
             }
         }
 
