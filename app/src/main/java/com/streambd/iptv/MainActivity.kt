@@ -24,7 +24,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.streambd.iptv.utils.RemoteConfigManager.init()
         mainViewModel.fetchAddons(applicationContext)
-        mainViewModel.fetchLiveCategories(applicationContext)
         setContent {
             StreamBDPlayerTheme {
                 Surface(

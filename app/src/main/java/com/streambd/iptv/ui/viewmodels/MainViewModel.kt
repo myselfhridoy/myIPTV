@@ -127,10 +127,10 @@ class MainViewModel : ViewModel() {
         // Addons are fetched when the context is available
     }
 
-    fun fetchLiveCategories(context: Context? = null) {
+    fun fetchLiveCategories() {
         viewModelScope.launch {
             _isLoadingLive.value = true
-            val categories = liveRepository.getLiveCategories(context)
+            val categories = liveRepository.getLiveCategories()
             _liveCategories.value = categories
             _isLoadingLive.value = false
         }

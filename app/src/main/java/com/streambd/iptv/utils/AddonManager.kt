@@ -122,9 +122,6 @@ object AddonManager {
                 try {
                     com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e)
                 } catch (ce: Exception) {}
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    android.widget.Toast.makeText(context, "Addons Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
-                }
             }
         }
 
