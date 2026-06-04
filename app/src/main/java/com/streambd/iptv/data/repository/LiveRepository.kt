@@ -10,7 +10,7 @@ import java.net.URL
 
 class LiveRepository {
 
-    suspend fun getLiveCategories(): List<LiveCategory> = withContext(Dispatchers.IO) {
+    suspend fun getLiveCategories(context: android.content.Context? = null): List<LiveCategory> = withContext(Dispatchers.IO) {
         try {
             val url = com.streambd.iptv.utils.RemoteConfigManager.getIptvPlaylistUrl()
             val response = RetrofitClient.apiService.getLiveCategories(url)
@@ -24,12 +24,22 @@ class LiveRepository {
                     )
                 }
             }
+            if (context != null) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "Live TV empty. URL: $url", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
             emptyList()
         } catch (e: Exception) {
             e.printStackTrace()
             try {
                 com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e)
             } catch (ce: Exception) {}
+            if (context != null) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(context, "Live TV Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
             emptyList()
         }
     }
