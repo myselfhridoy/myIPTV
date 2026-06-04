@@ -16,6 +16,7 @@
 -keep interface com.streambd.iptv.data.api.** { *; }
 -keep class sun.misc.Unsafe { *; }
 -keep class com.google.gson.** { *; }
+-keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
 
 # Javascript Interfaces for Addons WebView
 -keepclassmembers class * {

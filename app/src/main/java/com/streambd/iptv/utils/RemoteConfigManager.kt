@@ -43,17 +43,17 @@ object RemoteConfigManager {
     }
 
     fun getTmdbApiKey(): String {
-        val value = remoteConfig.getString(KEY_TMDB_API_KEY).trim()
+        val value = remoteConfig.getString(KEY_TMDB_API_KEY).replace("\\s".toRegex(), "")
         return value.ifEmpty { DEFAULT_TMDB_API_KEY }
     }
     
     fun getIptvPlaylistUrl(): String {
-        val value = remoteConfig.getString(KEY_IPTV_PLAYLIST_URL).trim()
+        val value = remoteConfig.getString(KEY_IPTV_PLAYLIST_URL).replace("\\s".toRegex(), "")
         return value.ifEmpty { DEFAULT_IPTV_PLAYLIST_URL }
     }
     
     fun getAddonRegistryUrl(): String {
-        val value = remoteConfig.getString(KEY_ADDON_REGISTRY_URL).trim()
+        val value = remoteConfig.getString(KEY_ADDON_REGISTRY_URL).replace("\\s".toRegex(), "")
         return value.ifEmpty { DEFAULT_ADDON_REGISTRY_URL }
     }
 }
