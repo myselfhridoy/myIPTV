@@ -15,6 +15,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 
 class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
@@ -24,7 +27,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.streambd.iptv.utils.RemoteConfigManager.init()
         mainViewModel.fetchAddons(applicationContext)
+        
         setContent {
+            var updateAvailable by androidx.compose.runtime.mutableStateOf<com.streambd.iptv.utils.GitHubRelease?>(null)
+            
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                try {
+                    val pInfo = packageManager.getPackageInfo(packageName, 0)
+                    val currentVersion = pInfo.versionName
+                    updateAvailable = com.streambd.iptv.utils.UpdateManager.checkForUpdate(currentVersion)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            
             StreamBDPlayerTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -39,6 +55,17 @@ class MainActivity : ComponentActivity() {
                         playlistViewModel = playlistViewModel,
                         playlistChannelsViewModel = playlistChannelsViewModel
                     )
+                    
+                    if (updateAvailable != null) {
+                        com.streambd.iptv.ui.components.UpdateDialog(
+                            release = updateAvailable!!,
+                            onDismiss = { updateAvailable = null },
+                            onUpdate = {
+                                com.streambd.iptv.utils.UpdateManager.startDownload(applicationContext, updateAvailable!!)
+                                updateAvailable = null
+                            }
+                        )
+                    }
                 }
             }
         }
