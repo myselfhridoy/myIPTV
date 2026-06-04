@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
@@ -30,15 +31,30 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             var updateAvailable by androidx.compose.runtime.mutableStateOf<com.streambd.iptv.utils.GitHubRelease?>(null)
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            
+            val checkUpdate = { showToastIfLatest: Boolean ->
+                scope.launch {
+                    try {
+                        if (showToastIfLatest) {
+                            android.widget.Toast.makeText(applicationContext, "Checking for updates...", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        val pInfo = packageManager.getPackageInfo(packageName, 0)
+                        val currentVersion = pInfo.versionName
+                        val update = com.streambd.iptv.utils.UpdateManager.checkForUpdate(currentVersion)
+                        if (update != null) {
+                            updateAvailable = update
+                        } else if (showToastIfLatest) {
+                            android.widget.Toast.makeText(applicationContext, "You are on the latest version!", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
             
             androidx.compose.runtime.LaunchedEffect(Unit) {
-                try {
-                    val pInfo = packageManager.getPackageInfo(packageName, 0)
-                    val currentVersion = pInfo.versionName
-                    updateAvailable = com.streambd.iptv.utils.UpdateManager.checkForUpdate(currentVersion)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                checkUpdate(false)
             }
             
             StreamBDPlayerTheme {
@@ -53,7 +69,8 @@ class MainActivity : ComponentActivity() {
                         mainViewModel = mainViewModel, 
                         tmdbViewModel = tmdbViewModel,
                         playlistViewModel = playlistViewModel,
-                        playlistChannelsViewModel = playlistChannelsViewModel
+                        playlistChannelsViewModel = playlistChannelsViewModel,
+                        onCheckUpdate = { checkUpdate(true) }
                     )
                     
                     if (updateAvailable != null) {

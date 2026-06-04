@@ -40,7 +40,8 @@ fun AppNavigation(
     mainViewModel: MainViewModel, 
     tmdbViewModel: TmdbViewModel,
     playlistViewModel: PlaylistViewModel,
-    playlistChannelsViewModel: PlaylistChannelsViewModel
+    playlistChannelsViewModel: PlaylistChannelsViewModel,
+    onCheckUpdate: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -62,7 +63,12 @@ fun AppNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(navController = navController, startDestination = Routes.MAIN) {
             composable(Routes.MAIN) {
-                MainScreen(mainViewModel = mainViewModel, tmdbViewModel = tmdbViewModel, navController = navController)
+                MainScreen(
+                    mainViewModel = mainViewModel, 
+                    tmdbViewModel = tmdbViewModel, 
+                    navController = navController,
+                    onCheckUpdate = onCheckUpdate
+                )
             }
             composable(Routes.LIVE_CATEGORY_CHANNELS) {
                 LiveCategoryChannelsScreen(viewModel = mainViewModel, navController = navController)

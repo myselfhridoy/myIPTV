@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LiveTv
 import androidx.compose.material.icons.outlined.MovieFilter
 import androidx.compose.material.icons.outlined.NetworkWifi
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -55,7 +56,12 @@ data class TabItem(
 )
 
 @Composable
-fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navController: NavController) {
+fun MainScreen(
+    mainViewModel: MainViewModel, 
+    tmdbViewModel: TmdbViewModel, 
+    navController: NavController,
+    onCheckUpdate: () -> Unit = {}
+) {
     var selectedTab by rememberSaveable { mutableStateOf(1) } // Default: Media tab
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
@@ -121,9 +127,9 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
     }
 
     if (isTv) {
-        // ── TV Layout: Premium Sidebar ──
+        // TV Layout ...
         Row(modifier = Modifier.fillMaxSize().background(DarkNavyBackground)) {
-            // Premium TV NavigationRail — Floating Glass Panel
+            // Premium TV NavigationRail ...
             Box(
                 modifier = Modifier
                     .padding(vertical = 20.dp, horizontal = 10.dp)
@@ -270,6 +276,17 @@ fun MainScreen(mainViewModel: MainViewModel, tmdbViewModel: TmdbViewModel, navCo
                         onClick = {
                             scope.launch { drawerState.close() }
                             navController.navigate("playlists")
+                        },
+                        colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
+                    )
+                    
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Filled.Refresh, contentDescription = null, tint = Color.White) },
+                        label = { Text("Check Update", color = Color.White) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            onCheckUpdate()
                         },
                         colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent)
                     )
