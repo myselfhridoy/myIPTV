@@ -42,9 +42,18 @@ object RemoteConfigManager {
             }
     }
 
-    fun getTmdbApiKey(): String = remoteConfig.getString(KEY_TMDB_API_KEY)
+    fun getTmdbApiKey(): String {
+        val value = remoteConfig.getString(KEY_TMDB_API_KEY)
+        return value.ifEmpty { DEFAULT_TMDB_API_KEY }
+    }
     
-    fun getIptvPlaylistUrl(): String = remoteConfig.getString(KEY_IPTV_PLAYLIST_URL)
+    fun getIptvPlaylistUrl(): String {
+        val value = remoteConfig.getString(KEY_IPTV_PLAYLIST_URL)
+        return value.ifEmpty { DEFAULT_IPTV_PLAYLIST_URL }
+    }
     
-    fun getAddonRegistryUrl(): String = remoteConfig.getString(KEY_ADDON_REGISTRY_URL)
+    fun getAddonRegistryUrl(): String {
+        val value = remoteConfig.getString(KEY_ADDON_REGISTRY_URL)
+        return value.ifEmpty { DEFAULT_ADDON_REGISTRY_URL }
+    }
 }

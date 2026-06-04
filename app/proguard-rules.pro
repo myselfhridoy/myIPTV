@@ -18,6 +18,12 @@
 -keepclassmembers class kotlinx.serialization.internal.** {
     *** Companion;
 }
+-keep @kotlinx.serialization.Serializable class * { *; }
+-keepclassmembers @kotlinx.serialization.Serializable class * {
+    static <fields>;
+    static <methods>;
+}
+-keep class *$$serializer { *; }
 
 # Keep Utils (AddonManager, Parsers) to prevent obfuscation breaking them
 -keep class com.streambd.iptv.utils.** { *; }
