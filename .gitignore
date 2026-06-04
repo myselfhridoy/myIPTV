@@ -26,3 +26,8 @@ local.properties
 .gradle/
 build/
 app/build/
+
+# Keystore files
+*.keystore
+*.jks
+keystore_base64.txt

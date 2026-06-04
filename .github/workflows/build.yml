@@ -1,10 +1,20 @@
-﻿name: Android Build
+name: Android Build
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Select Build Type'
+        required: true
+        default: 'Debug'
+        type: choice
+        options:
+        - Debug
+        - Release
 
 jobs:
   build:
@@ -21,11 +31,42 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build with Gradle
+    - name: Build Debug
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'Debug'
       run: ./gradlew assembleDebug
 
-    - name: Upload APK
+    - name: Build Release
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'Release'
+      run: ./gradlew assembleRelease
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    - name: Upload Debug APK
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'Debug'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Decode Keystore & Sign Release APK
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'Release'
+      uses: r0adkll/sign-android-release@v1
+      name: Sign app APK
+      id: sign_app
+      with:
+        releaseDirectory: app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.KEYSTORE_B64 }}
+        alias: ${{ secrets.KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+        keyPassword: ${{ secrets.KEY_PASSWORD }}
+      env:
+        BUILD_TOOLS_VERSION: "34.0.0"
+
+    - name: Upload Release APK
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release
+        path: ${{steps.sign_app.outputs.signedReleaseFile}}
