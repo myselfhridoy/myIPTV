@@ -10,6 +10,7 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn retrofit2.**
+-keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
 
 -keep class com.streambd.iptv.data.models.** { *; }
 -keep class com.streambd.iptv.data.api.** { *; }
