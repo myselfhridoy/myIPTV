@@ -6,6 +6,8 @@
 -keepattributes Signature
 -keepattributes *Annotation*
 -keep class com.streambd.iptv.data.models.** { *; }
+-keep class com.streambd.iptv.data.api.** { *; }
+-keep interface com.streambd.iptv.data.api.** { *; }
 -keep class sun.misc.Unsafe { *; }
 -keep class com.google.gson.** { *; }
 
@@ -16,6 +18,9 @@
 -keepclassmembers class kotlinx.serialization.internal.** {
     *** Companion;
 }
+
+# Keep Utils (AddonManager, Parsers) to prevent obfuscation breaking them
+-keep class com.streambd.iptv.utils.** { *; }
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
