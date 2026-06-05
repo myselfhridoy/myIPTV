@@ -100,13 +100,21 @@ fun MainScreen(
     val configuration = LocalConfiguration.current
     val isTv = remember(configuration) {
         val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
-        if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) {
-            true
-        } else {
-            val pm = context.packageManager
-            !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) || 
-            pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        }
+        val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
+        
+        val pm = context.packageManager
+        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        val noTouch = !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
+        
+        // AOSP cheap TV boxes usually report as normal tablets.
+        // We treat any large landscape screen as TV/Tablet layout.
+        val isLandscapeLarge = configuration.screenWidthDp >= 600 && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        
+        // Check for common AOSP TV box names
+        val deviceName = (android.os.Build.MODEL + " " + android.os.Build.PRODUCT).lowercase()
+        val isKnownBox = deviceName.contains("box") || deviceName.contains("tv") || deviceName.contains("stick")
+        
+        isTelevision || isLeanback || noTouch || isLandscapeLarge || isKnownBox
     }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
