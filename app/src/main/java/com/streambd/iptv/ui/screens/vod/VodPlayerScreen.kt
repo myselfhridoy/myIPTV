@@ -383,7 +383,6 @@ fun VodPlayerScreen(
                                 val newPos = (exoPlayer.currentPosition - seekAmount).coerceAtLeast(0)
                                 exoPlayer.seekTo(newPos)
                                 currentPosition = newPos
-                                showOverlay = true
                                 true
                             } else false
                         }
@@ -393,7 +392,6 @@ fun VodPlayerScreen(
                                 val newPos = (exoPlayer.currentPosition + seekAmount).coerceAtMost(duration)
                                 exoPlayer.seekTo(newPos)
                                 currentPosition = newPos
-                                showOverlay = true
                                 true
                             } else false
                         }
