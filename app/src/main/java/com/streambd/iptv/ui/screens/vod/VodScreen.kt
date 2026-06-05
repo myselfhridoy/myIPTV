@@ -314,7 +314,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     }
         
     // Menu Overlay
-        if (onMenuClick != null) {
+        if (onMenuClick != null && searchQuery.isEmpty()) {
             IconButton(
                 onClick = onMenuClick,
                 modifier = Modifier

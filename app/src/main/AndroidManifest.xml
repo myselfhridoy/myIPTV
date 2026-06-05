@@ -25,6 +25,7 @@
             android:exported="true"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:windowSoftInputMode="adjustPan"
             android:theme="@style/Theme.StreamBDPlayer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

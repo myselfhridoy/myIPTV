@@ -333,7 +333,6 @@ fun MainScreen(
         }
     } else {
         // ── Mobile Layout: Modal Navigation Drawer & Bottom Nav ──
-        val isImeVisible = WindowInsets.isImeVisible
 
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -411,7 +410,6 @@ fun MainScreen(
             Scaffold(
                 containerColor = DarkNavyBackground,
                 bottomBar = {
-                    if (!isImeVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -524,7 +522,6 @@ fun MainScreen(
                                 }
                             }
                         }
-                    }
                 }
             ) { innerPadding ->
                 Box(modifier = Modifier.padding(innerPadding)) {
