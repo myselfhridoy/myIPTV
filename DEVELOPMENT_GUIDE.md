@@ -5,18 +5,19 @@ This document explains the architecture, technology stack, and implementation de
 ## 🎯 Project Overview
 StreamBD IPTV is a unified streaming application designed for both **Android Mobile** and **Android TV / TV Box**. It features two main components:
 1. **Live TV**: Parses complex M3U/PLS/JSON playlists. Features a robust parsing engine (`M3UParser`, `TokenParser`, `JSDecoder`) supporting Prysm formats, `#EXTVLCOPT` headers, `#KODIPROP` DRM (Widevine, ClearKey), and dynamic stream resolution (InfinityFree, CricHD bypass).
-2. **Video on Demand (VOD)**: Uses an **Addon-based architecture** where external JavaScript files extract stream links dynamically.
+2. **Video on Demand (VOD) & Series**: Integrates with TMDB API for rich metadata (posters, genres, cast, backdrops, seasons/episodes) and uses an **Addon-based architecture** where external JavaScript files extract stream links dynamically.
 
 ## 🛠 Technology Stack
 - **Language**: Kotlin
 - **UI Framework**: Jetpack Compose (Pure Native, no WebView or React Native)
 - **Video Player**: `androidx.media3:media3-exoplayer` (Jetpack Media3)
 - **Javascript Engine**: `app.cash.quickjs:quickjs-android`
-- **Network**: `OkHttp3`
-- **Serialization**: `kotlinx.serialization`
+- **Network**: `OkHttp3`, `Retrofit2`
+- **Serialization**: `kotlinx.serialization` (JSON)
 - **Navigation**: `androidx.navigation:navigation-compose`
-- **Image Loading**: Coil (`io.coil-kt:coil-compose`)
-- **Build System**: Gradle 8.4 (downgraded from 9.x for AGP stability)
+- **Image Loading**: Coil (`io.coil-kt:coil-compose`) with crossfade and error placeholders
+- **Analytics/Crash Reporting**: Firebase Analytics & Crashlytics
+- **Build System**: Gradle 8.4
 
 ---
 
@@ -30,10 +31,10 @@ The UI is fully built with **Jetpack Compose**. To support both touch (Mobile) a
 - **Overlays & Modals**: For Android TV, standard `ModalBottomSheet` traps D-Pad focus. We use standard `androidx.compose.ui.window.Dialog` instead to ensure native remote control focus behavior.
 - **Premium Aesthetics**: The Mobile `NavigationBar` features rounded top corners and a subtle shadow, while the TV `NavigationRail` uses a floating-dock style with semi-transparent glass effects and glowing active states.
 
-**Important UI Screens (Refactored by Feature):**
-- `ui/screens/main/MainScreen.kt`: The entry point Scaffold with the adaptive premium Navigation Bar/Rail.
+**Important UI Screens:**
+- `ui/screens/main/MainScreen.kt`: The entry point Scaffold with the adaptive premium Navigation Bar/Rail and Mobile Side Navigation Drawer.
 - `ui/screens/live/`: Contains `LiveTvScreen.kt`, `LiveCategoryChannelsScreen.kt`, and `LivePlayerScreen.kt`.
-- `ui/screens/vod/`: Contains `VodScreen.kt` (Dashboard), `TmdbDetailsScreen.kt` (Details), and `VodPlayerScreen.kt`.
+- `ui/screens/vod/`: Contains `VodScreen.kt` (Dashboard), `TmdbDetailsScreen.kt` (Rich UI for Movies/Series), and `VodPlayerScreen.kt`.
 - `ui/components/`: Shared global components like `TvIconButton.kt`, `TvComponents.kt`, and `TrackSelectionDialog.kt`.
 
 ### 2. Video Player Implementations
@@ -67,13 +68,21 @@ Instead of hardcoding stream scrapers natively, the app runs external JavaScript
    - `crypto-js.min.js` (stored in `assets/`) is injected into the QuickJS environment before execution.
 4. The addon script executes and returns a JSON array of `StreamSource` objects which the native Kotlin app then plays via ExoPlayer.
 
+### 4. Auto-Update via GitHub Releases
+To bypass the need for Google Play Store updates, the app includes a self-updating mechanism:
+- Uses the `UpdateManager` (inside `utils/UpdateManager.kt`) to query the GitHub API (`https://api.github.com/repos/myselfhridoy/StreamBD-IPTV-Release/releases/latest`).
+- Compares the latest tag version with `BuildConfig.VERSION_NAME`.
+- If a new version exists, an `UpdateDialog` is shown, prompting the user to download the APK.
+- The update check runs automatically on app launch and can also be triggered manually via the **Check Update** button in the Mobile Side Drawer.
+
 ---
 
 ## 🚀 How to build / run
 1. Open the project in **Android Studio**.
 2. Sync Gradle (Make sure you are using JDK 17).
-3. Run `.\gradlew assembleDebug` or click the "Play" button to install the APK on an emulator or physical device.
-4. For TV testing, create an Android TV emulator in the AVD Manager.
+3. Ensure you have `google-services.json` in the `app/` directory (Required for Firebase Analytics/Crashlytics).
+4. Run `.\gradlew assembleDebug` or click the "Play" button to install the APK on an emulator or physical device.
+5. For TV testing, create an Android TV emulator in the AVD Manager.
 
 ## 📝 Next Steps for Future Development
 - **Favorites System**: Add a local Room Database to save favorite Live Channels or TMDB media.

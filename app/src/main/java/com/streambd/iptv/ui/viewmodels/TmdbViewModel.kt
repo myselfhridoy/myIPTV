@@ -61,30 +61,30 @@ class TmdbViewModel : ViewModel() {
             try {
                 // Trending
                 val moviesResponse = tmdbApiService.getTrendingMovies(apiKey)
-                _trendingMovies.value = moviesResponse.results.filter { it.poster_path != null }
+                _trendingMovies.value = moviesResponse.results.filter { it.poster_path != null && it.adult != true }
 
                 val tvResponse = tmdbApiService.getTrendingTv(apiKey)
-                _trendingTv.value = tvResponse.results.filter { it.poster_path != null }
+                _trendingTv.value = tvResponse.results.filter { it.poster_path != null && it.adult != true }
                 
                 // Regional Movies
                 val hindiMRes = tmdbApiService.discoverMovies(apiKey, "hi")
-                _hindiMovies.value = hindiMRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "movie") }
+                _hindiMovies.value = hindiMRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "movie") }
                 
                 val southMRes = tmdbApiService.discoverMovies(apiKey, "te|ta|ml|kn")
-                _southMovies.value = southMRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "movie") }
+                _southMovies.value = southMRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "movie") }
                 
                 val banglaMRes = tmdbApiService.discoverMovies(apiKey, "bn")
-                _banglaMovies.value = banglaMRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "movie") }
+                _banglaMovies.value = banglaMRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "movie") }
                 
                 // Regional TV
                 val hindiTvRes = tmdbApiService.discoverTv(apiKey, "hi")
-                _hindiTv.value = hindiTvRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "tv") }
+                _hindiTv.value = hindiTvRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "tv") }
                 
                 val southTvRes = tmdbApiService.discoverTv(apiKey, "te|ta|ml|kn")
-                _southTv.value = southTvRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "tv") }
+                _southTv.value = southTvRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "tv") }
                 
                 val banglaTvRes = tmdbApiService.discoverTv(apiKey, "bn")
-                _banglaTv.value = banglaTvRes.results.filter { it.poster_path != null }.map { it.copy(media_type = "tv") }
+                _banglaTv.value = banglaTvRes.results.filter { it.poster_path != null && it.adult != true }.map { it.copy(media_type = "tv") }
                 
             } catch (e: Exception) {
                 e.printStackTrace()

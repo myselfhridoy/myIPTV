@@ -24,6 +24,7 @@ import com.streambd.iptv.ui.viewmodels.PlaylistChannelsViewModel
 import java.net.URLDecoder
 
 object Routes {
+    const val SPLASH = "splash"
     const val MAIN = "main"
     const val LIVE_CATEGORY_CHANNELS = "live_category_channels"
     const val LIVE_PLAYER = "live_player"
@@ -61,7 +62,16 @@ fun AppNavigation(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        NavHost(navController = navController, startDestination = Routes.MAIN) {
+        NavHost(navController = navController, startDestination = Routes.SPLASH) {
+            composable(Routes.SPLASH) {
+                com.streambd.iptv.ui.screens.splash.SplashScreen(
+                    onTimeout = {
+                        navController.navigate(Routes.MAIN) {
+                            popUpTo(Routes.SPLASH) { inclusive = true }
+                        }
+                    }
+                )
+            }
             composable(Routes.MAIN) {
                 MainScreen(
                     mainViewModel = mainViewModel, 
