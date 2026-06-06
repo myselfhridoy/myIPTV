@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -58,6 +59,7 @@ fun TmdbDetailsScreen(
 ) {
     val media by tmdbViewModel.selectedMedia.collectAsState()
 
+    val backButtonFocusRequester = remember { FocusRequester() }
     val watchButtonFocusRequester = remember { FocusRequester() }
     val tvDetails by tmdbViewModel.selectedTvDetails.collectAsState()
     val movieDetails by tmdbViewModel.selectedMovieDetails.collectAsState()
@@ -330,6 +332,9 @@ fun TmdbDetailsScreen(
                         Row(
                             modifier = Modifier
                                 .focusRequester(watchButtonFocusRequester)
+                                .focusProperties {
+                                    up = backButtonFocusRequester
+                                }
                                 .onFocusChanged { watchBtnFocused = it.isFocused }
                                 .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
                                 .shadow(
@@ -539,6 +544,11 @@ fun TmdbDetailsScreen(
                 .size(if (isPortrait) 40.dp else 48.dp)
                 .align(Alignment.TopStart)
                 .clip(CircleShape)
+                .focusRequester(backButtonFocusRequester)
+                .focusProperties {
+                    down = watchButtonFocusRequester
+                    right = watchButtonFocusRequester
+                }
                 .tvFocusBorder(CircleShape)
                 .background(Color.Black.copy(alpha = 0.3f), CircleShape)
                 .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
