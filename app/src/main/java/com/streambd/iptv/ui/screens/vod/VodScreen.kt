@@ -60,7 +60,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     var searchQuery by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(PrimaryDark)
@@ -70,16 +70,16 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 CircularProgressIndicator(color = TealAccent)
             }
         } else {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                // ── Hero Banner ──
-                var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
-                LaunchedEffect(trendingMovies) {
-                    if (focusedMedia == null && trendingMovies.isNotEmpty()) {
-                        focusedMedia = trendingMovies.first()
-                    }
+            var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
+            LaunchedEffect(trendingMovies) {
+                if (focusedMedia == null && trendingMovies.isNotEmpty()) {
+                    focusedMedia = trendingMovies.first()
                 }
-                val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
+            }
+            val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
 
+            Box(modifier = Modifier.fillMaxSize()) {
+                // ── Fixed Hero Banner ──
                 if (searchQuery.isEmpty() && focusedMedia != null) {
                     Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
                         featured?.let {
@@ -205,7 +205,18 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     }
                 }
 
-                // ── Search Bar ──
+                // ── Scrollable Content ──
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    if (searchQuery.isEmpty() && focusedMedia != null) {
+                        Spacer(modifier = Modifier.height(350.dp))
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(PrimaryDark)
+                    ) {
+                        // ── Search Bar ──
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -248,7 +259,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 } else if (searchQuery.isEmpty()) {
                     if (trendingMovies.isNotEmpty()) {
                         MediaSection(
-                            title = "🔥 Trending Movies",
+                            title = "Trending Movies",
                             mediaList = trendingMovies,
                             onFocus = onMediaFocus
                         ) { media ->
@@ -260,7 +271,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
 
                     if (trendingTv.isNotEmpty()) {
-                        MediaSection(title = "📺 Trending TV Shows", mediaList = trendingTv, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "Trending TV Shows", mediaList = trendingTv, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -269,7 +280,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (hindiMovies.isNotEmpty()) {
-                        MediaSection(title = "🎬 Bollywood Hits", mediaList = hindiMovies, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "Bollywood Hits", mediaList = hindiMovies, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -278,7 +289,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (hindiTv.isNotEmpty()) {
-                        MediaSection(title = "📺 Hindi TV Shows", mediaList = hindiTv, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "Hindi TV Shows", mediaList = hindiTv, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -287,7 +298,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (southMovies.isNotEmpty()) {
-                        MediaSection(title = "🍿 South Indian Blockbusters", mediaList = southMovies, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "South Indian Blockbusters", mediaList = southMovies, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -296,7 +307,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (southTv.isNotEmpty()) {
-                        MediaSection(title = "📺 South Indian TV Shows", mediaList = southTv, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "South Indian TV Shows", mediaList = southTv, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -305,7 +316,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (banglaMovies.isNotEmpty()) {
-                        MediaSection(title = "🎥 Bengali Movies", mediaList = banglaMovies, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "Bengali Movies", mediaList = banglaMovies, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
@@ -314,32 +325,34 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (banglaTv.isNotEmpty()) {
-                        MediaSection(title = "📺 Bengali TV Shows", mediaList = banglaTv, onFocus = onMediaFocus) { media ->
+                        MediaSection(title = "Bengali TV Shows", mediaList = banglaTv, onFocus = onMediaFocus) { media ->
                             viewModel.selectMedia(media)
                             navController.navigate(Routes.TMDB_DETAILS)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
-                }
-            }
-        }
-    }
+                } // closes else-if
+            } // closes Content Column
+        } // closes Scrollable Column
+        } // closes Hero Box
+    } // closes else
+    } // closes Background Box
         
     // Menu Overlay
-        if (onMenuClick != null && searchQuery.isEmpty()) {
-            IconButton(
-                onClick = onMenuClick,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(top = 16.dp, start = 16.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-            ) {
-                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
-            }
+    if (onMenuClick != null && searchQuery.isEmpty()) {
+        IconButton(
+            onClick = onMenuClick,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 16.dp, start = 16.dp)
+                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+        ) {
+            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
         }
-    }
-}
+    } // closes Menu Overlay block?
+} // closes Root Box
+} // closes VodScreen
 
 @Composable
 fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia) -> Unit = {}, onClick: (TmdbMedia) -> Unit) {
