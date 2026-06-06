@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.screens.vod
 
+import android.content.res.Configuration
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +61,9 @@ fun TmdbDetailsScreen(
     val watchButtonFocusRequester = remember { FocusRequester() }
     val tvDetails by tmdbViewModel.selectedTvDetails.collectAsState()
     val movieDetails by tmdbViewModel.selectedMovieDetails.collectAsState()
+
+    val configuration = LocalConfiguration.current
+    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     LaunchedEffect(media) {
         if (media != null) {
@@ -114,21 +119,23 @@ fun TmdbDetailsScreen(
                     )
                 )
         )
-        // Left gradient for text readability
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0xFF090D14).copy(alpha = 0.9f),
-                            Color(0xFF090D14).copy(alpha = 0.4f),
-                            Color.Transparent
-                        ),
-                        endX = 1000f
+        // Left gradient for text readability (only prominent in landscape)
+        if (!isPortrait) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF090D14).copy(alpha = 0.9f),
+                                Color(0xFF090D14).copy(alpha = 0.4f),
+                                Color.Transparent
+                            ),
+                            endX = 1000f
+                        )
                     )
-                )
-        )
+            )
+        }
 
         // ── Scrollable Content ──
         Column(
@@ -136,20 +143,15 @@ fun TmdbDetailsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(180.dp)) // Push content down over the backdrop
+            Spacer(modifier = Modifier.height(if (isPortrait) 100.dp else 180.dp)) // Push content down over the backdrop
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 32.dp)
-            ) {
-                // Poster
+            val posterContent: @Composable () -> Unit = {
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 24.dp),
                     modifier = Modifier
-                        .width(180.dp)
-                        .height(270.dp)
+                        .width(if (isPortrait) 160.dp else 180.dp)
+                        .height(if (isPortrait) 240.dp else 270.dp)
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
                 ) {
                     AsyncImage(
@@ -159,21 +161,20 @@ fun TmdbDetailsScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.width(32.dp))
-
-                // Info Column
+            val infoContent: @Composable (Modifier) -> Unit = { modifier ->
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(top = 16.dp)
+                    modifier = modifier.padding(top = if (isPortrait) 0.dp else 16.dp),
+                    horizontalAlignment = if (isPortrait) Alignment.CenterHorizontally else Alignment.Start
                 ) {
                     // Title
                     Text(
                         text = m.displayTitle,
                         color = Color.White,
-                        fontSize = 36.sp,
+                        fontSize = if (isPortrait) 30.sp else 36.sp,
                         fontWeight = FontWeight.ExtraBold,
+                        textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -184,18 +185,20 @@ fun TmdbDetailsScreen(
                         Text(
                             text = "\"$tagline\"",
                             color = TealAccent.copy(alpha = 0.8f),
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontStyle = FontStyle.Italic,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start
                         )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Metadata Row (Year, Type, Rating, Runtime/Seasons)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    // Metadata Row
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = if (isPortrait) Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Rating
                         if (m.vote_average != null && m.vote_average > 0) {
@@ -268,7 +271,7 @@ fun TmdbDetailsScreen(
                     if (!genres.isNullOrEmpty()) {
                         @OptIn(ExperimentalLayoutApi::class)
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = if (isPortrait) Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             genres.forEach { genre ->
@@ -298,7 +301,6 @@ fun TmdbDetailsScreen(
                     var expandedSeason by remember { mutableStateOf(false) }
                     var expandedEpisode by remember { mutableStateOf(false) }
 
-                    // TV Show season/episode init
                     val validSeasons = if (!m.isMovie && tvDetails != null) {
                         tvDetails!!.seasons.filter { it.season_number > 0 }
                     } else emptyList()
@@ -318,9 +320,10 @@ fun TmdbDetailsScreen(
                         label = "watchBtnScale"
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = if (isPortrait) Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         // Watch Now Button
@@ -394,39 +397,23 @@ fun TmdbDetailsScreen(
                                         modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
                                     ) {
                                         Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                            Text(
-                                                text = "Select Season",
-                                                color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                                textAlign = TextAlign.Center
-                                            )
+                                            Text("Select Season", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                             Spacer(modifier = Modifier.height(12.dp))
                                             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                                 items(validSeasons) { season ->
                                                     val isSelected = localSeason == season.season_number
-                                                    Box(
+                                                    Text(
+                                                        text = "Season ${season.season_number}",
+                                                        color = if (isSelected) TealAccent else Color.White,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .clickable {
-                                                                localSeason = season.season_number
-                                                                localEpisode = 1
-                                                                expandedSeason = false
-                                                            }
-                                                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable { localSeason = season.season_number; localEpisode = 1; expandedSeason = false }
                                                             .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                            .tvFocusBorder()
-                                                            .padding(vertical = 12.dp, horizontal = 16.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "Season ${season.season_number}",
-                                                            color = if (isSelected) TealAccent else Color.White,
-                                                            fontSize = 16.sp,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            textAlign = TextAlign.Center
-                                                        )
-                                                    }
+                                                            .padding(16.dp),
+                                                        textAlign = TextAlign.Center
+                                                    )
                                                 }
                                             }
                                         }
@@ -464,38 +451,23 @@ fun TmdbDetailsScreen(
                                         modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
                                     ) {
                                         Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                            Text(
-                                                text = "Select Episode",
-                                                color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                                                textAlign = TextAlign.Center
-                                            )
+                                            Text("Select Episode", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                                             Spacer(modifier = Modifier.height(12.dp))
                                             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                                 items((1..selectedSeasonObj.episode_count).toList()) { ep ->
                                                     val isSelected = localEpisode == ep
-                                                    Box(
+                                                    Text(
+                                                        text = "Episode $ep",
+                                                        color = if (isSelected) TealAccent else Color.White,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .clickable {
-                                                                localEpisode = ep
-                                                                expandedEpisode = false
-                                                            }
-                                                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable { localEpisode = ep; expandedEpisode = false }
                                                             .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                            .tvFocusBorder()
-                                                            .padding(vertical = 12.dp, horizontal = 16.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "Episode $ep",
-                                                            color = if (isSelected) TealAccent else Color.White,
-                                                            fontSize = 16.sp,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            textAlign = TextAlign.Center
-                                                        )
-                                                    }
+                                                            .padding(16.dp),
+                                                        textAlign = TextAlign.Center
+                                                    )
                                                 }
                                             }
                                         }
@@ -513,7 +485,9 @@ fun TmdbDetailsScreen(
                             text = "Overview",
                             color = Color.White,
                             fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -521,11 +495,36 @@ fun TmdbDetailsScreen(
                             color = Color.White.copy(alpha = 0.65f),
                             fontSize = 15.sp,
                             lineHeight = 24.sp,
-                            modifier = Modifier.padding(end = 32.dp)
+                            textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
+                            modifier = if (isPortrait) Modifier.fillMaxWidth() else Modifier.padding(end = 32.dp)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(60.dp)) // Bottom padding
+                }
+            }
+
+            // Decide layout based on orientation
+            if (isPortrait) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    posterContent()
+                    Spacer(modifier = Modifier.height(24.dp))
+                    infoContent(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
+                ) {
+                    posterContent()
+                    Spacer(modifier = Modifier.width(32.dp))
+                    infoContent(Modifier.weight(1f))
                 }
             }
         }
@@ -536,8 +535,8 @@ fun TmdbDetailsScreen(
             contentDescription = "Back",
             tint = Color.White,
             modifier = Modifier
-                .padding(32.dp)
-                .size(48.dp)
+                .padding(if (isPortrait) 16.dp else 32.dp)
+                .size(if (isPortrait) 40.dp else 48.dp)
                 .align(Alignment.TopStart)
                 .clip(CircleShape)
                 .tvFocusBorder(CircleShape)
