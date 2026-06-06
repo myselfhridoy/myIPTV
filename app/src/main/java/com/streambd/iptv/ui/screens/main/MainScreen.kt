@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -176,13 +177,48 @@ fun MainScreen(
 
     if (isTv) {
         var showMorePopup by remember { mutableStateOf(false) }
+        var focusedTabIndex by remember { mutableStateOf<Int?>(null) }
+        val isDrawerExpanded = focusedTabIndex != null
 
-        Row(modifier = Modifier.fillMaxSize().background(DarkNavyBackground)) {
-            // Premium TV NavigationRail ...
+        val drawerWidth by animateDpAsState(
+            targetValue = if (isDrawerExpanded) 240.dp else 80.dp,
+            animationSpec = tween(300),
+            label = "drawerWidth"
+        )
+        val scrimAlpha by animateFloatAsState(
+            targetValue = if (isDrawerExpanded) 0.6f else 0f,
+            animationSpec = tween(300),
+            label = "scrimAlpha"
+        )
+
+        Box(modifier = Modifier.fillMaxSize().background(DarkNavyBackground)) {
+            // Content Area (Pushed slightly right to avoid the collapsed drawer)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 100.dp) // 80dp + 20dp margin
+            ) {
+                when (selectedTab) {
+                    0 -> LiveTvScreen(mainViewModel, navController)
+                    1 -> VodScreen(tmdbViewModel, navController)
+                    2 -> StreamScreen(mainViewModel, tmdbViewModel, navController)
+                }
+            }
+
+            // Scrim Overlay
+            if (scrimAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = scrimAlpha))
+                )
+            }
+
+            // Premium TV Navigation Drawer
             Box(
                 modifier = Modifier
                     .padding(vertical = 20.dp, horizontal = 10.dp)
-                    .width(80.dp)
+                    .width(drawerWidth)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(20.dp))
                     .background(
@@ -208,7 +244,7 @@ fun MainScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    horizontalAlignment = if (isDrawerExpanded) Alignment.Start else Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     tvTabs.forEachIndexed { index, tab ->
@@ -217,8 +253,8 @@ fun MainScreen(
 
                         val bgColor by animateColorAsState(
                             targetValue = when {
-                                isSelected -> TealAccent.copy(alpha = 0.18f)
-                                isFocused -> TealAccent.copy(alpha = 0.08f)
+                                isFocused -> TealAccent.copy(alpha = 0.15f)
+                                isSelected -> TealAccent.copy(alpha = 0.08f)
                                 else -> Color.Transparent
                             },
                             animationSpec = tween(200),
@@ -240,12 +276,20 @@ fun MainScreen(
                             label = "textColor"
                         )
 
-                        Box {
-                            Column(
+                        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = if (isDrawerExpanded) 12.dp else 0.dp)) {
+                            Row(
                                 modifier = Modifier
-                                    .padding(vertical = 6.dp, horizontal = 6.dp)
+                                    .padding(vertical = 6.dp)
+                                    .fillMaxWidth()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .onFocusChanged { isFocused = it.isFocused }
+                                    .onFocusChanged { focusState ->
+                                        isFocused = focusState.isFocused
+                                        if (focusState.isFocused) {
+                                            focusedTabIndex = index
+                                        } else if (focusedTabIndex == index) {
+                                            focusedTabIndex = null
+                                        }
+                                    }
                                     .clickable {
                                         when (index) {
                                             3 -> navController.navigate("playlists")
@@ -261,8 +305,9 @@ fun MainScreen(
                                         color = borderColor,
                                         shape = RoundedCornerShape(14.dp)
                                     )
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .padding(vertical = 12.dp, horizontal = if (isDrawerExpanded) 16.dp else 0.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = if (isDrawerExpanded) Arrangement.Start else Arrangement.Center
                             ) {
                                 Icon(
                                     imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
@@ -270,23 +315,15 @@ fun MainScreen(
                                     tint = iconColor,
                                     modifier = Modifier.size(26.dp)
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = tab.title,
-                                    color = textColor,
-                                    fontSize = 9.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                                if (isSelected) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .width(20.dp)
-                                            .height(3.dp)
-                                            .clip(RoundedCornerShape(2.dp))
-                                            .background(TealAccent)
+                                if (isDrawerExpanded) {
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Text(
+                                        text = tab.title,
+                                        color = textColor,
+                                        fontSize = 16.sp,
+                                        fontWeight = if (isSelected || isFocused) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -298,7 +335,7 @@ fun MainScreen(
                                     properties = PopupProperties(focusable = true)
                                 ) {
                                     Card(
-                                        modifier = Modifier.padding(start = 120.dp).width(200.dp),
+                                        modifier = Modifier.padding(start = 240.dp).width(200.dp),
                                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2433)),
                                         shape = RoundedCornerShape(16.dp),
                                         elevation = CardDefaults.cardElevation(12.dp)
@@ -328,15 +365,6 @@ fun MainScreen(
                             }
                         }
                     }
-                }
-            }
-
-            // Content Area
-            Box(modifier = Modifier.weight(1f)) {
-                when (selectedTab) {
-                    0 -> LiveTvScreen(mainViewModel, navController)
-                    1 -> VodScreen(tmdbViewModel, navController)
-                    2 -> StreamScreen(mainViewModel, tmdbViewModel, navController)
                 }
             }
         }
