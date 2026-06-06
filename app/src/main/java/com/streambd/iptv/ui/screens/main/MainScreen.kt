@@ -106,15 +106,16 @@ fun MainScreen(
         val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
         val noTouch = !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
         
-        // AOSP cheap TV boxes usually report as normal tablets.
-        // We treat any large landscape screen as TV/Tablet layout.
-        val isLandscapeLarge = configuration.screenWidthDp >= 600 && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        // AOSP cheap TV boxes often have weird dpi scaling causing small screenWidthDp,
+        // and obscure names. The most robust fallback is treating ANY landscape orientation 
+        // as a TV/Tablet layout (Navigation Rail). This also adheres to Material 3 adaptive UI for mobile.
+        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         
         // Check for common AOSP TV box names
         val deviceName = (android.os.Build.MODEL + " " + android.os.Build.PRODUCT).lowercase()
         val isKnownBox = deviceName.contains("box") || deviceName.contains("tv") || deviceName.contains("stick")
         
-        isTelevision || isLeanback || noTouch || isLandscapeLarge || isKnownBox
+        isTelevision || isLeanback || noTouch || isLandscape || isKnownBox
     }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
