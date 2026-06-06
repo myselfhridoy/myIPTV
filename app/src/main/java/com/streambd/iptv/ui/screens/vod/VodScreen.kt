@@ -62,7 +62,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0D1117))
+                .background(PrimaryDark)
         ) {
             if (isLoading && trendingMovies.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -93,8 +93,8 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     Brush.verticalGradient(
                                         colors = listOf(
                                             Color.Transparent,
-                                            Color(0xFF0D1117).copy(alpha = 0.6f),
-                                            Color(0xFF0D1117)
+                                            PrimaryDark.copy(alpha = 0.6f),
+                                            PrimaryDark
                                         ),
                                         startY = 80f
                                     )
@@ -107,7 +107,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 .background(
                                     Brush.horizontalGradient(
                                         colors = listOf(
-                                            Color(0xFF0D1117).copy(alpha = 0.7f),
+                                            PrimaryDark.copy(alpha = 0.7f),
                                             Color.Transparent
                                         ),
                                         endX = 400f
@@ -212,12 +212,12 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = TealAccent,
-                            unfocusedBorderColor = Color(0xFF2B3648),
+                            unfocusedBorderColor = SurfaceDark,
                             focusedTextColor = WhiteText,
                             unfocusedTextColor = WhiteText,
                             cursorColor = TealAccent,
-                            focusedContainerColor = Color(0xFF151A25),
-                            unfocusedContainerColor = Color(0xFF151A25)
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark
                         ),
                         shape = RoundedCornerShape(14.dp),
                         singleLine = true,
@@ -383,7 +383,7 @@ fun TmdbMediaCard(media: TmdbMedia, onClick: () -> Unit) {
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .border(
-                width = if (isFocused) 2.dp else 0.dp,
+                width = if (isFocused) 3.dp else 0.dp,
                 color = if (isFocused) TealAccent else Color.Transparent,
                 shape = RoundedCornerShape(14.dp)
             ),
@@ -391,7 +391,7 @@ fun TmdbMediaCard(media: TmdbMedia, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(
             defaultElevation = if (isFocused) 12.dp else 4.dp
         ),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230))
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
