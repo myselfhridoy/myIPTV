@@ -32,6 +32,13 @@ interface TmdbApiService {
         @Query("include_adult") includeAdult: Boolean = false
     ): TmdbResponse<TmdbMedia>
 
+    @GET("movie/{movie_id}")
+    suspend fun getMovieDetails(
+        @retrofit2.http.Path("movie_id") movieId: Int,
+        @Query("api_key") apiKey: String,
+        @Query("language") language: String = "en-US"
+    ): com.streambd.iptv.data.models.TmdbMovieDetails
+
     @GET("tv/{tv_id}")
     suspend fun getTvDetails(
         @retrofit2.http.Path("tv_id") tvId: Int,

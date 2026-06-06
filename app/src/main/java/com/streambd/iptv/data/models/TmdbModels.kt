@@ -47,12 +47,31 @@ data class TmdbMedia(
 }
 
 @Serializable
+data class TmdbGenre(
+    val id: Int,
+    val name: String
+)
+
+@Serializable
+data class TmdbMovieDetails(
+    val id: Int,
+    val title: String,
+    val runtime: Int? = null,
+    val tagline: String? = null,
+    val genres: List<TmdbGenre> = emptyList(),
+    val status: String? = null
+)
+
+@Serializable
 data class TmdbTvShowDetails(
     val id: Int,
     val name: String,
     val number_of_episodes: Int? = null,
     val number_of_seasons: Int? = null,
-    val seasons: List<TmdbSeason> = emptyList()
+    val seasons: List<TmdbSeason> = emptyList(),
+    val tagline: String? = null,
+    val genres: List<TmdbGenre> = emptyList(),
+    val status: String? = null
 )
 
 @Serializable

@@ -51,6 +51,9 @@ class TmdbViewModel : ViewModel() {
     private val _selectedTvDetails = MutableStateFlow<com.streambd.iptv.data.models.TmdbTvShowDetails?>(null)
     val selectedTvDetails: StateFlow<com.streambd.iptv.data.models.TmdbTvShowDetails?> = _selectedTvDetails.asStateFlow()
 
+    private val _selectedMovieDetails = MutableStateFlow<com.streambd.iptv.data.models.TmdbMovieDetails?>(null)
+    val selectedMovieDetails: StateFlow<com.streambd.iptv.data.models.TmdbMovieDetails?> = _selectedMovieDetails.asStateFlow()
+
     init {
         fetchTrending()
     }
@@ -118,11 +121,13 @@ class TmdbViewModel : ViewModel() {
     fun selectMedia(media: TmdbMedia) {
         _selectedMedia.value = media
         _selectedTvDetails.value = null // reset when new media selected
+        _selectedMovieDetails.value = null
     }
 
     fun clearSelectedMedia() {
         _selectedMedia.value = null
         _selectedTvDetails.value = null
+        _selectedMovieDetails.value = null
     }
 
     fun fetchTvDetails(tvId: Int) {
@@ -130,6 +135,17 @@ class TmdbViewModel : ViewModel() {
             try {
                 val response = tmdbApiService.getTvDetails(tvId, apiKey)
                 _selectedTvDetails.value = response
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun fetchMovieDetails(movieId: Int) {
+        viewModelScope.launch {
+            try {
+                val response = tmdbApiService.getMovieDetails(movieId, apiKey)
+                _selectedMovieDetails.value = response
             } catch (e: Exception) {
                 e.printStackTrace()
             }
