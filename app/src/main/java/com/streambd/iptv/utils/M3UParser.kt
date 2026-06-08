@@ -383,8 +383,8 @@ object M3UParser {
                 }
                 
                 val name = obj.optString("name", obj.optString("title", "Unknown Channel"))
-                val logo = obj.optString("logo", obj.optString("image", obj.optString("tvgLogo", "")))
-                val group = obj.optString("group", obj.optString("category", obj.optString("groupTitle", "Uncategorized")))
+                val logo = obj.optString("tvg-logo", obj.optString("logo", obj.optString("image", obj.optString("tvgLogo", ""))))
+                val group = obj.optString("group-title", obj.optString("group", obj.optString("category", obj.optString("groupTitle", "Uncategorized"))))
                 val isLive = obj.optBoolean("isLive", true)
                 
                 channels.add(Channel(
