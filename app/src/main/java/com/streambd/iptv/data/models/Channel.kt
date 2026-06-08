@@ -17,5 +17,6 @@ data class Channel(
     val tokenReplace: String? = null,
     val tokenId: Int? = null,
     val drm: DrmConfig? = null,
-    val isLiveEvent: Boolean = true
+    val isLiveEvent: Boolean = true,
+    val sources: Map<String, String> = emptyMap()
 )

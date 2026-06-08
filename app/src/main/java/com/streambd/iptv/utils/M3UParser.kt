@@ -333,7 +333,25 @@ object M3UParser {
         for (i in 0 until array.length()) {
             try {
                 val obj = array.getJSONObject(i)
-                val rawUrl = obj.optString("url", obj.optString("link", ""))
+                
+                var rawUrl = obj.optString("url", obj.optString("link", ""))
+                val sourcesMap = mutableMapOf<String, String>()
+                
+                if (obj.has("sources")) {
+                    try {
+                        val sourcesObj = obj.getJSONObject("sources")
+                        sourcesObj.keys().forEach { key ->
+                            val srcUrl = sourcesObj.getString(key)
+                            if (srcUrl.isNotEmpty()) {
+                                sourcesMap[key] = srcUrl
+                            }
+                        }
+                        if (rawUrl.isEmpty() && sourcesMap.isNotEmpty()) {
+                            rawUrl = sourcesMap.values.first()
+                        }
+                    } catch (e: Exception) {}
+                }
+
                 if (rawUrl.isEmpty()) continue
                 
                 val parsed = parseUrlHeaders(rawUrl)
@@ -378,20 +396,21 @@ object M3UParser {
                     httpReferer = ref,
                     origin = origin,
                     cookie = cookie,
-                    isLiveEvent = isLive
+                    isLiveEvent = isLive,
+                    sources = sourcesMap
                 ))
             } catch (e: Exception) {}
         }
         return channels
     }
 
-    private data class ParsedUrl(
+    data class ParsedUrl(
         val cleanUrl: String, 
         val headers: Map<String, String>, 
         val custom: Map<String, String>
     )
 
-    private fun parseUrlHeaders(line: String): ParsedUrl {
+    fun parseUrlHeaders(line: String): ParsedUrl {
         val parts = line.split("|")
         val cleanUrl = parts.firstOrNull()?.trim() ?: ""
         val headers = mutableMapOf<String, String>()

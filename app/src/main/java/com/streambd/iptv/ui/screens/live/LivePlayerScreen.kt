@@ -48,6 +48,7 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
+import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
@@ -85,7 +86,9 @@ fun LivePlayerScreen(
     var showOverlay by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
+    var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
+    var currentSourceUrl by remember(channel) { mutableStateOf(channel.url) }
 
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
@@ -139,8 +142,11 @@ fun LivePlayerScreen(
     }
 
     // Handle ExoPlayer Media Setup
-    LaunchedEffect(channel) {
+    LaunchedEffect(channel, currentSourceUrl) {
         isLoading = true // Show loading while resolving
+        
+        val parsedSource = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(currentSourceUrl)
+        val rawSourceUrl = parsedSource.cleanUrl
 
         // Build initial headers from channel
         val initialHeaders = mutableMapOf<String, String>()
@@ -148,22 +154,29 @@ fun LivePlayerScreen(
         channel.cookie?.let { initialHeaders["Cookie"] = it }
         channel.httpReferer?.let { initialHeaders["Referer"] = it }
         channel.origin?.let { initialHeaders["Origin"] = it }
+        
+        parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
+        
+        val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
+        val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
+        val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
+        val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
 
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
-        val resolved = if (!channel.tokenUrl.isNullOrEmpty()) {
+        val resolved = if (!currentTokenUrl.isNullOrEmpty()) {
             com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
-                baseUrl = channel.url,
-                tokenUrl = channel.tokenUrl,
-                tokenId = channel.tokenId?.toString(),
+                baseUrl = rawSourceUrl,
+                tokenUrl = currentTokenUrl,
+                tokenId = currentTokenId?.toString(),
                 headers = initialHeaders,
-                tokenMatch = channel.tokenMatch,
-                tokenReplace = channel.tokenReplace
+                tokenMatch = currentTokenMatch,
+                tokenReplace = currentTokenReplace
             )
         } else {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            if (!extRegex.containsMatchIn(channel.url) && !protoRegex.containsMatchIn(channel.url)) {
+            if (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl)) {
                 // Pre-resolve non-standard extensions (like .php) to find actual media URL and Content-Type
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
@@ -171,7 +184,7 @@ fun LivePlayerScreen(
                             .followRedirects(true)
                             .followSslRedirects(true)
                             .build()
-                        val req = okhttp3.Request.Builder().url(channel.url).apply {
+                        val req = okhttp3.Request.Builder().url(rawSourceUrl).apply {
                             initialHeaders.forEach { (k, v) -> header(k, v) }
                         }.head().build() // Use HEAD first
                         
@@ -203,7 +216,7 @@ fun LivePlayerScreen(
             }
         }
 
-        val finalUrl = resolved?.url ?: channel.url
+        val finalUrl = resolved?.url ?: rawSourceUrl
         val finalHeaders = resolved?.headers ?: initialHeaders
         val finalDrm = resolved?.drm ?: channel.drm
 
@@ -302,8 +315,17 @@ fun LivePlayerScreen(
                 isPlaying = isPlayingState
             }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                playerError = error
-                isLoading = false
+                val sourcesList = channel.sources.values.toList()
+                val currentIndex = sourcesList.indexOf(currentSourceUrl)
+                if (sourcesList.isNotEmpty() && currentIndex != -1 && currentIndex < sourcesList.size - 1) {
+                    // Auto play next source
+                    currentSourceUrl = sourcesList[currentIndex + 1]
+                    isLoading = true
+                    playerError = null
+                } else {
+                    playerError = error
+                    isLoading = false
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -500,6 +522,11 @@ fun LivePlayerScreen(
 
                         // Top Right Icons
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (channel.sources.isNotEmpty()) {
+                                TvIconButton(onClick = { showSourceSelector = true }) {
+                                    Icon(Icons.Default.Dns, "Sources", tint = Color.White)
+                                }
+                            }
                             TvIconButton(onClick = { isLocked = true }) {
                                 Icon(Icons.Default.Lock, "Lock", tint = Color.White)
                             }
@@ -655,6 +682,15 @@ fun LivePlayerScreen(
             trackSelector = trackSelector,
             currentTracks = exoPlayer.currentTracks,
             onDismiss = { showTrackSelector = false }
+        )
+    }
+    
+    if (showSourceSelector) {
+        SourceSelectionDialog(
+            sources = channel.sources,
+            currentSourceUrl = currentSourceUrl,
+            onSourceSelected = { _, url -> currentSourceUrl = url },
+            onDismiss = { showSourceSelector = false }
         )
     }
 }
