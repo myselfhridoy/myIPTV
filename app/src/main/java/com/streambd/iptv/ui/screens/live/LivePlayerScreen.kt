@@ -161,6 +161,17 @@ fun LivePlayerScreen(
         val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
         val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
         val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
+        
+        var sourceDrm = channel.drm
+        if (parsedSource.custom.containsKey("drm-type")) {
+            val drmType = parsedSource.custom["drm-type"]
+            val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
+            if (drmKey != null && Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$").matches(drmKey)) {
+                sourceDrm = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", rawKeyPair = drmKey)
+            } else {
+                sourceDrm = com.streambd.iptv.data.models.DrmConfig(type = drmType, licenseServer = drmKey)
+            }
+        }
 
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
         val resolved = if (!currentTokenUrl.isNullOrEmpty()) {
@@ -218,7 +229,7 @@ fun LivePlayerScreen(
 
         val finalUrl = resolved?.url ?: rawSourceUrl
         val finalHeaders = resolved?.headers ?: initialHeaders
-        val finalDrm = resolved?.drm ?: channel.drm
+        val finalDrm = resolved?.drm ?: sourceDrm
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {

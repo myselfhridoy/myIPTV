@@ -382,6 +382,17 @@ object M3UParser {
                     }
                 }
                 
+                var defaultDrm: DrmConfig? = null
+                if (parsed.custom.containsKey("drm-type")) {
+                    val drmType = parsed.custom["drm-type"]
+                    val drmKey = parsed.custom["drm-url"] ?: parsed.custom["drm-key"]
+                    if (drmKey != null && Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$").matches(drmKey)) {
+                        defaultDrm = DrmConfig(type = "clearkey", rawKeyPair = drmKey)
+                    } else {
+                        defaultDrm = DrmConfig(type = drmType, licenseServer = drmKey)
+                    }
+                }
+
                 val name = obj.optString("name", obj.optString("title", "Unknown Channel"))
                 val logo = obj.optString("tvg-logo", obj.optString("logo", obj.optString("image", obj.optString("tvgLogo", ""))))
                 val group = obj.optString("group-title", obj.optString("group", obj.optString("category", obj.optString("groupTitle", "Uncategorized"))))
@@ -396,6 +407,7 @@ object M3UParser {
                     httpReferer = ref,
                     origin = origin,
                     cookie = cookie,
+                    drm = defaultDrm,
                     isLiveEvent = isLive,
                     sources = sourcesMap
                 ))
@@ -441,7 +453,7 @@ object M3UParser {
                 
                 val lower = key.lowercase()
 
-                if (lower == "tokenurl" || lower == "token-url" || lower == "tokenid" || lower == "tokenmatch" || lower == "tokenreplace") {
+                if (lower == "tokenurl" || lower == "token-url" || lower == "tokenid" || lower == "tokenmatch" || lower == "tokenreplace" || lower == "drm-type" || lower == "drm-url" || lower == "drm-key") {
                     custom[key] = value
                     custom[lower] = value
                 } else {
