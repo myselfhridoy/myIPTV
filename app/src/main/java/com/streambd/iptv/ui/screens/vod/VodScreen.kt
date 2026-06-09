@@ -3,9 +3,11 @@ package com.streambd.iptv.ui.screens.vod
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -104,6 +106,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .focusGroup()
                                     .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
                             ) {
                         // Backdrop Image
@@ -277,6 +280,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .focusGroup()
                         .padding(horizontal = 16.dp, vertical = 16.dp)
                 ) {
                     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -298,7 +302,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     modifier = Modifier
                                         .size(48.dp)
                                         .tvFocusBorder(CircleShape)
-                                        .tvTouchClick { 
+                                        .clickable { 
                                             isSearchExpanded = false
                                             searchQuery = ""
                                             viewModel.search("")
@@ -335,7 +339,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         .size(48.dp)
                                         .tvFocusBorder(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                        .tvTouchClick { onMenuClick() },
+                                        .clickable { onMenuClick() },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
@@ -349,7 +353,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     .size(48.dp)
                                     .tvFocusBorder(CircleShape)
                                     .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                    .tvTouchClick { isSearchExpanded = true },
+                                    .clickable { isSearchExpanded = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
@@ -359,7 +363,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 }
 
                 // ── Scrollable Content ──
-                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).focusGroup()) {
                     if (searchQuery.isEmpty() && focusedMedia != null) {
                         Spacer(modifier = Modifier.height(if (isLandscape) 450.dp else 500.dp))
                     }
@@ -458,18 +462,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     } // closes else
     } // closes Background Box
         
-    // Menu Overlay
-    if (onMenuClick != null && searchQuery.isEmpty()) {
-        IconButton(
-            onClick = onMenuClick,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 16.dp, start = 16.dp)
-                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-        ) {
-            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
-        }
-    } // closes Menu Overlay block?
 } // closes Root Box
 } // closes VodScreen
 
