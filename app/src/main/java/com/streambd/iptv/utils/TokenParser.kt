@@ -248,6 +248,20 @@ object TokenParser {
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
                     val body = res.body?.string() ?: ""
+                    
+                    var jsonStreamUrl: String? = null
+                    try {
+                        val jsonObj = org.json.JSONObject(body)
+                        if (jsonObj.has("url")) jsonStreamUrl = jsonObj.getString("url")
+                        else if (jsonObj.has("stream_url")) jsonStreamUrl = jsonObj.getString("stream_url")
+                        else if (jsonObj.has("link")) jsonStreamUrl = jsonObj.getString("link")
+                    } catch (e: Exception) {}
+
+                    if (!jsonStreamUrl.isNullOrEmpty()) {
+                        val drm = extractDrmFromBody(body)
+                        return@withContext ResolvedToken(url = jsonStreamUrl, headers = getStreamHeaders(baseUrl, headers), drm = drm)
+                    }
+
                     val streams = extractAllUrls(body).filter { isStreamUrl(it) }
                     if (streams.isNotEmpty()) {
                         val parsedId = idMatch.groupValues[1].toIntOrNull() ?: 1
@@ -295,8 +309,9 @@ object TokenParser {
 
     private fun isStreamUrl(url: String): Boolean {
         val ext = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+        val noDotExt = Regex("/(mpegts|hls|dash)(\\?|/|$)", RegexOption.IGNORE_CASE)
         val proto = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-        return ext.containsMatchIn(url) || proto.containsMatchIn(url)
+        return ext.containsMatchIn(url) || noDotExt.containsMatchIn(url) || proto.containsMatchIn(url)
     }
 
     private fun extractAllUrls(payload: String): List<String> {
