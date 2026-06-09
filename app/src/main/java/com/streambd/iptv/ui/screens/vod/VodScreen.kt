@@ -112,7 +112,8 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // ── Unified Scrollable Content ──
-                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
                     
                     // 1. Scrolling Hero Banner
                     if (searchQuery.isEmpty() && focusedMedia != null) {
@@ -299,12 +300,15 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         Spacer(modifier = Modifier.height(100.dp))
                     }
 
+                    }
+
                     // 2. Media Rows
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(PrimaryDark)
-                    ) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PrimaryDark)
+                        ) {
                         // ── Content Sections ──
                         if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
                             MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
@@ -389,6 +393,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             Spacer(modifier = Modifier.height(24.dp))
                         } // closes else-if
                     } // closes Content Column
+                    } // closes item {
                 } // closes Scrollable Column
 
                 // ── Overlay Top Navigation Bar (Fixed on Top) ──

@@ -24,6 +24,11 @@ import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.TealAccent
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 
 /**
  * A custom modifier that adds a TealAccent border when the component is focused.
@@ -78,10 +83,19 @@ fun TvIconButton(
 
 /**
  * A modifier that bypasses TV component restrictions to manually capture
- * pointer tap events for mobile support, without breaking TV focus/d-pad behavior.
+ * pointer tap events for mobile support AND properly handles D-Pad Enter for TV.
  */
 fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = this.then(
-    Modifier.pointerInput(Unit) {
-        detectTapGestures(onTap = { onClick() })
-    }
+    Modifier
+        .pointerInput(Unit) {
+            detectTapGestures(onTap = { onClick() })
+        }
+        .onKeyEvent {
+            if (it.type == KeyEventType.KeyDown && (it.key == Key.Enter || it.key == Key.DirectionCenter || it.key == Key.NumPadEnter)) {
+                onClick()
+                true
+            } else {
+                false
+            }
+        }
 )

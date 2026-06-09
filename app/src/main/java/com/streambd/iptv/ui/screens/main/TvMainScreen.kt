@@ -12,6 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -68,6 +72,15 @@ fun TvMainScreen(
         }
     }
 
+    val drawerFocusRequester = remember { FocusRequester() }
+    
+    LaunchedEffect(drawerState.currentValue) {
+        if (drawerState.currentValue == DrawerValue.Open) {
+            kotlinx.coroutines.delay(100)
+            try { drawerFocusRequester.requestFocus() } catch (e: Exception) {}
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -76,13 +89,13 @@ fun TvMainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (isDrawerExpanded) 240.dp else 0.dp)
-                    .background(DarkNavyBackground)
+                    .width(if (isDrawerExpanded) 240.dp else 1.dp)
+                    .background(if (isDrawerExpanded) DarkNavyBackground else Color.Transparent)
                     .padding(vertical = 28.dp, horizontal = if (isDrawerExpanded) 12.dp else 0.dp)
             ) {
                 if (isDrawerExpanded) {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().focusRequester(drawerFocusRequester),
                         horizontalAlignment = Alignment.Start,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -128,6 +141,15 @@ fun TvMainScreen(
                             }
                         }
                     }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusable()
+                            .onFocusChanged { 
+                                if (it.isFocused) scope.launch { drawerState.setValue(DrawerValue.Open) }
+                            }
+                    )
                 }
             }
         },
@@ -141,20 +163,11 @@ fun TvMainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 58.dp, vertical = 28.dp)
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                        if (drawerState.currentValue == DrawerValue.Closed) {
-                            scope.launch { drawerState.setValue(DrawerValue.Open) }
-                            return@onKeyEvent true
-                        }
-                    }
-                    false
-                }
         ) {
             when (selectedTab) {
-                0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
-                1 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
-                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
+                0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = null)
+                1 -> VodScreen(tmdbViewModel, navController, onMenuClick = null)
+                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = null)
             }
         }
     }
