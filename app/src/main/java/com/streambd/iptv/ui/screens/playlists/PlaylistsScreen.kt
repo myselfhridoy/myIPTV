@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Playlist
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.TealAccent
@@ -132,6 +133,7 @@ fun PlaylistCard(
     ListItem(
         selected = false,
         onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).tvTouchClick(onClick),
         headlineContent = {
             Text(
                 text = playlist.title,
@@ -173,8 +175,7 @@ fun PlaylistCard(
             containerColor = DarkNavySurface,
             focusedContainerColor = TealAccent.copy(alpha = 0.1f)
         ),
-        shape = ListItemDefaults.shape(shape = RoundedCornerShape(12.dp)),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+        shape = ListItemDefaults.shape(shape = RoundedCornerShape(12.dp))
     )
 }
 

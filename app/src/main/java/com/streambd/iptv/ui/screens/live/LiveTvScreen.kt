@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.LiveCategory
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
@@ -198,7 +199,8 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp),
+            .height(72.dp)
+            .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = Color(0xFF1C2230),
             focusedContainerColor = Color(0xFF242C3D)

@@ -38,6 +38,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.DrmConfig
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.TealAccent
@@ -241,7 +242,41 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                         focusedContainerColor = TealAccent.copy(alpha = 0.1f)
                                     ),
                                     shape = ListItemDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .tvTouchClick {
+                                            mediaStreamUrl = item.url
+                                            cookieValue = item.cookie
+                                            refererValue = item.referer
+                                            originValue = item.origin
+                                            drmLicenseUrl = item.drmLicense
+                                            userAgent = item.userAgent
+                                            drmScheme = item.drmScheme
+                                            showHistoryDialog = false
+                                            
+                                            // Auto-play immediately
+                                            val selectedUa = if (item.userAgent == "Custom") customUserAgent else if (item.userAgent != "Default") item.userAgent else null
+                                            val drmConfig = if (item.drmScheme != "None" && item.drmScheme.isNotBlank()) {
+                                                DrmConfig(type = item.drmScheme, licenseServer = item.drmLicense.takeIf { it.isNotBlank() })
+                                            } else null
+                                            
+                                            val streamSource = com.streambd.iptv.data.models.StreamSource(
+                                                url = item.url,
+                                                provider = "Stream",
+                                                headers = mapOf(
+                                                    "User-Agent" to (selectedUa ?: ""),
+                                                    "Cookie" to item.cookie,
+                                                    "Referer" to item.referer,
+                                                    "Origin" to item.origin
+                                                ).filterValues { it.isNotBlank() },
+                                                drm = drmConfig
+                                            )
+                                            
+                                            mainViewModel.selectStream(streamSource)
+                                            tmdbViewModel.clearSelectedMedia()
+                                            navController.navigate(com.streambd.iptv.ui.navigation.Routes.VOD_PLAYER)
+                                        }
                                 )
                                 HorizontalDivider(color = Color.DarkGray)
                             }
@@ -486,7 +521,50 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 32.dp),
+                        .padding(bottom = 32.dp)
+                        .tvTouchClick {
+                            val finalUrl = mediaStreamUrl.trim()
+                            val finalCookie = cookieValue.trim()
+                            val finalReferer = refererValue.trim()
+                            val finalOrigin = originValue.trim()
+                            val finalDrmLicense = drmLicenseUrl.trim()
+                            val finalUa = userAgent.trim()
+                            val finalCustomUa = customUserAgent.trim()
+
+                            if (finalUrl.isNotEmpty()) {
+                                val newItem = StreamHistoryItem(
+                                    finalUrl, finalCookie, finalReferer, finalOrigin, finalDrmLicense, finalUa, drmScheme
+                                )
+                                historyUrls.removeAll { it.url == finalUrl }
+                                historyUrls.add(0, newItem)
+                                
+                                // Save to SharedPreferences
+                                val array = JSONArray()
+                                historyUrls.forEach { array.put(it.toJson().toString()) }
+                                sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
+                                
+                                val selectedUa = if (finalUa == "Custom") finalCustomUa else if (finalUa != "Default") finalUa else null
+                                val drmConfig = if (drmScheme != "None" && drmScheme.isNotBlank()) {
+                                    DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
+                                } else null
+                                
+                                val streamSource = com.streambd.iptv.data.models.StreamSource(
+                                    url = finalUrl,
+                                    provider = "Stream",
+                                    headers = mapOf(
+                                        "User-Agent" to (selectedUa ?: ""),
+                                        "Cookie" to finalCookie,
+                                        "Referer" to finalReferer,
+                                        "Origin" to finalOrigin
+                                    ).filterValues { it.isNotBlank() },
+                                    drm = drmConfig
+                                )
+                                
+                                mainViewModel.selectStream(streamSource)
+                                tmdbViewModel.clearSelectedMedia()
+                                navController.navigate(com.streambd.iptv.ui.navigation.Routes.VOD_PLAYER)
+                            }
+                        },
                     colors = androidx.tv.material3.ButtonDefaults.colors(
                         containerColor = TealAccent,
                         focusedContainerColor = Color(0xFF008D94)

@@ -48,6 +48,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.components.tvFocusBorder
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
@@ -400,7 +401,8 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
         modifier = Modifier
             .width(124.dp) // Official 5-card layout size
             .height(186.dp) // 2:3 aspect ratio
-            .onFocusChanged { if (it.isFocused) onFocus() },
+            .onFocusChanged { if (it.isFocused) onFocus() }
+            .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = SurfaceDark,
             focusedContainerColor = SurfaceDark // For images, background color change is less important

@@ -41,6 +41,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.ui.components.tvFocusBorder
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
@@ -300,7 +301,8 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.75f),
+            .aspectRatio(0.75f)
+            .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = Color(0xFF1C2230),
             focusedContainerColor = Color(0xFF242C3D)

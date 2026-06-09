@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.ui.components.tvFocusBorder
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.MainViewModel
@@ -343,6 +344,11 @@ fun TmdbDetailsScreen(
                                 .focusRequester(watchButtonFocusRequester)
                                 .focusProperties {
                                     up = backButtonFocusRequester
+                                }
+                                .tvTouchClick {
+                                    mainViewModel.selectedSeason = localSeason
+                                    mainViewModel.selectedEpisode = localEpisode
+                                    navController.navigate(Routes.SOURCE_SELECTION)
                                 },
                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                 containerColor = TealAccent,
@@ -409,7 +415,10 @@ fun TmdbDetailsScreen(
                                                             containerColor = if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent,
                                                             focusedContainerColor = TealAccent.copy(alpha = 0.2f)
                                                         ),
-                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 8.dp)
+                                                            .tvTouchClick { localSeason = season.season_number; localEpisode = 1; expandedSeason = false }
                                                     )
                                                 }
                                             }
@@ -470,7 +479,10 @@ fun TmdbDetailsScreen(
                                                             containerColor = if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent,
                                                             focusedContainerColor = TealAccent.copy(alpha = 0.2f)
                                                         ),
-                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 8.dp)
+                                                            .tvTouchClick { localEpisode = ep; expandedEpisode = false }
                                                     )
                                                 }
                                             }
