@@ -15,11 +15,21 @@ import androidx.compose.ui.text.input.ImeAction
 import org.json.JSONObject
 import org.json.JSONArray
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.ListItem
 import androidx.tv.material3.ListItemDefaults
@@ -166,6 +176,91 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
             },
             containerColor = Color(0xFF1F2430)
         )
+    }
+    if (showUserAgentDropdown) {
+        Dialog(onDismissRequest = { showUserAgentDropdown = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF151A25),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Select UserAgent", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(userAgents) { selectionOption ->
+                            androidx.tv.material3.ListItem(
+                                selected = false,
+                                onClick = {
+                                    if (selectionOption == "Custom") {
+                                        showCustomUaDialog = true
+                                    } else {
+                                        userAgent = selectionOption
+                                    }
+                                    showUserAgentDropdown = false
+                                },
+                                headlineContent = { Text(selectionOption, color = Color.White) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .tvTouchClick {
+                                        if (selectionOption == "Custom") {
+                                            showCustomUaDialog = true
+                                        } else {
+                                            userAgent = selectionOption
+                                        }
+                                        showUserAgentDropdown = false
+                                    },
+                                colors = androidx.tv.material3.ListItemDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = TealAccent.copy(alpha = 0.1f)
+                                ),
+                                shape = androidx.tv.material3.ListItemDefaults.shape(RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDrmSchemeDropdown) {
+        Dialog(onDismissRequest = { showDrmSchemeDropdown = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF151A25),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Select DRM Scheme", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(drmSchemes) { selectionOption ->
+                            androidx.tv.material3.ListItem(
+                                selected = false,
+                                onClick = {
+                                    drmScheme = selectionOption
+                                    showDrmSchemeDropdown = false
+                                },
+                                headlineContent = { Text(selectionOption, color = Color.White) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .tvTouchClick {
+                                        drmScheme = selectionOption
+                                        showDrmSchemeDropdown = false
+                                    },
+                                colors = androidx.tv.material3.ListItemDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = TealAccent.copy(alpha = 0.1f)
+                                ),
+                                shape = androidx.tv.material3.ListItemDefaults.shape(RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showHistoryDialog) {
@@ -345,84 +440,22 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     // UserAgent Dropdown
-                    ExposedDropdownMenuBox(
+                    DropdownField(
+                        label = "UserAgent",
+                        value = userAgent,
                         expanded = showUserAgentDropdown,
-                        onExpandedChange = { showUserAgentDropdown = !showUserAgentDropdown },
+                        onExpandedChange = { showUserAgentDropdown = it },
                         modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            value = userAgent,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("UserAgent", color = Color.Gray) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showUserAgentDropdown) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = TealAccent,
-                                unfocusedBorderColor = Color.DarkGray
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = showUserAgentDropdown,
-                            onDismissRequest = { showUserAgentDropdown = false },
-                            modifier = Modifier.background(Color(0xFF1F2430))
-                        ) {
-                            userAgents.forEach { selectionOption ->
-                                DropdownMenuItem(
-                                    text = { Text(selectionOption, color = Color.White) },
-                                    onClick = {
-                                        if (selectionOption == "Custom") {
-                                            showCustomUaDialog = true
-                                        } else {
-                                            userAgent = selectionOption
-                                        }
-                                        showUserAgentDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    )
 
                     // DrmScheme Dropdown
-                    ExposedDropdownMenuBox(
+                    DropdownField(
+                        label = "DrmScheme",
+                        value = drmScheme,
                         expanded = showDrmSchemeDropdown,
-                        onExpandedChange = { showDrmSchemeDropdown = !showDrmSchemeDropdown },
+                        onExpandedChange = { showDrmSchemeDropdown = it },
                         modifier = Modifier.weight(1f)
-                    ) {
-                        OutlinedTextField(
-                            value = drmScheme,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("DrmScheme", color = Color.Gray) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showDrmSchemeDropdown) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = TealAccent,
-                                unfocusedBorderColor = Color.DarkGray
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = showDrmSchemeDropdown,
-                            onDismissRequest = { showDrmSchemeDropdown = false },
-                            modifier = Modifier.background(Color(0xFF1F2430))
-                        ) {
-                            drmSchemes.forEach { selectionOption ->
-                                DropdownMenuItem(
-                                    text = { Text(selectionOption, color = Color.White) },
-                                    onClick = {
-                                        drmScheme = selectionOption
-                                        showDrmSchemeDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -589,20 +622,133 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
 
 @Composable
 fun StreamTextField(label: String, value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label, color = Color.Gray) },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            focusedBorderColor = TealAccent,
-            unfocusedBorderColor = Color.DarkGray,
-            cursorColor = TealAccent
-        ),
-        shape = RoundedCornerShape(8.dp)
-    )
+    val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val isTv = remember(configuration) {
+        val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+        val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
+        val pm = context.packageManager
+        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        isTelevision || isLeanback || isLandscape
+    }
+
+    if (isTv) {
+        var isEditing by remember { mutableStateOf(false) }
+        val focusRequester = remember { FocusRequester() }
+        
+        if (isEditing) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text(label, color = Color.Gray) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { state ->
+                        if (!state.isFocused) {
+                            isEditing = false
+                        }
+                    },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { isEditing = false }),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = TealAccent,
+                    unfocusedBorderColor = Color.DarkGray,
+                    cursorColor = TealAccent
+                ),
+                shape = RoundedCornerShape(8.dp)
+            )
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+            }
+        } else {
+            var isFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .focusable()
+                    .tvTouchClick { isEditing = true }
+                    .border(
+                        width = if (isFocused) 2.dp else 1.dp,
+                        color = if (isFocused) TealAccent else Color.DarkGray,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+            ) {
+                if (value.isEmpty()) {
+                    Text(label, color = Color.Gray)
+                } else {
+                    Column {
+                        Text(label, color = Color.Gray, fontSize = 12.sp)
+                        Text(value, color = Color.White)
+                    }
+                }
+            }
+        }
+    } else {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label, color = Color.Gray) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = TealAccent,
+                unfocusedBorderColor = Color.DarkGray,
+                cursorColor = TealAccent
+            ),
+            shape = RoundedCornerShape(8.dp)
+        )
+    }
+}
+
+@Composable
+fun DropdownField(
+    label: String,
+    value: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .tvTouchClick { onExpandedChange(!expanded) }
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) TealAccent else Color.DarkGray,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                if (value.isEmpty()) {
+                    Text(label, color = Color.Gray)
+                } else {
+                    Text(label, color = Color.Gray, fontSize = 12.sp)
+                    Text(value, color = Color.White)
+                }
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = Color.Gray
+            )
+        }
+    }
 }
