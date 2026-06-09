@@ -62,6 +62,11 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.2.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
 
+    // TV Material & Foundation
+    val tvComposeVersion = "1.0.0-alpha10"
+    implementation("androidx.tv:tv-foundation:$tvComposeVersion")
+    implementation("androidx.tv:tv-material:$tvComposeVersion")
+
     // Media3
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")

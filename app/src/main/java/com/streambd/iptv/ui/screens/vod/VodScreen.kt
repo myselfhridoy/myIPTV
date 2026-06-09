@@ -18,7 +18,18 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Text
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Border
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +52,7 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val trendingMovies by viewModel.trendingMovies.collectAsState()
@@ -172,28 +183,17 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                             // Watch Now CTA
-                            var ctaFocused by remember { mutableStateOf(false) }
-                            Row(
-                                modifier = Modifier
-                                    .onFocusChanged { ctaFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .clickable {
-                                        viewModel.selectMedia(featured)
-                                        navController.navigate(Routes.TMDB_DETAILS)
-                                    }
-                                    .background(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(TealAccent, Color(0xFF008D94))
-                                        ),
-                                        shape = RoundedCornerShape(24.dp)
-                                    )
-                                    .border(
-                                        width = if (ctaFocused) 2.dp else 0.dp,
-                                        color = if (ctaFocused) Color.White else Color.Transparent,
-                                        shape = RoundedCornerShape(24.dp)
-                                    )
-                                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            androidx.tv.material3.Button(
+                                onClick = {
+                                    viewModel.selectMedia(featured)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                },
+                                colors = androidx.tv.material3.ButtonDefaults.colors(
+                                    containerColor = TealAccent,
+                                    focusedContainerColor = Color(0xFF008D94)
+                                ),
+                                shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(24.dp)),
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -354,6 +354,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 } // closes Root Box
 } // closes VodScreen
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia) -> Unit = {}, onClick: (TmdbMedia) -> Unit) {
     Column {
@@ -381,8 +382,8 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
         }
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(20.dp), // Official TV Card Gutter
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp)
         ) {
             items(mediaList) { media ->
                 TmdbMediaCard(media, onFocus = { onFocus(media) }) { onClick(media) }
@@ -391,36 +392,31 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
-        animationSpec = tween(200),
-        label = "cardScale"
-    )
-
     Card(
+        onClick = onClick,
         modifier = Modifier
-            .width(135.dp)
-            .height(220.dp)
-            .scale(scale)
-            .onFocusChanged { 
-                isFocused = it.isFocused
-                if (it.isFocused) onFocus()
-            }
-            .clickable { onClick() }
-            .border(
-                width = if (isFocused) 3.dp else 0.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = RoundedCornerShape(14.dp)
-            ),
-        shape = RoundedCornerShape(14.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isFocused) 12.dp else 4.dp
+            .width(124.dp) // Official 5-card layout size
+            .height(186.dp) // 2:3 aspect ratio
+            .onFocusChanged { if (it.isFocused) onFocus() },
+        colors = CardDefaults.colors(
+            containerColor = SurfaceDark,
+            focusedContainerColor = SurfaceDark // For images, background color change is less important
         ),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.05f),
+        glow = CardDefaults.glow(
+            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                inset = 0.dp,
+                shape = RoundedCornerShape(12.dp)
+            )
+        )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(

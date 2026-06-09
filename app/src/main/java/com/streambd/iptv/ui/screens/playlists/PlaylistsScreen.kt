@@ -11,7 +11,19 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlaylistPlay
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.ListItem
+import androidx.tv.material3.ListItemDefaults
+import androidx.tv.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +42,7 @@ import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.PlaylistViewModel
 import java.net.URLEncoder
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlaylistsScreen(
     playlistViewModel: PlaylistViewModel,
@@ -109,6 +121,7 @@ fun PlaylistsScreen(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlaylistCard(
     playlist: Playlist,
@@ -116,51 +129,37 @@ fun PlaylistCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = DarkNavySurface),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    ListItem(
+        selected = false,
+        onClick = onClick,
+        headlineContent = {
+            Text(
+                text = playlist.title,
+                color = WhiteText,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        supportingContent = {
+            if (!playlist.url.isNullOrEmpty()) {
+                Text(
+                    text = playlist.url,
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        },
+        leadingContent = {
             Icon(
                 Icons.Filled.PlaylistPlay,
                 contentDescription = null,
                 tint = TealAccent,
                 modifier = Modifier.size(32.dp)
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = playlist.title,
-                    color = WhiteText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                if (!playlist.url.isNullOrEmpty()) {
-                    Text(
-                        text = playlist.url,
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
-            }
+        },
+        trailingContent = {
             Row {
                 IconButton(onClick = onEdit) {
                     Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = Color.Gray)
@@ -169,11 +168,17 @@ fun PlaylistCard(
                     Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f))
                 }
             }
-        }
-    }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = DarkNavySurface,
+            focusedContainerColor = TealAccent.copy(alpha = 0.1f)
+        ),
+        shape = ListItemDefaults.shape(shape = RoundedCornerShape(12.dp)),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun PlaylistDialog(
     playlist: Playlist? = null,

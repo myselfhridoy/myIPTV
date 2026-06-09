@@ -18,6 +18,11 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Border
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -201,12 +206,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 
     if (isGroupsModalExpanded) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { isGroupsModalExpanded = false }) {
-            Card(
+            androidx.compose.material3.Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.8f)
                     .padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 androidx.compose.foundation.lazy.LazyColumn(
@@ -288,23 +293,30 @@ fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.Image
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ChannelCard(channel: Channel, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-
     Card(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.75f) // Adjust height to fit text below without clipping
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color(0xFF2B3648),
+            .aspectRatio(0.75f),
+        colors = CardDefaults.colors(
+            containerColor = Color(0xFF1C2230),
+            focusedContainerColor = Color(0xFF242C3D)
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.1f),
+        glow = CardDefaults.glow(
+            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                inset = 0.dp,
                 shape = RoundedCornerShape(12.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
-        shape = RoundedCornerShape(12.dp)
+            )
+        )
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

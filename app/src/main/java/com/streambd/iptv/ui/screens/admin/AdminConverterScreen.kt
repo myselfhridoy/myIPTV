@@ -45,8 +45,10 @@ fun AdminConverterScreen(navController: NavController) {
     
     var prefix by remember { mutableStateOf("") }
     var suffix by remember { mutableStateOf("|tokenUrl=/2") }
+    var requestHeaders by remember { mutableStateOf("") }
     
     var outputM3u by remember { mutableStateOf("") }
+    var proxyUrl by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -183,15 +185,31 @@ fun AdminConverterScreen(navController: NavController) {
                 )
             )
 
+            Text("API Request Headers (Optional)", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+
+            OutlinedTextField(
+                value = requestHeaders,
+                onValueChange = { requestHeaders = it },
+                label = { Text("One per line, e.g. User-Agent: Mozilla/5.0", color = Color.Gray) },
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF00E676),
+                    unfocusedBorderColor = Color.DarkGray,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
+            )
+
             Button(
                 onClick = {
                     if (jsonUrl.isNotEmpty()) {
                         isLoading = true
                         scope.launch {
-                            val m3u = fetchAndConvert(
-                                jsonUrl, arrayPath, streamField, titleField, logoField, categoryField, prefix, suffix
+                            val result = fetchAndConvert(
+                                jsonUrl, arrayPath, streamField, titleField, logoField, categoryField, prefix, suffix, requestHeaders
                             )
-                            outputM3u = m3u
+                            outputM3u = result.first
+                            proxyUrl = result.second
                             isLoading = false
                         }
                     } else {
@@ -207,6 +225,35 @@ fun AdminConverterScreen(navController: NavController) {
                 } else {
                     Text("Fetch & Convert to M3U", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
+            }
+
+            if (proxyUrl.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Magic Proxy Link (For IPTV.json):", color = Color.White, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("Proxy URL", proxyUrl)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "Link copied!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", tint = Color.White)
+                    }
+                }
+                
+                OutlinedTextField(
+                    value = proxyUrl,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF00E676),
+                        unfocusedBorderColor = Color.DarkGray,
+                        focusedTextColor = Color(0xFF00E676),
+                        unfocusedTextColor = Color(0xFF00E676)
+                    ),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                )
             }
 
             if (outputM3u.isNotEmpty()) {
@@ -249,16 +296,28 @@ private suspend fun fetchAndConvert(
     logoField: String, 
     categoryField: String, 
     prefix: String, 
-    suffix: String
-): String = withContext(Dispatchers.IO) {
+    suffix: String,
+    headers: String
+): Pair<String, String> = withContext(Dispatchers.IO) {
     try {
         val client = OkHttpClient()
-        val request = Request.Builder().url(url).build()
+        val requestBuilder = Request.Builder().url(url)
+        
+        if (headers.isNotEmpty()) {
+            headers.split("\n").forEach { line ->
+                val parts = line.split(":", limit = 2)
+                if (parts.size == 2) {
+                    requestBuilder.addHeader(parts[0].trim(), parts[1].trim())
+                }
+            }
+        }
+        
+        val request = requestBuilder.build()
         val response = client.newCall(request).execute()
         
-        if (!response.isSuccessful) return@withContext "Error: ${response.code}"
+        if (!response.isSuccessful) return@withContext Pair("Error: ${response.code}", "")
         
-        val body = response.body?.string() ?: return@withContext "Empty response"
+        val body = response.body?.string() ?: return@withContext Pair("Empty response", "")
         
         var jsonArray: JSONArray? = null
         if (body.trim().startsWith("[")) {
@@ -270,7 +329,7 @@ private suspend fun fetchAndConvert(
             }
         }
         
-        if (jsonArray == null) return@withContext "Could not find JSON Array. Make sure Array Path is correct."
+        if (jsonArray == null) return@withContext Pair("Could not find JSON Array. Make sure Array Path is correct.", "")
         
         val sb = java.lang.StringBuilder()
         sb.append("#EXTM3U\n")
@@ -297,8 +356,27 @@ private suspend fun fetchAndConvert(
             } catch (e: Exception) { }
         }
         
-        return@withContext sb.toString()
+        // Generate proxy URL
+        val uriBuilder = android.net.Uri.Builder()
+            .scheme("myiptv")
+            .authority("proxy")
+            .appendQueryParameter("url", url)
+            .appendQueryParameter("array_path", arrayPath)
+            .appendQueryParameter("stream_field", streamField)
+            .appendQueryParameter("title_field", titleField)
+            .appendQueryParameter("logo_field", logoField)
+            .appendQueryParameter("category_field", categoryField)
+            .appendQueryParameter("prefix", prefix)
+            .appendQueryParameter("suffix", suffix)
+        
+        if (headers.isNotEmpty()) {
+            uriBuilder.appendQueryParameter("headers", headers)
+        }
+        
+        val proxyLink = uriBuilder.build().toString()
+        
+        return@withContext Pair(sb.toString(), proxyLink)
     } catch (e: Exception) {
-        return@withContext "Error: ${e.message}"
+        return@withContext Pair("Error: ${e.message}", "")
     }
 }

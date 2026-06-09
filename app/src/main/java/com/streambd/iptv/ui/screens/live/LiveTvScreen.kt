@@ -16,7 +16,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.Text
+import androidx.tv.material3.Glow
+import androidx.tv.material3.Border
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +47,7 @@ import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
     val categories by viewModel.liveCategories.collectAsState()
@@ -166,10 +175,10 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 160.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                columns = GridCells.Adaptive(minSize = 196.dp), // Official TV Card minimum scale width
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), // TV Gutters
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 items(displayedCategories) { category ->
                     CategoryCard(category = category) {
@@ -182,23 +191,30 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     }
 }
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-
     Card(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color(0xFF2B3648),
+            .height(72.dp),
+        colors = CardDefaults.colors(
+            containerColor = Color(0xFF1C2230),
+            focusedContainerColor = Color(0xFF242C3D)
+        ),
+        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.1f),
+        glow = CardDefaults.glow(
+            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                inset = 0.dp,
                 shape = RoundedCornerShape(12.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
-        shape = RoundedCornerShape(12.dp)
+            )
+        )
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -226,7 +242,7 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
             Text(
                 text = category.name,
                 color = WhiteText,
-                fontSize = 15.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

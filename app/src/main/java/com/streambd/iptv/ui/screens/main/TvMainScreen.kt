@@ -1,0 +1,119 @@
+package com.streambd.iptv.ui.screens.main
+
+import android.app.Activity
+import android.content.Context
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import androidx.tv.material3.*
+import com.streambd.iptv.ui.screens.live.LiveTvScreen
+import com.streambd.iptv.ui.screens.stream.StreamScreen
+import com.streambd.iptv.ui.screens.vod.VodScreen
+import com.streambd.iptv.ui.theme.DarkNavyBackground
+import com.streambd.iptv.ui.theme.TealAccent
+import com.streambd.iptv.ui.viewmodels.MainViewModel
+import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TvMainScreen(
+    mainViewModel: MainViewModel,
+    tmdbViewModel: TmdbViewModel,
+    navController: NavController,
+    context: Context,
+    tvTabs: List<TabItem>,
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onShowExitDialog: () -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            val isDrawerExpanded = drawerState.currentValue == DrawerValue.Open
+
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(if (isDrawerExpanded) 240.dp else 80.dp)
+                    .background(DarkNavyBackground)
+                    .padding(vertical = 28.dp, horizontal = 12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = if (isDrawerExpanded) Alignment.Start else Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    tvTabs.forEachIndexed { index, tab ->
+                        val isSelected = selectedTab == index && index < 3
+                        
+                        NavigationDrawerItem(
+                            selected = isSelected,
+                            onClick = {
+                                when (index) {
+                                    3 -> navController.navigate("playlists")
+                                    4 -> onCheckUpdate()
+                                    5 -> { /* Show More popup handled differently in TV */ }
+                                    6 -> onShowExitDialog()
+                                    else -> onTabSelected(index)
+                                }
+                            },
+                            leadingContent = {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tab.title,
+                                    tint = if (isSelected) TealAccent else Color.Gray
+                                )
+                            },
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = TealAccent.copy(alpha = 0.15f),
+                                selectedContentColor = TealAccent,
+                                focusedContainerColor = TealAccent,
+                                focusedContentColor = Color.Black
+                            )
+                        ) {
+                            Text(
+                                text = tab.title,
+                                color = if (isSelected) TealAccent else Color.White,
+                                fontSize = 16.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        scrimBrush = Brush.horizontalGradient(
+            colors = listOf(DarkNavyBackground.copy(alpha = 0.8f), Color.Transparent)
+        ),
+        modifier = Modifier.fillMaxSize().background(DarkNavyBackground)
+    ) {
+        // Main Screen Area wrapped in overscan margins
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 58.dp, vertical = 28.dp)
+                .padding(start = 80.dp) // Offset for the collapsed drawer
+        ) {
+            when (selectedTab) {
+                0 -> LiveTvScreen(mainViewModel, navController)
+                1 -> VodScreen(tmdbViewModel, navController)
+                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController)
+            }
+        }
+    }
+}

@@ -22,6 +22,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.ListItem
+import androidx.tv.material3.ListItemDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +54,7 @@ import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TmdbDetailsScreen(
     @Suppress("UNUSED_PARAMETER") mainViewModel: MainViewModel,
@@ -329,42 +333,23 @@ fun TmdbDetailsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         // Watch Now Button
-                        Row(
+                        androidx.tv.material3.Button(
+                            onClick = {
+                                mainViewModel.selectedSeason = localSeason
+                                mainViewModel.selectedEpisode = localEpisode
+                                navController.navigate(Routes.SOURCE_SELECTION)
+                            },
                             modifier = Modifier
                                 .focusRequester(watchButtonFocusRequester)
                                 .focusProperties {
                                     up = backButtonFocusRequester
-                                }
-                                .onFocusChanged { watchBtnFocused = it.isFocused }
-                                .graphicsLayer { scaleX = buttonScale; scaleY = buttonScale }
-                                .shadow(
-                                    elevation = if (watchBtnFocused) 20.dp else 8.dp,
-                                    shape = RoundedCornerShape(50.dp),
-                                    spotColor = TealAccent,
-                                    ambientColor = TealAccent
-                                )
-                                .clip(RoundedCornerShape(50.dp))
-                                .clickable {
-                                    mainViewModel.selectedSeason = localSeason
-                                    mainViewModel.selectedEpisode = localEpisode
-                                    navController.navigate(Routes.SOURCE_SELECTION)
-                                }
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        colors = if (watchBtnFocused)
-                                            listOf(TealAccent, Color(0xFF00C6FF))
-                                        else
-                                            listOf(Color(0xFF0D5D63), Color(0xFF008D94))
-                                    ),
-                                    shape = RoundedCornerShape(50.dp)
-                                )
-                                .border(
-                                    width = if (watchBtnFocused) 2.dp else 0.dp,
-                                    color = if (watchBtnFocused) Color.White else Color.Transparent,
-                                    shape = RoundedCornerShape(50.dp)
-                                )
-                                .padding(horizontal = 28.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                },
+                            colors = androidx.tv.material3.ButtonDefaults.colors(
+                                containerColor = TealAccent,
+                                focusedContainerColor = Color(0xFF008D94)
+                            ),
+                            shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(50.dp)),
+                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -407,17 +392,24 @@ fun TmdbDetailsScreen(
                                             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                                 items(validSeasons) { season ->
                                                     val isSelected = localSeason == season.season_number
-                                                    Text(
-                                                        text = "Season ${season.season_number}",
-                                                        color = if (isSelected) TealAccent else Color.White,
-                                                        fontSize = 16.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable { localSeason = season.season_number; localEpisode = 1; expandedSeason = false }
-                                                            .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                            .padding(16.dp),
-                                                        textAlign = TextAlign.Center
+                                                    ListItem(
+                                                        selected = isSelected,
+                                                        onClick = { localSeason = season.season_number; localEpisode = 1; expandedSeason = false },
+                                                        headlineContent = {
+                                                            Text(
+                                                                text = "Season ${season.season_number}",
+                                                                color = if (isSelected) TealAccent else Color.White,
+                                                                fontSize = 16.sp,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                textAlign = TextAlign.Center
+                                                            )
+                                                        },
+                                                        colors = ListItemDefaults.colors(
+                                                            containerColor = if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent,
+                                                            focusedContainerColor = TealAccent.copy(alpha = 0.2f)
+                                                        ),
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                                                     )
                                                 }
                                             }
@@ -461,17 +453,24 @@ fun TmdbDetailsScreen(
                                             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                                 items((1..selectedSeasonObj.episode_count).toList()) { ep ->
                                                     val isSelected = localEpisode == ep
-                                                    Text(
-                                                        text = "Episode $ep",
-                                                        color = if (isSelected) TealAccent else Color.White,
-                                                        fontSize = 16.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable { localEpisode = ep; expandedEpisode = false }
-                                                            .background(if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent)
-                                                            .padding(16.dp),
-                                                        textAlign = TextAlign.Center
+                                                    ListItem(
+                                                        selected = isSelected,
+                                                        onClick = { localEpisode = ep; expandedEpisode = false },
+                                                        headlineContent = {
+                                                            Text(
+                                                                text = "Episode $ep",
+                                                                color = if (isSelected) TealAccent else Color.White,
+                                                                fontSize = 16.sp,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                textAlign = TextAlign.Center
+                                                            )
+                                                        },
+                                                        colors = ListItemDefaults.colors(
+                                                            containerColor = if (isSelected) TealAccent.copy(alpha = 0.12f) else Color.Transparent,
+                                                            focusedContainerColor = TealAccent.copy(alpha = 0.2f)
+                                                        ),
+                                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                                                     )
                                                 }
                                             }
