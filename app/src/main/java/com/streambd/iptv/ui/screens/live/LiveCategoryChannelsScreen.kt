@@ -188,17 +188,42 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 Text("No channels available.", color = WhiteText)
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 80.dp), // Automatically adapts to TV and Mobile width
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            val groupedChannels = remember(filteredChannels) {
+                // If a specific group is selected, just show that group. Otherwise, group by group name.
+                if (selectedGroup != "All") {
+                    mapOf(selectedGroup to filteredChannels)
+                } else {
+                    filteredChannels.groupBy { it.group }
+                }
+            }
+
+            androidx.compose.foundation.lazy.LazyColumn(
+                contentPadding = PaddingValues(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                gridItems(filteredChannels) { channel ->
-                    ChannelCard(channel = channel) {
-                        viewModel.setCurrentPlaylist(currentPlaylist)
-                        viewModel.selectChannel(channel)
-                        navController.navigate(Routes.LIVE_PLAYER)
+                groupedChannels.forEach { (group, channels) ->
+                    item(key = group) {
+                        Text(
+                            text = group.uppercase(),
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                        )
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(channels, key = { it.url }) { channel ->
+                                Box(modifier = Modifier.width(180.dp)) {
+                                    ChannelCard(channel = channel) {
+                                        viewModel.setCurrentPlaylist(currentPlaylist)
+                                        viewModel.selectChannel(channel)
+                                        navController.navigate(Routes.LIVE_PLAYER)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -301,59 +326,46 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.75f)
+            .aspectRatio(1.77f) // 16:9 aspect ratio
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
-            containerColor = Color(0xFF1C2230),
-            focusedContainerColor = Color(0xFF242C3D)
+            containerColor = Color(0xFFE0E0E0), // White/Light background
+            focusedContainerColor = Color.White
         ),
-        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.1f),
+        shape = CardDefaults.shape(RoundedCornerShape(4.dp)), // Slight rounded corners
+        scale = CardDefaults.scale(focusedScale = 1.05f),
         glow = CardDefaults.glow(
-            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.5f), elevation = 16.dp)
         ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
-                inset = 0.dp,
-                shape = RoundedCornerShape(12.dp)
-            )
+            focusedBorder = Border.None
         )
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxSize().padding(6.dp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            // Circular Logo background
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF242C3D)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (channel.logo.isNotEmpty()) {
-                    AsyncImage(
-                        model = channel.logo,
-                        contentDescription = channel.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(36.dp).clip(CircleShape)
-                    )
-                }
+            if (channel.logo.isNotEmpty()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                )
+            } else {
+                Text(
+                    text = channel.name,
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(8.dp)
+                )
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = channel.name,
-                color = WhiteText,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
