@@ -75,21 +75,23 @@ fun TvMainScreen(
                             leadingContent = {
                                 Icon(
                                     imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title,
-                                    tint = if (isSelected) TealAccent else Color.Gray
+                                    contentDescription = tab.title
                                 )
                             },
                             modifier = Modifier.padding(vertical = 4.dp),
                             colors = NavigationDrawerItemDefaults.colors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color.Gray,
                                 selectedContainerColor = TealAccent.copy(alpha = 0.15f),
                                 selectedContentColor = TealAccent,
                                 focusedContainerColor = TealAccent,
-                                focusedContentColor = Color.Black
+                                focusedContentColor = Color.Black,
+                                focusedSelectedContainerColor = TealAccent,
+                                focusedSelectedContentColor = Color.Black
                             )
                         ) {
                             Text(
                                 text = tab.title,
-                                color = if (isSelected) TealAccent else Color.White,
                                 fontSize = 16.sp
                             )
                         }
