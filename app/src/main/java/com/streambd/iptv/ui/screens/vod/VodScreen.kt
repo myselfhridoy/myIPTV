@@ -294,11 +294,17 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 Icon(Icons.Default.Search, contentDescription = null, tint = if (isSearchFocused) Color.White else Color(0xFF999999), modifier = Modifier.size(24.dp))
                             },
                             trailingIcon = {
-                                IconButton(onClick = { 
-                                    isSearchExpanded = false
-                                    searchQuery = ""
-                                    viewModel.search("")
-                                }) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .tvFocusBorder(CircleShape)
+                                        .tvTouchClick { 
+                                            isSearchExpanded = false
+                                            searchQuery = ""
+                                            viewModel.search("")
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                                 }
                             },
@@ -324,11 +330,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (onMenuClick != null) {
-                                IconButton(
-                                    onClick = onMenuClick,
+                                Box(
                                     modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                                         .size(48.dp)
+                                        .tvFocusBorder(CircleShape)
+                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                        .tvTouchClick { onMenuClick() },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
                                 }
@@ -336,11 +344,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 Spacer(modifier = Modifier.size(48.dp))
                             }
 
-                            IconButton(
-                                onClick = { isSearchExpanded = true },
+                            Box(
                                 modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                                     .size(48.dp)
+                                    .tvFocusBorder(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .tvTouchClick { isSearchExpanded = true },
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
                             }
