@@ -99,184 +99,282 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                // ── Fixed Hero Banner ──
-                if (searchQuery.isEmpty() && focusedMedia != null) {
-                    Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
-                        featured?.let {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusGroup()
-                                    .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
-                            ) {
-                        // Backdrop Image
-                        AsyncImage(
-                            model = featured.backdropUrl.ifEmpty { featured.posterUrl },
-                            contentDescription = featured.displayTitle,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        // Gradient Overlay (Bottom)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            PrimaryDark.copy(alpha = 0.5f),
-                                            PrimaryDark
-                                        ),
-                                        startY = 100f
-                                    )
-                                )
-                        )
-                        // Gradient Overlay (Left)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.horizontalGradient(
-                                        colors = listOf(
-                                            PrimaryDark.copy(alpha = 0.9f),
-                                            PrimaryDark.copy(alpha = 0.6f),
-                                            Color.Transparent
-                                        ),
-                                        endX = 600f
-                                    )
-                                )
-                        )
-                        // Hero Content
-                        Column(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(if (isLandscape) 0.5f else 1f) // Take up left half on TV, full on mobile
-                                .padding(
-                                    start = if (isLandscape) 58.dp else 24.dp,
-                                    end = if (isLandscape) 0.dp else 24.dp,
-                                    bottom = if (isLandscape) 40.dp else 32.dp
-                                ), // align with general tv margins
-                            verticalArrangement = Arrangement.Bottom
-                        ) {
-                            Text(
-                                text = featured.displayTitle,
-                                color = Color.White,
-                                fontSize = if (isLandscape) 42.sp else 32.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = if (isLandscape) 2 else 3,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = if (isLandscape) 48.sp else 36.sp
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            // Metadata Row
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (featured.vote_average != null && featured.vote_average > 0) {
-                                    Text(
-                                        text = "${(featured.vote_average * 10).toInt()}% Match",
-                                        color = Color(0xFF46D369), // Netflix Match Green
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                }
-                                if (featured.displayDate.isNotEmpty()) {
-                                    Text(
-                                        text = featured.displayDate.take(4),
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                }
+                // ── Unified Scrollable Content ──
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).focusGroup()) {
+                    
+                    // 1. Scrolling Hero Banner
+                    if (searchQuery.isEmpty() && focusedMedia != null) {
+                        Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
+                            featured?.let {
                                 Box(
                                     modifier = Modifier
-                                        .background(Color.Transparent, RoundedCornerShape(2.dp))
-                                        .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        .fillMaxWidth()
+                                        .focusGroup()
+                                        .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
                                 ) {
-                                    Text(
-                                        text = if (featured.isMovie) "MOVIE" else "TV",
-                                        color = Color.LightGray,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                    // Backdrop Image
+                                    AsyncImage(
+                                        model = featured.backdropUrl.ifEmpty { featured.posterUrl },
+                                        contentDescription = featured.displayTitle,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
                                     )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color.Transparent, RoundedCornerShape(2.dp))
-                                        .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "HD",
-                                        color = Color.LightGray,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                    // Gradient Overlay (Bottom)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(
+                                                        Color.Transparent,
+                                                        PrimaryDark.copy(alpha = 0.5f),
+                                                        PrimaryDark
+                                                    ),
+                                                    startY = 100f
+                                                )
+                                            )
                                     )
+                                    // Gradient Overlay (Left)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    colors = listOf(
+                                                        PrimaryDark.copy(alpha = 0.9f),
+                                                        PrimaryDark.copy(alpha = 0.6f),
+                                                        Color.Transparent
+                                                    ),
+                                                    endX = 600f
+                                                )
+                                            )
+                                    )
+                                    // Hero Content
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(if (isLandscape) 0.5f else 1f) // Take up left half on TV, full on mobile
+                                            .padding(
+                                                start = if (isLandscape) 58.dp else 24.dp,
+                                                end = if (isLandscape) 0.dp else 24.dp,
+                                                bottom = if (isLandscape) 40.dp else 32.dp
+                                            ), // align with general tv margins
+                                        verticalArrangement = Arrangement.Bottom
+                                    ) {
+                                        Text(
+                                            text = featured.displayTitle,
+                                            color = Color.White,
+                                            fontSize = if (isLandscape) 42.sp else 32.sp,
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = if (isLandscape) 2 else 3,
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = if (isLandscape) 48.sp else 36.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        // Metadata Row
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (featured.vote_average != null && featured.vote_average > 0) {
+                                                Text(
+                                                    text = "${(featured.vote_average * 10).toInt()}% Match",
+                                                    color = Color(0xFF46D369), // Netflix Match Green
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                            }
+                                            if (featured.displayDate.isNotEmpty()) {
+                                                Text(
+                                                    text = featured.displayDate.take(4),
+                                                    color = Color.White,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(Color.Transparent, RoundedCornerShape(2.dp))
+                                                    .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (featured.isMovie) "MOVIE" else "TV",
+                                                    color = Color.LightGray,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(Color.Transparent, RoundedCornerShape(2.dp))
+                                                    .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "HD",
+                                                    color = Color.LightGray,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        // Overview
+                                        if (!featured.overview.isNullOrEmpty()) {
+                                            Text(
+                                                text = featured.overview,
+                                                color = Color(0xFFCCCCCC),
+                                                fontSize = 14.sp,
+                                                maxLines = 3,
+                                                overflow = TextOverflow.Ellipsis,
+                                                lineHeight = 20.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(16.dp))
+                                        }
+                                        
+                                        // Netflix Style Action Buttons
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            androidx.tv.material3.Button(
+                                                onClick = {
+                                                    viewModel.selectMedia(featured)
+                                                    navController.navigate(Routes.TMDB_DETAILS)
+                                                },
+                                                colors = androidx.tv.material3.ButtonDefaults.colors(
+                                                    containerColor = Color.White,
+                                                    contentColor = Color.Black,
+                                                    focusedContainerColor = Color.LightGray,
+                                                    focusedContentColor = Color.Black
+                                                ),
+                                                shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
+                                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                            ) {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("Play", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            
+                                            androidx.tv.material3.Button(
+                                                onClick = {
+                                                    viewModel.selectMedia(featured)
+                                                    navController.navigate(Routes.TMDB_DETAILS)
+                                                },
+                                                colors = androidx.tv.material3.ButtonDefaults.colors(
+                                                    containerColor = Color(0x66333333),
+                                                    contentColor = Color.White,
+                                                    focusedContainerColor = Color.White,
+                                                    focusedContentColor = Color.Black
+                                                ),
+                                                shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
+                                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                            ) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("More Info", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            // Overview
-                            if (!featured.overview.isNullOrEmpty()) {
-                                Text(
-                                    text = featured.overview,
-                                    color = Color(0xFFCCCCCC),
-                                    fontSize = 14.sp,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis,
-                                    lineHeight = 20.sp
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
+                        }
+                    } else if (searchQuery.isNotEmpty()) {
+                        // Spacer to push search results below Top Nav Bar when Hero Banner is hidden
+                        Spacer(modifier = Modifier.height(100.dp))
+                    }
+
+                    // 2. Media Rows
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(PrimaryDark)
+                    ) {
+                        // ── Content Sections ──
+                        if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
+                            MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
+                                viewModel.selectMedia(media)
+                                navController.navigate(Routes.TMDB_DETAILS)
+                            }
+                        } else if (searchQuery.isEmpty()) {
+                            if (trendingMovies.isNotEmpty()) {
+                                MediaSection(
+                                    title = "Trending Movies",
+                                    mediaList = trendingMovies,
+                                    onFocus = onMediaFocus
+                                ) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (trendingTv.isNotEmpty()) {
+                                MediaSection(title = "Trending TV Shows", mediaList = trendingTv, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
                             }
                             
-                            // Netflix Style Action Buttons
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                androidx.tv.material3.Button(
-                                    onClick = {
-                                        viewModel.selectMedia(featured)
-                                        navController.navigate(Routes.TMDB_DETAILS)
-                                    },
-                                    colors = androidx.tv.material3.ButtonDefaults.colors(
-                                        containerColor = Color.White,
-                                        contentColor = Color.Black,
-                                        focusedContainerColor = Color.LightGray,
-                                        focusedContentColor = Color.Black
-                                    ),
-                                    shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
-                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Play", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                }
-                                
-                                androidx.tv.material3.Button(
-                                    onClick = {
-                                        viewModel.selectMedia(featured)
-                                        navController.navigate(Routes.TMDB_DETAILS)
-                                    },
-                                    colors = androidx.tv.material3.ButtonDefaults.colors(
-                                        containerColor = Color(0x66333333),
-                                        contentColor = Color.White,
-                                        focusedContainerColor = Color.White,
-                                        focusedContentColor = Color.Black
-                                    ),
-                                    shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
-                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                                ) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("More Info", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (hindiMovies.isNotEmpty()) {
+                                MediaSection(title = "Bollywood Hits", mediaList = hindiMovies, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
                                 }
                             }
-                        }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (hindiTv.isNotEmpty()) {
+                                MediaSection(title = "Hindi TV Shows", mediaList = hindiTv, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
                             }
-                        }
-                    }
-                }
-                
-                // Overlay Top Navigation Bar
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (southMovies.isNotEmpty()) {
+                                MediaSection(title = "South Indian Blockbusters", mediaList = southMovies, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (southTv.isNotEmpty()) {
+                                MediaSection(title = "South Indian TV Shows", mediaList = southTv, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (banglaMovies.isNotEmpty()) {
+                                MediaSection(title = "Bengali Movies", mediaList = banglaMovies, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            if (banglaTv.isNotEmpty()) {
+                                MediaSection(title = "Bengali TV Shows", mediaList = banglaTv, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+                        } // closes else-if
+                    } // closes Content Column
+                } // closes Scrollable Column
+
+                // ── Overlay Top Navigation Bar (Fixed on Top) ──
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -362,102 +460,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     }
                 }
 
-                // ── Scrollable Content ──
-                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).focusGroup()) {
-                    if (searchQuery.isEmpty() && focusedMedia != null) {
-                        Spacer(modifier = Modifier.height(if (isLandscape) 450.dp else 500.dp))
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(PrimaryDark)
-                    ) {
-                // ── Content Sections ──
-                if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
-                    MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
-                        viewModel.selectMedia(media)
-                        navController.navigate(Routes.TMDB_DETAILS)
-                    }
-                } else if (searchQuery.isEmpty()) {
-                    if (trendingMovies.isNotEmpty()) {
-                        MediaSection(
-                            title = "Trending Movies",
-                            mediaList = trendingMovies,
-                            onFocus = onMediaFocus
-                        ) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (trendingTv.isNotEmpty()) {
-                        MediaSection(title = "Trending TV Shows", mediaList = trendingTv, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (hindiMovies.isNotEmpty()) {
-                        MediaSection(title = "Bollywood Hits", mediaList = hindiMovies, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (hindiTv.isNotEmpty()) {
-                        MediaSection(title = "Hindi TV Shows", mediaList = hindiTv, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (southMovies.isNotEmpty()) {
-                        MediaSection(title = "South Indian Blockbusters", mediaList = southMovies, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (southTv.isNotEmpty()) {
-                        MediaSection(title = "South Indian TV Shows", mediaList = southTv, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (banglaMovies.isNotEmpty()) {
-                        MediaSection(title = "Bengali Movies", mediaList = banglaMovies, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    if (banglaTv.isNotEmpty()) {
-                        MediaSection(title = "Bengali TV Shows", mediaList = banglaTv, onFocus = onMediaFocus) { media ->
-                            viewModel.selectMedia(media)
-                            navController.navigate(Routes.TMDB_DETAILS)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-                } // closes else-if
-            } // closes Content Column
-        } // closes Scrollable Column
         } // closes Hero Box
     } // closes else
     } // closes Background Box
