@@ -23,6 +23,7 @@ import com.streambd.iptv.ui.screens.stream.StreamScreen
 import com.streambd.iptv.ui.screens.vod.VodScreen
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.TealAccent
+import kotlinx.coroutines.launch
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 
@@ -41,6 +42,7 @@ fun TvMainScreen(
     onShowExitDialog: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -50,51 +52,56 @@ fun TvMainScreen(
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(if (isDrawerExpanded) 240.dp else 80.dp)
+                    .width(if (isDrawerExpanded) 240.dp else 0.dp)
                     .background(DarkNavyBackground)
-                    .padding(vertical = 28.dp, horizontal = 12.dp)
+                    .padding(vertical = 28.dp, horizontal = if (isDrawerExpanded) 12.dp else 0.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = if (isDrawerExpanded) Alignment.Start else Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    tvTabs.forEachIndexed { index, tab ->
-                        val isSelected = selectedTab == index && index < 3
-                        
-                        NavigationDrawerItem(
-                            selected = isSelected,
-                            onClick = {
-                                when (index) {
-                                    3 -> navController.navigate("playlists")
-                                    4 -> onCheckUpdate()
-                                    5 -> onShowMore()
-                                    6 -> onShowExitDialog()
-                                    else -> onTabSelected(index)
-                                }
-                            },
-                            leadingContent = {
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title
+                if (isDrawerExpanded) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        tvTabs.forEachIndexed { index, tab ->
+                            val isSelected = selectedTab == index && index < 3
+                            
+                            NavigationDrawerItem(
+                                selected = isSelected,
+                                onClick = {
+                                    when (index) {
+                                        3 -> navController.navigate("playlists")
+                                        4 -> onCheckUpdate()
+                                        5 -> onShowMore()
+                                        6 -> onShowExitDialog()
+                                        else -> {
+                                            onTabSelected(index)
+                                            scope.launch { drawerState.setValue(DrawerValue.Closed) }
+                                        }
+                                    }
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.title
+                                    )
+                                },
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                colors = NavigationDrawerItemDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    contentColor = Color.Gray,
+                                    selectedContainerColor = TealAccent.copy(alpha = 0.15f),
+                                    selectedContentColor = TealAccent,
+                                    focusedContainerColor = TealAccent,
+                                    focusedContentColor = Color.Black,
+                                    focusedSelectedContainerColor = TealAccent,
+                                    focusedSelectedContentColor = Color.Black
                                 )
-                            },
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            colors = NavigationDrawerItemDefaults.colors(
-                                containerColor = Color.Transparent,
-                                contentColor = Color.Gray,
-                                selectedContainerColor = TealAccent.copy(alpha = 0.15f),
-                                selectedContentColor = TealAccent,
-                                focusedContainerColor = TealAccent,
-                                focusedContentColor = Color.Black,
-                                focusedSelectedContainerColor = TealAccent,
-                                focusedSelectedContentColor = Color.Black
-                            )
-                        ) {
-                            Text(
-                                text = tab.title,
-                                fontSize = 16.sp
-                            )
+                            ) {
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 16.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -110,12 +117,11 @@ fun TvMainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 58.dp, vertical = 28.dp)
-                .padding(start = 80.dp) // Offset for the collapsed drawer
         ) {
             when (selectedTab) {
-                0 -> LiveTvScreen(mainViewModel, navController)
-                1 -> VodScreen(tmdbViewModel, navController)
-                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController)
+                0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
+                1 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
+                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
             }
         }
     }

@@ -205,6 +205,20 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         }
                     }
                 }
+                
+                // Overlay Menu Button
+                if (onMenuClick != null) {
+                    Box(modifier = Modifier.padding(16.dp)) {
+                        IconButton(
+                            onClick = onMenuClick,
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                .size(48.dp)
+                        ) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                        }
+                    }
+                }
 
                 // ── Scrollable Content ──
                 Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
