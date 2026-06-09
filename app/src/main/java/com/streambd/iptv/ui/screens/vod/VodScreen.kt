@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
@@ -91,11 +93,21 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
         } else {
             var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
+            val playButtonFocusRequester = remember { FocusRequester() }
+
             LaunchedEffect(trendingMovies) {
                 if (focusedMedia == null && trendingMovies.isNotEmpty()) {
                     focusedMedia = trendingMovies.first()
                 }
             }
+            
+            LaunchedEffect(focusedMedia, searchQuery) {
+                if (focusedMedia != null && searchQuery.isEmpty()) {
+                    kotlinx.coroutines.delay(200) // Wait for UI to settle
+                    try { playButtonFocusRequester.requestFocus() } catch (e: Exception) {}
+                }
+            }
+
             val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -240,7 +252,9 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                             }
                                             androidx.tv.material3.Button(
                                                 onClick = playAction,
-                                                modifier = Modifier.tvTouchClick(playAction),
+                                                modifier = Modifier
+                                                    .tvTouchClick(playAction)
+                                                    .focusRequester(playButtonFocusRequester),
                                                 colors = androidx.tv.material3.ButtonDefaults.colors(
                                                     containerColor = Color.White,
                                                     contentColor = Color.Black,

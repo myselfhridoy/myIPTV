@@ -14,6 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -43,6 +49,24 @@ fun TvMainScreen(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    
+    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+    
+    BackHandler(enabled = true) {
+        if (drawerState.currentValue == DrawerValue.Open) {
+            scope.launch { drawerState.setValue(DrawerValue.Closed) }
+        } else {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBackPressTime < 1000) {
+                // Double press
+                scope.launch { drawerState.setValue(DrawerValue.Open) }
+                lastBackPressTime = 0L
+            } else {
+                lastBackPressTime = currentTime
+                android.widget.Toast.makeText(context, "Press BACK again to open Menu", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -117,6 +141,15 @@ fun TvMainScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 58.dp, vertical = 28.dp)
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                        if (drawerState.currentValue == DrawerValue.Closed) {
+                            scope.launch { drawerState.setValue(DrawerValue.Open) }
+                            return@onKeyEvent true
+                        }
+                    }
+                    false
+                }
         ) {
             when (selectedTab) {
                 0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
