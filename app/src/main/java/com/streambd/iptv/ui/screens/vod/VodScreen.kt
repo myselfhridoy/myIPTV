@@ -14,10 +14,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +73,9 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     val isLoading by viewModel.isLoading.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
+    
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -98,7 +104,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(450.dp) // Netflix-style taller banner
+                                    .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
                             ) {
                         // Backdrop Image
                         AsyncImage(
@@ -141,18 +147,22 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         Column(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(0.5f) // Take up left half
-                                .padding(start = 58.dp, bottom = 40.dp), // align with general tv margins
+                                .fillMaxWidth(if (isLandscape) 0.5f else 1f) // Take up left half on TV, full on mobile
+                                .padding(
+                                    start = if (isLandscape) 58.dp else 24.dp,
+                                    end = if (isLandscape) 0.dp else 24.dp,
+                                    bottom = if (isLandscape) 40.dp else 32.dp
+                                ), // align with general tv margins
                             verticalArrangement = Arrangement.Bottom
                         ) {
                             Text(
                                 text = featured.displayTitle,
                                 color = Color.White,
-                                fontSize = 42.sp,
+                                fontSize = if (isLandscape) 42.sp else 32.sp,
                                 fontWeight = FontWeight.Black,
-                                maxLines = 2,
+                                maxLines = if (isLandscape) 2 else 3,
                                 overflow = TextOverflow.Ellipsis,
-                                lineHeight = 48.sp
+                                lineHeight = if (isLandscape) 48.sp else 36.sp
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             // Metadata Row
@@ -263,16 +273,77 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     }
                 }
                 
-                // Overlay Menu Button
-                if (onMenuClick != null) {
-                    Box(modifier = Modifier.padding(16.dp)) {
-                        IconButton(
-                            onClick = onMenuClick,
+                // Overlay Top Navigation Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                ) {
+                    var isSearchExpanded by remember { mutableStateOf(false) }
+
+                    if (isSearchExpanded || searchQuery.isNotEmpty()) {
+                        var isSearchFocused by remember { mutableStateOf(false) }
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = {
+                                searchQuery = it
+                                viewModel.search(it)
+                            },
+                            placeholder = { Text("Search movies, TV shows...", color = Color(0xFF999999), fontSize = 16.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Search, contentDescription = null, tint = if (isSearchFocused) Color.White else Color(0xFF999999), modifier = Modifier.size(24.dp))
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { 
+                                    isSearchExpanded = false
+                                    searchQuery = ""
+                                    viewModel.search("")
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.White,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color.White,
+                                focusedContainerColor = Color(0xFF333333).copy(alpha = 0.9f),
+                                unfocusedContainerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)
+                            ),
+                            shape = CircleShape,
+                            singleLine = true,
                             modifier = Modifier
-                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                .size(48.dp)
+                                .fillMaxWidth()
+                                .onFocusChanged { isSearchFocused = it.isFocused }
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                            if (onMenuClick != null) {
+                                IconButton(
+                                    onClick = onMenuClick,
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                        .size(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.size(48.dp))
+                            }
+
+                            IconButton(
+                                onClick = { isSearchExpanded = true },
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .size(48.dp)
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -280,7 +351,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 // ── Scrollable Content ──
                 Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     if (searchQuery.isEmpty() && focusedMedia != null) {
-                        Spacer(modifier = Modifier.height(450.dp))
+                        Spacer(modifier = Modifier.height(if (isLandscape) 450.dp else 500.dp))
                     }
 
                     Column(
@@ -288,40 +359,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                             .fillMaxWidth()
                             .background(PrimaryDark)
                     ) {
-                        // ── Search Bar ──
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp, vertical = 24.dp)
-                ) {
-                    var isSearchFocused by remember { mutableStateOf(false) }
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = {
-                            searchQuery = it
-                            viewModel.search(it)
-                        },
-                        placeholder = { Text("Search movies, TV shows...", color = Color(0xFF999999), fontSize = 16.sp) },
-                        leadingIcon = {
-                            Icon(Icons.Default.Search, contentDescription = null, tint = if (isSearchFocused) Color.White else Color(0xFF999999), modifier = Modifier.size(28.dp))
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.White,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = Color.White,
-                            focusedContainerColor = Color(0xFF333333),
-                            unfocusedContainerColor = Color(0xFF1E1E1E)
-                        ),
-                        shape = CircleShape,
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { isSearchFocused = it.isFocused }
-                    )
-                }
-
                 // ── Content Sections ──
                 if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
                     MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
