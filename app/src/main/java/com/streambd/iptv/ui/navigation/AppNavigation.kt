@@ -33,6 +33,7 @@ object Routes {
     const val VOD_PLAYER = "vod_player"
     const val PLAYLISTS = "playlists"
     const val PLAYLIST_CHANNELS = "playlist_channels/{title}/{url}"
+    const val ADMIN_CONVERTER = "admin_converter"
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -127,6 +128,9 @@ fun AppNavigation(
                     mainViewModel = mainViewModel,
                     navController = navController
                 )
+            }
+            composable(Routes.ADMIN_CONVERTER) {
+                com.streambd.iptv.ui.screens.admin.AdminConverterScreen(navController = navController)
             }
         }
     }

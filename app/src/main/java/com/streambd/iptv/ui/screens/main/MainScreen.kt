@@ -385,6 +385,9 @@ fun MainScreen(
                             .padding(top = 40.dp, bottom = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        var logoTapCount by remember { mutableStateOf(0) }
+                        var logoLastTapTime by remember { mutableStateOf(0L) }
+                        
                         Image(
                             painter = painterResource(id = R.drawable.tv_app_banner),
                             contentDescription = "App Logo",
@@ -392,6 +395,19 @@ fun MainScreen(
                             modifier = Modifier
                                 .fillMaxWidth(0.8f)
                                 .height(80.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    val now = System.currentTimeMillis()
+                                    if (now - logoLastTapTime > 500) logoTapCount = 1 else logoTapCount++
+                                    if (logoTapCount >= 7) {
+                                        logoTapCount = 0
+                                        navController.navigate("admin_converter")
+                                        scope.launch { drawerState.close() }
+                                    }
+                                    logoLastTapTime = now
+                                }
                         )
                         Spacer(Modifier.height(12.dp))
                     }
