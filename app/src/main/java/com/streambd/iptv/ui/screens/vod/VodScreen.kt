@@ -100,7 +100,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // ── Unified Scrollable Content ──
-                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).focusGroup()) {
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     
                     // 1. Scrolling Hero Banner
                     if (searchQuery.isEmpty() && focusedMedia != null) {
@@ -109,7 +109,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .focusGroup()
                                         .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
                                 ) {
                                     // Backdrop Image
@@ -235,11 +234,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         
                                         // Netflix Style Action Buttons
                                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            val playAction = {
+                                                viewModel.selectMedia(featured)
+                                                navController.navigate(Routes.TMDB_DETAILS)
+                                            }
                                             androidx.tv.material3.Button(
-                                                onClick = {
-                                                    viewModel.selectMedia(featured)
-                                                    navController.navigate(Routes.TMDB_DETAILS)
-                                                },
+                                                onClick = playAction,
+                                                modifier = Modifier.tvTouchClick(playAction),
                                                 colors = androidx.tv.material3.ButtonDefaults.colors(
                                                     containerColor = Color.White,
                                                     contentColor = Color.Black,
@@ -254,11 +255,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                                 Text("Play", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                             }
                                             
+                                            val moreInfoAction = {
+                                                viewModel.selectMedia(featured)
+                                                navController.navigate(Routes.TMDB_DETAILS)
+                                            }
                                             androidx.tv.material3.Button(
-                                                onClick = {
-                                                    viewModel.selectMedia(featured)
-                                                    navController.navigate(Routes.TMDB_DETAILS)
-                                                },
+                                                onClick = moreInfoAction,
+                                                modifier = Modifier.tvTouchClick(moreInfoAction),
                                                 colors = androidx.tv.material3.ButtonDefaults.colors(
                                                     containerColor = Color(0x66333333),
                                                     contentColor = Color.White,
@@ -378,7 +381,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusGroup()
                         .padding(horizontal = 16.dp, vertical = 16.dp)
                 ) {
                     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -396,15 +398,17 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 Icon(Icons.Default.Search, contentDescription = null, tint = if (isSearchFocused) Color.White else Color(0xFF999999), modifier = Modifier.size(24.dp))
                             },
                             trailingIcon = {
+                                val closeSearch = {
+                                    isSearchExpanded = false
+                                    searchQuery = ""
+                                    viewModel.search("")
+                                }
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .tvFocusBorder(CircleShape)
-                                        .clickable { 
-                                            isSearchExpanded = false
-                                            searchQuery = ""
-                                            viewModel.search("")
-                                        },
+                                        .tvTouchClick(closeSearch)
+                                        .clickable { closeSearch() },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
@@ -437,6 +441,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         .size(48.dp)
                                         .tvFocusBorder(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                        .tvTouchClick(onMenuClick)
                                         .clickable { onMenuClick() },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -451,6 +456,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     .size(48.dp)
                                     .tvFocusBorder(CircleShape)
                                     .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .tvTouchClick { isSearchExpanded = true }
                                     .clickable { isSearchExpanded = true },
                                 contentAlignment = Alignment.Center
                             ) {
