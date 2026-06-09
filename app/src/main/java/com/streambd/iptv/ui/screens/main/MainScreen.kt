@@ -60,6 +60,7 @@ import com.streambd.iptv.ui.screens.live.LiveTvScreen
 import com.streambd.iptv.ui.screens.stream.StreamScreen
 import com.streambd.iptv.ui.screens.vod.VodScreen
 import com.streambd.iptv.ui.theme.*
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.launch
@@ -70,7 +71,7 @@ data class TabItem(
     val unselectedIcon: ImageVector
 )
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 fun MainScreen(
     mainViewModel: MainViewModel, 
@@ -81,6 +82,7 @@ fun MainScreen(
     var selectedTab by rememberSaveable { mutableStateOf(1) } // Default: Media tab
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
+    var showMoreDialog by remember { mutableStateOf(false) }
 
     val tvTabs = listOf(
         TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
@@ -175,6 +177,54 @@ fun MainScreen(
         )
     }
 
+    if (showMoreDialog) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showMoreDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DarkNavySurface
+            ) {
+                Column(modifier = Modifier.padding(16.dp).width(300.dp)) {
+                    Text("More Options", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    val moreItems = listOf(
+                        Pair("Notice", Icons.Outlined.Notifications) to {
+                            showMoreDialog = false
+                            showNotice()
+                        },
+                        Pair("Join Us", Icons.Outlined.Group) to {
+                            showMoreDialog = false
+                            openTelegram()
+                        },
+                        Pair("Copyright", Icons.Outlined.Copyright) to {
+                            showMoreDialog = false
+                            showCopyright()
+                        },
+                        Pair("Share Our App", Icons.Outlined.Share) to {
+                            showMoreDialog = false
+                            shareApp()
+                        }
+                    )
+                    
+                    moreItems.forEach { (item, action) ->
+                        androidx.tv.material3.ListItem(
+                            selected = false,
+                            onClick = action,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).tvTouchClick(action),
+                            headlineContent = { Text(item.first, color = Color.White) },
+                            leadingContent = { Icon(item.second, contentDescription = null, tint = Color.Gray) },
+                            colors = androidx.tv.material3.ListItemDefaults.colors(
+                                containerColor = Color.Transparent,
+                                focusedContainerColor = TealAccent.copy(alpha = 0.1f)
+                            ),
+                            shape = androidx.tv.material3.ListItemDefaults.shape(shape = RoundedCornerShape(8.dp))
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     if (isTv) {
         TvMainScreen(
             mainViewModel = mainViewModel,
@@ -185,6 +235,7 @@ fun MainScreen(
             selectedTab = selectedTab,
             onTabSelected = { selectedTab = it },
             onCheckUpdate = onCheckUpdate,
+            onShowMore = { showMoreDialog = true },
             onShowExitDialog = { showExitDialog = true }
         )
     } else {

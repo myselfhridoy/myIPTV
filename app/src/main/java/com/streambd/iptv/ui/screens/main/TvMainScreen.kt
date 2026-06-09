@@ -37,6 +37,7 @@ fun TvMainScreen(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     onCheckUpdate: () -> Unit,
+    onShowMore: () -> Unit,
     onShowExitDialog: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -67,7 +68,7 @@ fun TvMainScreen(
                                 when (index) {
                                     3 -> navController.navigate("playlists")
                                     4 -> onCheckUpdate()
-                                    5 -> { /* Show More popup handled differently in TV */ }
+                                    5 -> onShowMore()
                                     6 -> onShowExitDialog()
                                     else -> onTabSelected(index)
                                 }
