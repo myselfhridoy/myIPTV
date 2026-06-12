@@ -17,6 +17,13 @@ import kotlin.coroutines.resume
 
 object WebViewSniffer {
 
+    private class SnifferJSInterface(private val onKeyFound: (String) -> Unit) {
+        @android.webkit.JavascriptInterface
+        fun onClearKey(keyJson: String) {
+            onKeyFound(keyJson)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun sniff(
         context: Context,
@@ -27,6 +34,12 @@ object WebViewSniffer {
         withTimeoutOrNull(15000L) { // 15 seconds timeout
             suspendCancellableCoroutine { continuation ->
                 var isResumed = false
+                var foundMpdUrl: String? = null
+                var foundMpdHeaders: Map<String, String>? = null
+                var foundKeyJson: String? = null
+                var mpdTimeoutRunnable: Runnable? = null
+                val handler = Handler(Looper.getMainLooper())
+                
                 val webView = WebView(context)
                 
                 var windowManager: android.view.WindowManager? = null
@@ -76,6 +89,19 @@ object WebViewSniffer {
                     cleanup()
                 }
 
+                webView.addJavascriptInterface(SnifferJSInterface { keyJson ->
+                    handler.post {
+                        foundKeyJson = keyJson
+                        if (!isResumed && foundMpdUrl != null) {
+                            isResumed = true
+                            cleanup()
+                            val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = keyJson)
+                            continuation.resume(ResolvedToken(url = foundMpdUrl!!, headers = foundMpdHeaders, drm = drmConfig))
+                            mpdTimeoutRunnable?.let { handler.removeCallbacks(it) }
+                        }
+                    }
+                }, "AndroidSniffer")
+
                 webView.settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -86,6 +112,27 @@ object WebViewSniffer {
                 }
 
                 webView.webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(
+                            """
+                            if (!window.hookedEME) {
+                                window.hookedEME = true;
+                                const originalUpdate = MediaKeySession.prototype.update;
+                                MediaKeySession.prototype.update = function(response) {
+                                    try {
+                                        const text = new TextDecoder().decode(response);
+                                        if (text.includes('"kty":"oct"')) {
+                                            window.AndroidSniffer.onClearKey(text);
+                                        }
+                                    } catch(e) {}
+                                    return originalUpdate.apply(this, arguments);
+                                };
+                            }
+                            """.trimIndent(), null
+                        )
+                    }
+
                     override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                         super.onPageFinished(view, loadedUrl)
                         // Inject JavaScript to auto-play or click play buttons to force stream loading
@@ -125,33 +172,56 @@ object WebViewSniffer {
                         val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
                         val lowerUrl = reqUrl.lowercase()
 
-                        // Check if it's a media stream
-                        if (lowerUrl.contains(".m3u8") || lowerUrl.contains(".mpd")) {
+                        val mediaExtensions = listOf(".m3u8", ".mpd", ".mp4", ".mkv", ".ts", ".avi", ".flv", ".webm")
+                        val isMedia = mediaExtensions.any { lowerUrl.contains(it) }
+
+                        if (isMedia) {
                             android.util.Log.d("WebViewSniffer", "Intercepted stream: ${'$'}reqUrl")
                             try {
                                 com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log("WebViewSniffer: Intercepted stream: ${'$'}reqUrl")
                             } catch (e: Exception) {}
 
-                            if (!isResumed) {
-                                isResumed = true
-                                val reqHeaders = request.requestHeaders ?: emptyMap()
-                                val outHeaders = reqHeaders.toMutableMap()
+                            val reqHeaders = request.requestHeaders ?: emptyMap()
+                            val outHeaders = reqHeaders.toMutableMap()
+                            
+                            // Only add Referer/Origin if they are missing. Do not overwrite if the WebView correctly provided them!
+                            val hasReferer = outHeaders.keys.any { it.equals("referer", ignoreCase = true) }
+                            val hasOrigin = outHeaders.keys.any { it.equals("origin", ignoreCase = true) }
+
+                            try {
+                                val u = URL(url)
+                                if (!hasReferer) {
+                                    outHeaders["Referer"] = "${'$'}{u.protocol}://${'$'}{u.host}/"
+                                }
+                                if (!hasOrigin) {
+                                    outHeaders["Origin"] = "${'$'}{u.protocol}://${'$'}{u.host}"
+                                }
+                            } catch (e: Exception) {}
+
+                            handler.post {
+                                if (isResumed) return@post
                                 
-                                // Only add Referer/Origin if they are missing. Do not overwrite if the WebView correctly provided them!
-                                val hasReferer = outHeaders.keys.any { it.equals("referer", ignoreCase = true) }
-                                val hasOrigin = outHeaders.keys.any { it.equals("origin", ignoreCase = true) }
-
-                                try {
-                                    val u = URL(url)
-                                    if (!hasReferer) {
-                                        outHeaders["Referer"] = "${'$'}{u.protocol}://${'$'}{u.host}/"
+                                if (lowerUrl.contains(".mpd")) {
+                                    if (foundKeyJson != null) {
+                                        isResumed = true
+                                        cleanup()
+                                        val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = foundKeyJson!!)
+                                        continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders, drm = drmConfig))
+                                    } else {
+                                        foundMpdUrl = reqUrl
+                                        foundMpdHeaders = outHeaders
+                                        // Wait up to 3 seconds for the key
+                                        mpdTimeoutRunnable = Runnable {
+                                            if (!isResumed) {
+                                                isResumed = true
+                                                cleanup()
+                                                continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
+                                            }
+                                        }
+                                        handler.postDelayed(mpdTimeoutRunnable!!, 3000)
                                     }
-                                    if (!hasOrigin) {
-                                        outHeaders["Origin"] = "${'$'}{u.protocol}://${'$'}{u.host}"
-                                    }
-                                } catch (e: Exception) {}
-
-                                Handler(Looper.getMainLooper()).post {
+                                } else {
+                                    isResumed = true
                                     cleanup()
                                     continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
                                 }
