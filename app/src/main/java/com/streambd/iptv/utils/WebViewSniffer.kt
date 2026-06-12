@@ -128,6 +128,10 @@ object WebViewSniffer {
                         // Check if it's a media stream
                         if (lowerUrl.contains(".m3u8") || lowerUrl.contains(".mpd")) {
                             android.util.Log.d("WebViewSniffer", "Intercepted stream: ${'$'}reqUrl")
+                            try {
+                                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log("WebViewSniffer: Intercepted stream: ${'$'}reqUrl")
+                            } catch (e: Exception) {}
+
                             if (!isResumed) {
                                 isResumed = true
                                 val reqHeaders = request.requestHeaders ?: emptyMap()
@@ -144,8 +148,6 @@ object WebViewSniffer {
                                     continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
                                 }
                             }
-                        } else {
-                            // android.util.Log.d("WebViewSniffer", "Ignored: ${'$'}reqUrl")
                         }
                         return super.shouldInterceptRequest(view, request)
                     }
@@ -154,8 +156,17 @@ object WebViewSniffer {
                 val additionalHeaders = headers?.toMutableMap() ?: mutableMapOf()
                 if (userAgent != null) additionalHeaders["User-Agent"] = userAgent
                 
+                try {
+                    com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log("WebViewSniffer: Loading URL: ${'$'}url")
+                } catch (e: Exception) {}
+                
                 webView.loadUrl(url, additionalHeaders)
             }
+        } ?: run {
+            try {
+                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(Exception("WebViewSniffer Timeout after 15s for URL: ${'$'}url"))
+            } catch (e: Exception) {}
+            null
         }
     }
 }
