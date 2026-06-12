@@ -39,14 +39,9 @@ object TokenParser {
 
         val lowerTokenUrl = tokenUrl.lowercase()
 
-        // 0. streamPlay WebViewSniffer (Removed per user request)
-        if (lowerTokenUrl == "streamplay") {
-            // val isVidsrc = baseUrl.contains("vsembed") || baseUrl.contains("vidsrc")
-            // val userAgent = if (isVidsrc) {
-            //     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            // } else null
-            // return@withContext WebViewSniffer.sniff(context, baseUrl, headers, userAgent)
-            return@withContext null
+        // 0. streamBD WebViewSniffer
+        if (lowerTokenUrl == "streambd" || lowerTokenUrl == "streamplay") {
+            return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
         }
 
         // 1. InfinityFree
@@ -152,9 +147,8 @@ object TokenParser {
                 }
             } catch (e: Exception) { e.printStackTrace() }
             
-            // Fallback to WebViewSniffer if JSDecode fails (e.g. for unknown packers)
-            // return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
-            return@withContext null
+            // Fallback to WebViewSniffer if JSDecode fails
+            return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
         }
 
         // 3. crichd
