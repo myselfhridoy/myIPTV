@@ -137,10 +137,18 @@ object WebViewSniffer {
                                 val reqHeaders = request.requestHeaders ?: emptyMap()
                                 val outHeaders = reqHeaders.toMutableMap()
                                 
+                                // Only add Referer/Origin if they are missing. Do not overwrite if the WebView correctly provided them!
+                                val hasReferer = outHeaders.keys.any { it.equals("referer", ignoreCase = true) }
+                                val hasOrigin = outHeaders.keys.any { it.equals("origin", ignoreCase = true) }
+
                                 try {
                                     val u = URL(url)
-                                    outHeaders["Referer"] = "${'$'}{u.protocol}://${'$'}{u.host}/"
-                                    outHeaders["Origin"] = "${'$'}{u.protocol}://${'$'}{u.host}"
+                                    if (!hasReferer) {
+                                        outHeaders["Referer"] = "${'$'}{u.protocol}://${'$'}{u.host}/"
+                                    }
+                                    if (!hasOrigin) {
+                                        outHeaders["Origin"] = "${'$'}{u.protocol}://${'$'}{u.host}"
+                                    }
                                 } catch (e: Exception) {}
 
                                 Handler(Looper.getMainLooper()).post {
