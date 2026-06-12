@@ -81,12 +81,12 @@ fun LiveEventsScreen(
                             val sourcesMap = mutableMapOf<String, String>()
                             event.channels.forEach { ch ->
                                 val chName = ch.name ?: "Source"
-                                ch.links.forEachIndexed { idx, link ->
-                                    val keyName = if (ch.links.size > 1) "$chName ${idx + 1}" else chName
+                                ch.oldLinks.forEachIndexed { idx, link ->
+                                    val keyName = if (ch.oldLinks.size > 1) "$chName ${idx + 1}" else chName
                                     sourcesMap[keyName] = link
                                 }
-                                ch.oldLinks.forEachIndexed { idx, link ->
-                                    val keyName = if (ch.oldLinks.size > 1) "$chName Old ${idx + 1}" else "$chName Old"
+                                ch.links.forEachIndexed { idx, link ->
+                                    val keyName = if (ch.links.size > 1) "$chName Backup ${idx + 1}" else "$chName Backup"
                                     sourcesMap[keyName] = link
                                 }
                             }
