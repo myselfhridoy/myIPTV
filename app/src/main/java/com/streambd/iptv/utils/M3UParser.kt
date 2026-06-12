@@ -223,7 +223,7 @@ object M3UParser {
                             name = currentName,
                             logo = currentLogo,
                             group = currentGroup,
-                            url = cleanUrl,
+                            url = line.trim(), // Preserve pipe headers for LivePlayerScreen
                             userAgent = currentUserAgent,
                             cookie = currentCookie,
                             httpReferer = currentHttpReferer,
@@ -259,7 +259,7 @@ object M3UParser {
                     
                     channels.add(Channel(
                         name = currentTitle.ifEmpty { "Unknown Channel" },
-                        url = parsed.cleanUrl,
+                        url = url, // Preserve pipe
                         group = currentGroup,
                         userAgent = parsed.headers["user-agent"],
                         httpReferer = parsed.headers["referer"],
@@ -313,7 +313,7 @@ object M3UParser {
                 
                 channels.add(Channel(
                     name = title,
-                    url = parsed.cleanUrl,
+                    url = location, // Preserve pipe
                     logo = image ?: "",
                     group = group,
                     userAgent = parsed.headers["user-agent"],
@@ -400,7 +400,7 @@ object M3UParser {
                 
                 channels.add(Channel(
                     name = name,
-                    url = parsed.cleanUrl,
+                    url = rawUrl, // Preserve pipe
                     logo = logo,
                     group = group,
                     userAgent = ua,
