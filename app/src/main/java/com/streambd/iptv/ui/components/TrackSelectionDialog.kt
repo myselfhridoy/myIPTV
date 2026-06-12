@@ -122,7 +122,8 @@ fun TrackSelectionDialog(
                         val trackGroup = group.mediaTrackGroup
                         items(trackGroup.length) { trackIndex ->
                             val format = trackGroup.getFormat(trackIndex)
-                            val isSelected = !isAuto && group.isTrackSelected(trackIndex)
+                            val override = parameters.overrides[trackGroup]
+                            val isSelected = !isAuto && override != null && override.trackIndices.contains(trackIndex)
                             val title = formatTrackName(format, selectedTab)
 
                             TrackOptionItem(
