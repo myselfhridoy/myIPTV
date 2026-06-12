@@ -55,13 +55,24 @@ object WebViewSniffer {
                         // Inject JavaScript to auto-play or click play buttons to force stream loading
                         view?.evaluateJavascript(
                             """
-                            setTimeout(function() {
+                            setInterval(function() {
+                                // Remove known ad layers
+                                var ads = document.querySelectorAll('#first-click-ads-layer, .delayed-popup-ads-layer, [id*="ads"], [class*="ads"]');
+                                ads.forEach(function(ad) { ad.remove(); });
+                                
+                                // Try playing any video element
                                 var videos = document.getElementsByTagName('video');
                                 if(videos.length > 0) { videos[0].play(); }
                                 
+                                // Click any play buttons
                                 var playBtns = document.querySelectorAll('[class*="play"], [id*="play"]');
                                 for(var i=0; i<playBtns.length; i++) { playBtns[i].click(); }
-                            }, 500);
+                                
+                                // Click center of the screen to trigger any player
+                                var clickEvent = document.createEvent('MouseEvents');
+                                clickEvent.initMouseEvent('click', true, true, window, 0, 0, 0, window.innerWidth/2, window.innerHeight/2, false, false, false, false, 0, null);
+                                document.elementFromPoint(window.innerWidth/2, window.innerHeight/2)?.dispatchEvent(clickEvent);
+                            }, 1000);
                             """.trimIndent(), null
                         )
                     }
@@ -75,6 +86,7 @@ object WebViewSniffer {
 
                         // Check if it's a media stream
                         if (lowerUrl.contains(".m3u8") || lowerUrl.contains(".mpd")) {
+                            android.util.Log.d("WebViewSniffer", "Intercepted stream: ${'$'}reqUrl")
                             if (!isResumed) {
                                 isResumed = true
                                 val reqHeaders = request.requestHeaders ?: emptyMap()
@@ -82,8 +94,8 @@ object WebViewSniffer {
                                 
                                 try {
                                     val u = URL(url)
-                                    outHeaders["Referer"] = "${u.protocol}://${u.host}/"
-                                    outHeaders["Origin"] = "${u.protocol}://${u.host}"
+                                    outHeaders["Referer"] = "${'$'}{u.protocol}://${'$'}{u.host}/"
+                                    outHeaders["Origin"] = "${'$'}{u.protocol}://${'$'}{u.host}"
                                 } catch (e: Exception) {}
 
                                 Handler(Looper.getMainLooper()).post {
@@ -91,6 +103,8 @@ object WebViewSniffer {
                                     continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
                                 }
                             }
+                        } else {
+                            // android.util.Log.d("WebViewSniffer", "Ignored: ${'$'}reqUrl")
                         }
                         return super.shouldInterceptRequest(view, request)
                     }
