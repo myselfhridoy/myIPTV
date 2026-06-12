@@ -22,13 +22,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Channel
-import com.streambd.iptv.data.models.LiveEvent
+import com.streambd.iptv.data.models.StreamedMatch
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun LiveEventsScreen(
@@ -79,24 +82,21 @@ fun LiveEventsScreen(
                         event = event,
                         onClick = {
                             val sourcesMap = mutableMapOf<String, String>()
-                            event.channels.forEach { ch ->
-                                val chName = ch.name ?: "Source"
-                                ch.oldLinks.forEachIndexed { idx, link ->
-                                    val keyName = if (ch.oldLinks.size > 1) "$chName ${idx + 1}" else chName
-                                    sourcesMap[keyName] = link
-                                }
-                                ch.links.forEachIndexed { idx, link ->
-                                    val keyName = if (ch.links.size > 1) "$chName Backup ${idx + 1}" else "$chName Backup"
-                                    sourcesMap[keyName] = link
+                            event.sources.forEachIndexed { idx, s ->
+                                val sName = s.source ?: "Source"
+                                val sId = s.id ?: ""
+                                if (sId.isNotEmpty()) {
+                                    val keyName = if (event.sources.size > 1) "$sName ${idx + 1}" else sName
+                                    sourcesMap[keyName] = "https://embed.st/embed/$sName/$sId/1"
                                 }
                             }
 
                             if (sourcesMap.isNotEmpty()) {
                                 val defaultUrl = sourcesMap.values.first()
                                 val channelObj = Channel(
-                                    name = event.matchstr ?: event.team1 ?: "Live Event",
+                                    name = event.title ?: "Live Event",
                                     url = defaultUrl,
-                                    group = event.league ?: "Live Events",
+                                    group = event.category ?: "Live Events",
                                     tokenUrl = "StreamBD",
                                     isLiveEvent = true,
                                     sources = sourcesMap
@@ -113,7 +113,7 @@ fun LiveEventsScreen(
 }
 
 @Composable
-fun EventCard(event: LiveEvent, onClick: () -> Unit) {
+fun EventCard(event: StreamedMatch, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -127,7 +127,7 @@ fun EventCard(event: LiveEvent, onClick: () -> Unit) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = event.matchstr ?: "Unknown Match",
+                    text = event.title ?: "Unknown Match",
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -137,13 +137,17 @@ fun EventCard(event: LiveEvent, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "${event.sport ?: ""} • ${event.league ?: ""}",
+                        text = event.category?.replace("-", " ")?.capitalize() ?: "Event",
                         color = Color.LightGray,
                         fontSize = 14.sp
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dateFormatted = event.date?.let {
+                        SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.getDefault()).format(Date(it))
+                    } ?: "--:--"
+                    
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
@@ -151,18 +155,12 @@ fun EventCard(event: LiveEvent, onClick: () -> Unit) {
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = event.time ?: "--:--",
+                            text = dateFormatted,
                             color = TealAccent,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = event.matchDate ?: "",
-                        color = Color.Gray,
-                        fontSize = 12.sp
-                    )
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
