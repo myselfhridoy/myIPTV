@@ -214,7 +214,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(channels, key = { it.url }) { channel ->
+                            items(channels) { channel ->
                                 Box(modifier = Modifier.width(180.dp)) {
                                     ChannelCard(channel = channel) {
                                         viewModel.setCurrentPlaylist(currentPlaylist)

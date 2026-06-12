@@ -628,7 +628,7 @@ fun LivePlayerScreen(
                                 trackColor = Color.Gray.copy(alpha = 0.3f)
                             )
                             Slider(
-                                value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                                value = (if (duration > 0) currentPosition.toFloat() / duration else 0f).coerceIn(0f, 1f),
                                 onValueChange = { value ->
                                     exoPlayer.seekTo((value * duration).toLong())
                                 },
