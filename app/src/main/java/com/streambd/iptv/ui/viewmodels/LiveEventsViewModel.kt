@@ -3,6 +3,7 @@ package com.streambd.iptv.ui.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streambd.iptv.data.models.LiveEvent
+import com.streambd.iptv.data.models.EventResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,8 +37,8 @@ class LiveEventsViewModel : ViewModel() {
                 val body = response.body?.string()
                 
                 if (response.isSuccessful && !body.isNullOrEmpty()) {
-                    val parsedEvents = json.decodeFromString<List<LiveEvent>>(body)
-                    _events.value = parsedEvents
+                    val parsedResponse = json.decodeFromString<EventResponse>(body)
+                    _events.value = parsedResponse.matches
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

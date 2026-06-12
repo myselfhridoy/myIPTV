@@ -3,6 +3,11 @@ package com.streambd.iptv.data.models
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class EventResponse(
+    val matches: List<LiveEvent> = emptyList()
+)
+
+@Serializable
 data class LiveEvent(
     val matchText: String? = null,
     val matchstr: String? = null,
