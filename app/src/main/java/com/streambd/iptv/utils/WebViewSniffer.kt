@@ -28,10 +28,46 @@ object WebViewSniffer {
             suspendCancellableCoroutine { continuation ->
                 var isResumed = false
                 val webView = WebView(context)
+                
+                var windowManager: android.view.WindowManager? = null
+                var layoutParams: android.view.WindowManager.LayoutParams? = null
+                
+                try {
+                    windowManager = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+                    layoutParams = android.view.WindowManager.LayoutParams(
+                        1, 1,
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+                            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                        else
+                            android.view.WindowManager.LayoutParams.TYPE_PHONE,
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        android.graphics.PixelFormat.TRANSPARENT
+                    )
+                    // If context is an Activity, we can attach to its Window instead of SYSTEM_ALERT_WINDOW
+                    if (context is android.app.Activity) {
+                        layoutParams.type = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG
+                    }
+                    windowManager.addView(webView, layoutParams)
+                } catch (e: Exception) {
+                    // Fallback: If we don't have permission, try adding to Activity root view
+                    try {
+                        if (context is android.app.Activity) {
+                            val rootView = context.findViewById<android.view.ViewGroup>(android.R.id.content)
+                            rootView?.addView(webView, android.view.ViewGroup.LayoutParams(1, 1))
+                        }
+                    } catch (e2: Exception) {}
+                }
 
                 fun cleanup() {
                     try {
                         webView.stopLoading()
+                        try {
+                            if (webView.parent != null) {
+                                (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+                            } else {
+                                windowManager?.removeView(webView)
+                            }
+                        } catch (e: Exception) {}
                         webView.destroy()
                     } catch (e: Exception) {}
                 }
@@ -75,6 +111,11 @@ object WebViewSniffer {
                             }, 1000);
                             """.trimIndent(), null
                         )
+                    }
+
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        // Prevent navigating away from the page due to ad clicks
+                        return true
                     }
 
                     override fun shouldInterceptRequest(
