@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.MovieFilter
 import androidx.compose.material.icons.filled.NetworkWifi
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.Copyright
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Group
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.outlined.MovieFilter
 import androidx.compose.material.icons.outlined.NetworkWifi
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,10 +61,12 @@ import com.streambd.iptv.R
 import com.streambd.iptv.ui.screens.live.LiveTvScreen
 import com.streambd.iptv.ui.screens.stream.StreamScreen
 import com.streambd.iptv.ui.screens.vod.VodScreen
+import com.streambd.iptv.ui.screens.events.LiveEventsScreen
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import kotlinx.coroutines.launch
 
 data class TabItem(
@@ -86,6 +90,7 @@ fun MainScreen(
 
     val tvTabs = listOf(
         TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
+        TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
         TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi),
         TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder),
@@ -96,6 +101,7 @@ fun MainScreen(
 
     val mobileTabs = listOf(
         TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
+        TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
         TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi)
     )
@@ -450,8 +456,12 @@ fun MainScreen(
                 Box(modifier = Modifier.padding(innerPadding)) {
                     when (selectedTab) {
                         0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
-                        1 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
-                        2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        1 -> {
+                            val eventsViewModel: LiveEventsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                            LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        }
+                        2 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                     }
                 }
             }

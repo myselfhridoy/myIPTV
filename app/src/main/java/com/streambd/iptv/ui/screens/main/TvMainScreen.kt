@@ -31,11 +31,13 @@ import androidx.tv.material3.*
 import com.streambd.iptv.ui.screens.live.LiveTvScreen
 import com.streambd.iptv.ui.screens.stream.StreamScreen
 import com.streambd.iptv.ui.screens.vod.VodScreen
+import com.streambd.iptv.ui.screens.events.LiveEventsScreen
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.TealAccent
 import kotlinx.coroutines.launch
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -100,16 +102,16 @@ fun TvMainScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         tvTabs.forEachIndexed { index, tab ->
-                            val isSelected = selectedTab == index && index < 3
+                            val isSelected = selectedTab == index && index < 4
                             
                             NavigationDrawerItem(
                                 selected = isSelected,
                                 onClick = {
                                     when (index) {
-                                        3 -> navController.navigate("playlists")
-                                        4 -> onCheckUpdate()
-                                        5 -> onShowMore()
-                                        6 -> onShowExitDialog()
+                                        4 -> navController.navigate("playlists")
+                                        5 -> onCheckUpdate()
+                                        6 -> onShowMore()
+                                        7 -> onShowExitDialog()
                                         else -> {
                                             onTabSelected(index)
                                             scope.launch { drawerState.setValue(DrawerValue.Closed) }
@@ -166,8 +168,12 @@ fun TvMainScreen(
         ) {
             when (selectedTab) {
                 0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = null)
-                1 -> VodScreen(tmdbViewModel, navController, onMenuClick = null)
-                2 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = null)
+                1 -> {
+                    val eventsViewModel: LiveEventsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                    LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
+                }
+                2 -> VodScreen(tmdbViewModel, navController, onMenuClick = null)
+                3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = null)
             }
         }
     }
