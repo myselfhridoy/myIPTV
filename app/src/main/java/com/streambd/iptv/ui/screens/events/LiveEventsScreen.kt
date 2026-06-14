@@ -42,11 +42,27 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.launch
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
+fun parseEventDate(dateStr: String?): Date? {
+    if (dateStr.isNullOrBlank()) return null
+    return try {
+        // Fix +06:00 to +0600 for SimpleDateFormat compatibility
+        val cleanStr = dateStr.replace(Regex("([+-]\\d\\d):(\\d\\d)$"), "$1$2")
+        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US)
+        sdf.parse(cleanStr)
+    } catch (e: Exception) {
+        null
+    }
+}
 
 val SportzfyDarkBg = Color(0xFF0B0F19)
 val SportzfyCardBg = Color(0xFF161D2D).copy(alpha = 0.85f)
 val SportzfyStroke = Color(0xFF2A344A)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveEventsScreen(
     eventsViewModel: LiveEventsViewModel,
@@ -63,6 +79,9 @@ fun LiveEventsScreen(
     
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    
+    var showStreamSelectionFor by remember { mutableStateOf<List<com.streambd.iptv.data.models.SportzfyStream>?>(null) }
+    var selectedEventForStream by remember { mutableStateOf<SportzfyEvent?>(null) }
     
     val sportsCount = remember(events) {
         val counts = mutableMapOf<String, Int>()
@@ -83,7 +102,8 @@ fun LiveEventsScreen(
         var list = if (selectedCategory == "All") events else events.filter { it.sport == selectedCategory }
         list = when (selectedStatus) {
             "Live" -> list.filter { it.is_live == 1 }
-            "Upcoming" -> list.filter { it.is_live == 0 } // simplified logic
+            "Upcoming" -> list.filter { it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) > System.currentTimeMillis() }.sortedBy { parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE }
+            "Recent" -> list.filter { it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) <= System.currentTimeMillis() }.sortedByDescending { parseEventDate(it.starts_at)?.time ?: 0L }
             else -> list
         }
         if (searchQuery.isNotBlank()) {
@@ -96,15 +116,28 @@ fun LiveEventsScreen(
         list
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0F1423), Color(0xFF0A0D14))
+    val pullToRefreshState = rememberPullToRefreshState()
+    if (pullToRefreshState.isRefreshing) {
+        LaunchedEffect(true) {
+            eventsViewModel.fetchEvents()
+        }
+    }
+    LaunchedEffect(isLoading) {
+        if (!isLoading) {
+            pullToRefreshState.endRefresh()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().nestedScroll(pullToRefreshState.nestedScrollConnection)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color(0xFF0F1423), Color(0xFF0A0D14))
+                    )
                 )
-            )
-    ) {
+        ) {
         // Top App Bar
         Row(
             modifier = Modifier
@@ -180,10 +213,11 @@ fun LiveEventsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StatusChip("Recent", 0, selectedStatus == "Recent") { selectedStatus = "Recent" }
+            val recentCount = events.count { it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) <= System.currentTimeMillis() }
+            StatusChip("Recent", recentCount, selectedStatus == "Recent") { selectedStatus = "Recent" }
             val liveCount = events.count { it.is_live == 1 }
             StatusChip("Live", liveCount, selectedStatus == "Live") { selectedStatus = "Live" }
-            val upcomingCount = events.count { it.is_live == 0 }
+            val upcomingCount = events.count { it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) > System.currentTimeMillis() }
             StatusChip("Upcoming", upcomingCount, selectedStatus == "Upcoming") { selectedStatus = "Upcoming" }
         }
 
@@ -207,20 +241,96 @@ fun LiveEventsScreen(
                         coroutineScope.launch {
                             val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
                             if (streams.isNotEmpty()) {
-                                // Just play the first stream for now
-                                val stream = streams.first()
-                                val ch = Channel(
-                                    name = event.league ?: "Live Event",
-                                    url = stream.stream_url ?: "",
-                                    group = event.sport ?: "Live",
-                                    isLiveEvent = true,
-                                    drm = if (stream.drm_key != null) DrmConfig(
-                                        type = "clearkey",
-                                        rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
-                                    ) else null
-                                )
-                                mainViewModel.selectChannel(ch)
-                                navController.navigate(Routes.LIVE_PLAYER)
+                                if (streams.size == 1) {
+                                    val stream = streams.first()
+                                    val ch = Channel(
+                                        name = event.league ?: "Live Event",
+                                        url = stream.stream_url ?: "",
+                                        group = event.sport ?: "Live",
+                                        isLiveEvent = true,
+                                        drm = if (stream.drm_key != null) DrmConfig(
+                                            type = "clearkey",
+                                            rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
+                                        ) else null
+                                    )
+                                    mainViewModel.selectChannel(ch)
+                                    navController.navigate(Routes.LIVE_PLAYER)
+                                } else {
+                                    selectedEventForStream = event
+                                    showStreamSelectionFor = streams
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Close Column
+        }
+        
+        PullToRefreshContainer(
+            state = pullToRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter),
+            containerColor = SportzfyCardBg,
+            contentColor = TealAccent
+        )
+
+        // Multi-Source Bottom Sheet
+        if (showStreamSelectionFor != null && selectedEventForStream != null) {
+            @OptIn(ExperimentalMaterial3Api::class)
+            ModalBottomSheet(
+                onDismissRequest = { 
+                    showStreamSelectionFor = null
+                    selectedEventForStream = null
+                },
+                containerColor = SportzfyCardBg,
+                dragHandle = { BottomSheetDefaults.DragHandle(color = Color.LightGray) }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp, start = 24.dp, end = 24.dp)
+                ) {
+                    Text(
+                        text = "Select Stream",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    
+                    showStreamSelectionFor?.forEachIndexed { index, stream ->
+                        val streamName = if (stream.label.isNullOrBlank()) "Source ${index + 1}" else stream.label
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    showStreamSelectionFor = null
+                                    val ch = Channel(
+                                        name = selectedEventForStream?.league ?: "Live Event",
+                                        url = stream.stream_url ?: "",
+                                        group = selectedEventForStream?.sport ?: "Live",
+                                        isLiveEvent = true,
+                                        drm = if (stream.drm_key != null) DrmConfig(
+                                            type = "clearkey",
+                                            rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
+                                        ) else null
+                                    )
+                                    mainViewModel.selectChannel(ch)
+                                    navController.navigate(Routes.LIVE_PLAYER)
+                                },
+                            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(streamName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -232,34 +342,34 @@ fun LiveEventsScreen(
 
 @Composable
 fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+    Box(
+        modifier = Modifier
+            .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(24.dp)
+            )
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                if (isSelected) TealAccent.copy(alpha = 0.15f) else Color(0xFF1E2638).copy(alpha = 0.5f)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .border(
-                    width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
-                    shape = CircleShape
-                )
-                .background(
-                    if (isSelected) TealAccent.copy(alpha = 0.15f) else Color(0xFF1E2638).copy(alpha = 0.5f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            // Icon Placeholder
-            Text(name.take(2).uppercase(Locale.ROOT), color = if (isSelected) TealAccent else Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                name, 
+                color = if (isSelected) TealAccent else Color.White, 
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, 
+                fontSize = 15.sp
+            )
             
-            // Notification Badge
             if (count > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-4).dp)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFFF4B2B), Color(0xFFFF416C))))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
@@ -267,8 +377,6 @@ fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () ->
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(name, color = if (isSelected) Color.White else Color.LightGray, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
     }
 }
 
@@ -342,18 +450,16 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                 
                 // Time & Live Badge
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val timeFormatted = try {
-                        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
-                        sdf.timeZone = TimeZone.getTimeZone("UTC")
-                        val dateObj = sdf.parse(event.starts_at ?: "")
+                    val dateObj = parseEventDate(event.starts_at)
+                    val timeFormatted = if (dateObj != null) {
                         val outSdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                        if (dateObj != null) outSdf.format(dateObj) else event.starts_at
-                    } catch (e: Exception) {
+                        outSdf.format(dateObj)
+                    } else {
                         event.starts_at ?: ""
                     }
 
                     Text(
-                        text = timeFormatted ?: "",
+                        text = timeFormatted,
                         color = TealAccent,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
