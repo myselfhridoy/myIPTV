@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,9 +43,9 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.launch
 
-val SportzfyDarkBg = Color(0xFF141925)
-val SportzfyCardBg = Color(0xFF1B2234)
-val SportzfyStroke = Color(0xFF2D374D)
+val SportzfyDarkBg = Color(0xFF0B0F19)
+val SportzfyCardBg = Color(0xFF161D2D).copy(alpha = 0.85f)
+val SportzfyStroke = Color(0xFF2A344A)
 
 @Composable
 fun LiveEventsScreen(
@@ -59,6 +60,9 @@ fun LiveEventsScreen(
 
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedStatus by remember { mutableStateOf("Live") } // "Recent", "Live", "Upcoming"
+    
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     
     val sportsCount = remember(events) {
         val counts = mutableMapOf<String, Int>()
@@ -75,12 +79,19 @@ fun LiveEventsScreen(
             .filter { it == "All" || sportsCount.containsKey(it) }
     }
 
-    val filteredEvents = remember(events, selectedCategory, selectedStatus) {
+    val filteredEvents = remember(events, selectedCategory, selectedStatus, searchQuery) {
         var list = if (selectedCategory == "All") events else events.filter { it.sport == selectedCategory }
         list = when (selectedStatus) {
             "Live" -> list.filter { it.is_live == 1 }
             "Upcoming" -> list.filter { it.is_live == 0 } // simplified logic
             else -> list
+        }
+        if (searchQuery.isNotBlank()) {
+            list = list.filter {
+                (it.team_a_name?.contains(searchQuery, ignoreCase = true) == true) ||
+                (it.team_b_name?.contains(searchQuery, ignoreCase = true) == true) ||
+                (it.league?.contains(searchQuery, ignoreCase = true) == true)
+            }
         }
         list
     }
@@ -88,7 +99,11 @@ fun LiveEventsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(SportzfyDarkBg)
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(Color(0xFF0F1423), Color(0xFF0A0D14))
+                )
+            )
     ) {
         // Top App Bar
         Row(
@@ -101,39 +116,45 @@ fun LiveEventsScreen(
             IconButton(onClick = onMenuClick) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
             }
-            Text(
-                "Sportzfy", 
-                color = TealAccent, 
-                fontSize = 28.sp, 
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Row {
-                IconButton(onClick = { }) {
+            if (isSearchActive) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                        .height(50.dp),
+                    placeholder = { Text("Search matches...", color = Color.Gray) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.1f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                        focusedIndicatorColor = TealAccent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(25.dp),
+                    singleLine = true
+                )
+                IconButton(onClick = { 
+                    isSearchActive = false 
+                    searchQuery = ""
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = "Close Search", tint = Color.White)
+                }
+            } else {
+                Text(
+                    "Live Events", 
+                    color = TealAccent, 
+                    fontSize = 26.sp, 
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center
+                )
+                IconButton(onClick = { isSearchActive = true }) {
                     Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
                 }
-                IconButton(onClick = { }) {
-                    Icon(Icons.Default.Star, contentDescription = "Favorites", tint = Color.White)
-                }
             }
-        }
-
-        // Marquee Text
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .border(1.dp, TealAccent.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                .padding(vertical = 6.dp, horizontal = 12.dp)
-        ) {
-            Text(
-                "Version v21.0 (Ads Free). Keep supporting us...", 
-                color = Color.LightGray, 
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
 
         // Circular Categories Row
@@ -217,28 +238,32 @@ fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () ->
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
+                .size(60.dp)
                 .border(
                     width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) TealAccent else SportzfyStroke,
+                    color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
+                    shape = CircleShape
+                )
+                .background(
+                    if (isSelected) TealAccent.copy(alpha = 0.15f) else Color(0xFF1E2638).copy(alpha = 0.5f),
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
         ) {
             // Icon Placeholder
-            Text(name.take(2).uppercase(Locale.ROOT), color = Color.White, fontWeight = FontWeight.Bold)
+            Text(name.take(2).uppercase(Locale.ROOT), color = if (isSelected) TealAccent else Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             
             // Notification Badge
             if (count > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 6.dp, y = (-6).dp)
+                        .offset(x = 4.dp, y = (-4).dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE74C3C))
+                        .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Color(0xFFFF4B2B), Color(0xFFFF416C))))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text(count.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(count.toString(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
         }
@@ -253,15 +278,20 @@ fun StatusChip(name: String, count: Int, isSelected: Boolean, onClick: () -> Uni
         modifier = Modifier
             .border(
                 width = 1.dp,
-                color = if (isSelected) TealAccent else SportzfyStroke,
-                shape = RoundedCornerShape(16.dp)
+                color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(20.dp)
             )
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (isSelected) SportzfyDarkBg else Color.Transparent)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f))
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 18.dp, vertical = 8.dp)
     ) {
-        Text("$name ($count)", color = if (isSelected) Color.White else Color.LightGray, fontSize = 14.sp)
+        Text(
+            "$name ($count)", 
+            color = if (isSelected) TealAccent else Color.LightGray, 
+            fontSize = 14.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        )
     }
 }
 
@@ -270,8 +300,14 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, SportzfyStroke, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = 1.dp, 
+                brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
+                ), 
+                shape = RoundedCornerShape(16.dp)
+            )
             .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = SportzfyCardBg),
     ) {
@@ -327,9 +363,9 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                     if (event.is_live == 1) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFFE74C3C))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFFFF416C), Color(0xFFFF4B2B))))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -339,8 +375,8 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                                         .clip(CircleShape)
                                         .background(Color.White)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Live", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
                             }
                         }
                     }

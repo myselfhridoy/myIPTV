@@ -10,11 +10,13 @@ object RemoteConfigManager {
     private const val DEFAULT_TMDB_API_KEY = "460327acf6e0235a391222cb530de9c8"
     private const val DEFAULT_IPTV_PLAYLIST_URL = "https://streambd-iptv.netlify.app/playlists/IPTV.json"
     private const val DEFAULT_ADDON_REGISTRY_URL = "https://streambd-iptv.netlify.app/addons/StreamBD_IPTV_Addon.json"
+    private const val DEFAULT_LIVE_EVENTS_API_URL = "https://streambdlive-events.netlify.app/api/all/events"
 
     // Remote Config Keys
     private const val KEY_TMDB_API_KEY = "tmdb_api_key"
     private const val KEY_IPTV_PLAYLIST_URL = "iptv_playlist_url"
     private const val KEY_ADDON_REGISTRY_URL = "addon_registry_url"
+    private const val KEY_LIVE_EVENTS_API_URL = "live_events_api_url"
 
     fun init() {
         val configSettings = FirebaseRemoteConfigSettings.Builder()
@@ -26,7 +28,8 @@ object RemoteConfigManager {
         val defaults = mapOf(
             KEY_TMDB_API_KEY to DEFAULT_TMDB_API_KEY,
             KEY_IPTV_PLAYLIST_URL to DEFAULT_IPTV_PLAYLIST_URL,
-            KEY_ADDON_REGISTRY_URL to DEFAULT_ADDON_REGISTRY_URL
+            KEY_ADDON_REGISTRY_URL to DEFAULT_ADDON_REGISTRY_URL,
+            KEY_LIVE_EVENTS_API_URL to DEFAULT_LIVE_EVENTS_API_URL
         )
         remoteConfig.setDefaultsAsync(defaults)
 
@@ -55,5 +58,10 @@ object RemoteConfigManager {
     fun getAddonRegistryUrl(): String {
         val value = remoteConfig.getString(KEY_ADDON_REGISTRY_URL).replace("\\s".toRegex(), "")
         return value.ifEmpty { DEFAULT_ADDON_REGISTRY_URL }
+    }
+    
+    fun getLiveEventsApiUrl(): String {
+        val value = remoteConfig.getString(KEY_LIVE_EVENTS_API_URL).replace("\\s".toRegex(), "")
+        return value.ifEmpty { DEFAULT_LIVE_EVENTS_API_URL }
     }
 }
