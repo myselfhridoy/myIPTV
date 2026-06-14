@@ -32,6 +32,12 @@ class PlaylistChannelsViewModel : ViewModel() {
     fun loadPlaylist(url: String) {
         viewModelScope.launch {
             _isLoading.value = true
+            // Clear old state
+            _allChannels.value = emptyList()
+            _displayedChannels.value = emptyList()
+            _groups.value = emptyList()
+            _selectedGroup.value = "All"
+
             val channels = liveRepository.getChannelsForCategory(url)
             _allChannels.value = channels
             
