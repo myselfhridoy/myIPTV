@@ -28,7 +28,8 @@ object WebViewSniffer {
         "embedstream", "livehdstream", "streambtw", "hdvid",
         "embed", "stream", "live", "player", "cdn", "sportshd",
         "crictime", "crichd", "livetv", "tvstream", "sportlemon",
-        "footybite", "buffstream", "crackstreams", "reddit-stream"
+        "footybite", "buffstream", "crackstreams", "reddit-stream",
+        "sportsupa", "sport"
     )
 
     private val adKeywords = listOf(

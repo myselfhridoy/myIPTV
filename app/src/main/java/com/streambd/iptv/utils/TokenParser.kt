@@ -9,6 +9,7 @@ import okhttp3.Request
 import java.net.URL
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import android.net.Uri
 
 data class ResolvedToken(
     val url: String,
@@ -41,6 +42,75 @@ object TokenParser {
 
         // 0. streamBD WebViewSniffer
         if (lowerTokenUrl == "streambd" || lowerTokenUrl == "streamplay") {
+            if (baseUrl.contains("sportsupa.sbs") || baseUrl.contains("streamed.pk")) {
+                try {
+                    val uri = Uri.parse(baseUrl)
+                    val matchId = uri.getQueryParameter("id")
+                    val src = uri.getQueryParameter("src") ?: "admin"
+                    val sno = uri.getQueryParameter("sno")?.toIntOrNull() ?: 1
+                    
+                    if (matchId != null) {
+                        var sourceId: String? = null
+                        val endpoints = listOf("https://streamed.pk/api/matches/live", "https://streamed.pk/api/matches/all")
+                        
+                        for (endpoint in endpoints) {
+                            val req = Request.Builder().url(endpoint).apply {
+                                header("User-Agent", USER_AGENT)
+                                header("Referer", "https://sportsupa.sbs/")
+                            }.build()
+                            val res = client.newCall(req).execute()
+                            if (res.isSuccessful) {
+                                val jsonArray = org.json.JSONArray(res.body?.string() ?: "[]")
+                                for (i in 0 until jsonArray.length()) {
+                                    val matchObj = jsonArray.getJSONObject(i)
+                                    if (matchObj.optString("id") == matchId) {
+                                        val sourcesArray = matchObj.optJSONArray("sources")
+                                        if (sourcesArray != null) {
+                                            for (j in 0 until sourcesArray.length()) {
+                                                val srcObj = sourcesArray.getJSONObject(j)
+                                                if (srcObj.optString("source") == src) {
+                                                    sourceId = srcObj.optString("id")
+                                                    break
+                                                }
+                                            }
+                                        }
+                                        break
+                                    }
+                                }
+                            }
+                            if (sourceId != null) break
+                        }
+                        
+                        if (sourceId != null) {
+                            val streamReq = Request.Builder().url("https://streamed.pk/api/stream/${src}/${sourceId}").apply {
+                                header("User-Agent", USER_AGENT)
+                                header("Referer", "https://sportsupa.sbs/")
+                            }.build()
+                            val streamRes = client.newCall(streamReq).execute()
+                            if (streamRes.isSuccessful) {
+                                val streamArray = org.json.JSONArray(streamRes.body?.string() ?: "[]")
+                                var embedUrl: String? = null
+                                for (i in 0 until streamArray.length()) {
+                                    val stObj = streamArray.getJSONObject(i)
+                                    if (stObj.optInt("streamNo") == sno || (sno == 1 && i == 0)) {
+                                        embedUrl = stObj.optString("embedUrl")
+                                        if (embedUrl.isNullOrBlank()) {
+                                            embedUrl = "https://embedstreams.top/embed/${src}/${sourceId}/${sno}"
+                                        }
+                                        break
+                                    }
+                                }
+                                
+                                if (!embedUrl.isNullOrBlank()) {
+                                    return@withContext WebViewSniffer.sniff(context, embedUrl, headers, USER_AGENT)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
         }
 
