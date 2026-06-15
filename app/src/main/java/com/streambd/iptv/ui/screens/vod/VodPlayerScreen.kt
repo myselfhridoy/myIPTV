@@ -249,6 +249,9 @@ fun VodPlayerScreen(
 
                 val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
 
+                var useLocalClearKey = false
+                var clearKeyBytes: ByteArray? = null
+
                 if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
                     val parts = finalDrm.rawKeyPair.split(":")
                     if (parts.size == 2) {
@@ -260,21 +263,16 @@ fun VodPlayerScreen(
                             val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
 
                             val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                            val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(clearkeyJson.toByteArray(), android.util.Base64.NO_WRAP)
-                            
-                            drmBuilder.setLicenseUri(clearkeyDataUri)
+                            clearKeyBytes = clearkeyJson.toByteArray()
+                            useLocalClearKey = true
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     }
                 } else if (finalDrm.licenseServer != null) {
                     if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
-                        try {
-                            val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(finalDrm.licenseServer.trim().toByteArray(), android.util.Base64.NO_WRAP)
-                            drmBuilder.setLicenseUri(clearkeyDataUri)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                        clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
+                        useLocalClearKey = true
                     } else {
                         drmBuilder.setLicenseUri(finalDrm.licenseServer)
                         drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
@@ -283,6 +281,14 @@ fun VodPlayerScreen(
                 }
 
                 mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
+            
+                if (useLocalClearKey && clearKeyBytes != null) {
+                    val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
+                    val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                        .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                        .build(localMediaDrmCallback)
+                    mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                }
             }
 
             val mediaItem = mediaItemBuilder.build()
