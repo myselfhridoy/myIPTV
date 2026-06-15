@@ -61,7 +61,11 @@ data class StreamHistoryItem(
     val origin: String,
     val drmLicense: String,
     val userAgent: String,
-    val drmScheme: String
+    val drmScheme: String,
+    val tokenUrl: String? = null,
+    val tokenMatch: String? = null,
+    val tokenReplace: String? = null,
+    val tokenId: Int? = null
 ) {
     fun toJson(): JSONObject {
         val obj = JSONObject()
@@ -72,6 +76,10 @@ data class StreamHistoryItem(
         obj.put("drmLicense", drmLicense)
         obj.put("userAgent", userAgent)
         obj.put("drmScheme", drmScheme)
+        tokenUrl?.let { obj.put("tokenUrl", it) }
+        tokenMatch?.let { obj.put("tokenMatch", it) }
+        tokenReplace?.let { obj.put("tokenReplace", it) }
+        tokenId?.let { obj.put("tokenId", it) }
         return obj
     }
 
@@ -86,7 +94,11 @@ data class StreamHistoryItem(
                     origin = obj.optString("origin", ""),
                     drmLicense = obj.optString("drmLicense", ""),
                     userAgent = obj.optString("userAgent", "Default"),
-                    drmScheme = obj.optString("drmScheme", "clearkey")
+                    drmScheme = obj.optString("drmScheme", "clearkey"),
+                    tokenUrl = if (obj.has("tokenUrl")) obj.optString("tokenUrl") else null,
+                    tokenMatch = if (obj.has("tokenMatch")) obj.optString("tokenMatch") else null,
+                    tokenReplace = if (obj.has("tokenReplace")) obj.optString("tokenReplace") else null,
+                    tokenId = if (obj.has("tokenId")) obj.optInt("tokenId") else null
                 )
             } catch (e: Exception) { null }
         }
@@ -305,7 +317,11 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                                 "Referer" to item.referer,
                                                 "Origin" to item.origin
                                             ).filterValues { it.isNotBlank() },
-                                            drm = drmConfig
+                                            drm = drmConfig,
+                                            tokenUrl = item.tokenUrl,
+                                            tokenMatch = item.tokenMatch,
+                                            tokenReplace = item.tokenReplace,
+                                            tokenId = item.tokenId
                                         )
                                         
                                         mainViewModel.selectStream(streamSource)
@@ -365,7 +381,11 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                                     "Referer" to item.referer,
                                                     "Origin" to item.origin
                                                 ).filterValues { it.isNotBlank() },
-                                                drm = drmConfig
+                                                drm = drmConfig,
+                                                tokenUrl = item.tokenUrl,
+                                                tokenMatch = item.tokenMatch,
+                                                tokenReplace = item.tokenReplace,
+                                                tokenId = item.tokenId
                                             )
                                             
                                             mainViewModel.selectStream(streamSource)
@@ -461,143 +481,104 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                 Spacer(modifier = Modifier.height(32.dp))
 
                 // TV-Friendly Play Button
-                androidx.tv.material3.Button(
-                    onClick = {
-                        if (mediaStreamUrl.isBlank()) {
-                            Toast.makeText(context, "Please Check the Play URL", Toast.LENGTH_SHORT).show()
-                        } else {
-                            var finalUrl = mediaStreamUrl
-                            var finalCookie = cookieValue
-                            var finalReferer = refererValue
-                            var finalOrigin = originValue
-                            var finalUa = userAgent
-                            var finalCustomUa = customUserAgent
-                            var finalDrmLicense = drmLicenseUrl
-                            
-                            var tokenUrl: String? = null
-                            var tokenMatch: String? = null
-                            var tokenReplace: String? = null
-                            var tokenId: Int? = null
+                val handlePlay = {
+                    if (mediaStreamUrl.isBlank()) {
+                        Toast.makeText(context, "Please Check the Play URL", Toast.LENGTH_SHORT).show()
+                    } else {
+                        var finalUrl = mediaStreamUrl
+                        var finalCookie = cookieValue
+                        var finalReferer = refererValue
+                        var finalOrigin = originValue
+                        var finalUa = userAgent
+                        var finalCustomUa = customUserAgent
+                        var finalDrmLicense = drmLicenseUrl
+                        
+                        var tokenUrl: String? = null
+                        var tokenMatch: String? = null
+                        var tokenReplace: String? = null
+                        var tokenId: Int? = null
 
-                            if (mediaStreamUrl.contains("|")) {
-                                val parts = mediaStreamUrl.split("|")
-                                finalUrl = parts[0]
-                                for (i in 1 until parts.size) {
-                                    val part = parts[i]
-                                    val key = part.substringBefore("=").trim().lowercase()
-                                    val value = part.substringAfter("=").trim()
-                                    when (key) {
-                                        "cookie" -> finalCookie = value
-                                        "referer", "http-referer", "referrer" -> finalReferer = value
-                                        "origin", "http-origin" -> finalOrigin = value
-                                        "user-agent", "http-user-agent" -> {
-                                            val matchingUa = userAgents.find { it.equals(value, ignoreCase = true) }
-                                            if (matchingUa != null) {
-                                                finalUa = matchingUa
-                                            } else {
-                                                finalUa = "Custom"
-                                                finalCustomUa = value
-                                            }
+                        if (mediaStreamUrl.contains("|")) {
+                            val parts = mediaStreamUrl.split("|")
+                            finalUrl = parts[0]
+                            for (i in 1 until parts.size) {
+                                val part = parts[i]
+                                val key = part.substringBefore("=").trim().lowercase()
+                                val value = part.substringAfter("=").trim()
+                                when (key) {
+                                    "cookie" -> finalCookie = value
+                                    "referer", "http-referer", "referrer" -> finalReferer = value
+                                    "origin", "http-origin" -> finalOrigin = value
+                                    "user-agent", "http-user-agent" -> {
+                                        val matchingUa = userAgents.find { it.equals(value, ignoreCase = true) }
+                                        if (matchingUa != null) {
+                                            finalUa = matchingUa
+                                        } else {
+                                            finalUa = "Custom"
+                                            finalCustomUa = value
                                         }
-                                        "tokenurl" -> tokenUrl = value
-                                        "tokenmatch" -> tokenMatch = value
-                                        "tokenreplace" -> tokenReplace = value
-                                        "tokenid" -> tokenId = value.toIntOrNull()
                                     }
+                                    "tokenurl" -> tokenUrl = value
+                                    "tokenmatch" -> tokenMatch = value
+                                    "tokenreplace" -> tokenReplace = value
+                                    "tokenid" -> tokenId = value.toIntOrNull()
                                 }
-                                
-                                mediaStreamUrl = finalUrl
-                                cookieValue = finalCookie
-                                refererValue = finalReferer
-                                originValue = finalOrigin
-                                userAgent = finalUa
-                                if (finalUa == "Custom") customUserAgent = finalCustomUa
-                                drmLicenseUrl = finalDrmLicense
                             }
-
-                            val newItem = StreamHistoryItem(
-                                finalUrl, finalCookie, finalReferer, finalOrigin, finalDrmLicense, finalUa, drmScheme
-                            )
-                            historyUrls.removeAll { it.url == finalUrl }
-                            historyUrls.add(0, newItem)
                             
-                            // Save to SharedPreferences
-                            val array = JSONArray()
-                            historyUrls.forEach { array.put(it.toJson().toString()) }
-                            sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
-                            
-                            val selectedUa = if (finalUa == "Custom") finalCustomUa else if (finalUa != "Default") finalUa else null
-                            val drmConfig = if (drmScheme != "None" && drmScheme.isNotBlank()) {
-                                DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
-                            } else null
-                            
-                            val streamSource = com.streambd.iptv.data.models.StreamSource(
-                                url = finalUrl,
-                                provider = "Stream",
-                                headers = mapOf(
-                                    "User-Agent" to (selectedUa ?: ""),
-                                    "Cookie" to finalCookie,
-                                    "Referer" to finalReferer,
-                                    "Origin" to finalOrigin
-                                ).filterValues { it.isNotBlank() },
-                                drm = drmConfig,
-                                tokenUrl = tokenUrl,
-                                tokenMatch = tokenMatch,
-                                tokenReplace = tokenReplace,
-                                tokenId = tokenId
-                            )
-                            
-                            mainViewModel.selectStream(streamSource)
-                            tmdbViewModel.clearSelectedMedia()
-                            navController.navigate(com.streambd.iptv.ui.navigation.Routes.VOD_PLAYER)
+                            mediaStreamUrl = finalUrl
+                            cookieValue = finalCookie
+                            refererValue = finalReferer
+                            originValue = finalOrigin
+                            userAgent = finalUa
+                            if (finalUa == "Custom") customUserAgent = finalCustomUa
+                            drmLicenseUrl = finalDrmLicense
                         }
-                    },
+
+                        val newItem = StreamHistoryItem(
+                            finalUrl, finalCookie, finalReferer, finalOrigin, finalDrmLicense, finalUa, drmScheme,
+                            tokenUrl, tokenMatch, tokenReplace, tokenId
+                        )
+                        historyUrls.removeAll { it.url == finalUrl }
+                        historyUrls.add(0, newItem)
+                        
+                        // Save to SharedPreferences
+                        val array = JSONArray()
+                        historyUrls.forEach { array.put(it.toJson().toString()) }
+                        sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
+                        
+                        val selectedUa = if (finalUa == "Custom") finalCustomUa else if (finalUa != "Default") finalUa else null
+                        val drmConfig = if (drmScheme != "None" && drmScheme.isNotBlank()) {
+                            DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
+                        } else null
+                        
+                        val streamSource = com.streambd.iptv.data.models.StreamSource(
+                            url = finalUrl,
+                            provider = "Stream",
+                            headers = mapOf(
+                                "User-Agent" to (selectedUa ?: ""),
+                                "Cookie" to finalCookie,
+                                "Referer" to finalReferer,
+                                "Origin" to finalOrigin
+                            ).filterValues { it.isNotBlank() },
+                            drm = drmConfig,
+                            tokenUrl = tokenUrl,
+                            tokenMatch = tokenMatch,
+                            tokenReplace = tokenReplace,
+                            tokenId = tokenId
+                        )
+                        
+                        mainViewModel.selectStream(streamSource)
+                        tmdbViewModel.clearSelectedMedia()
+                        navController.navigate(com.streambd.iptv.ui.navigation.Routes.VOD_PLAYER)
+                    }
+                }
+
+                androidx.tv.material3.Button(
+                    onClick = handlePlay,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 32.dp)
-                        .tvTouchClick {
-                            val finalUrl = mediaStreamUrl.trim()
-                            val finalCookie = cookieValue.trim()
-                            val finalReferer = refererValue.trim()
-                            val finalOrigin = originValue.trim()
-                            val finalDrmLicense = drmLicenseUrl.trim()
-                            val finalUa = userAgent.trim()
-                            val finalCustomUa = customUserAgent.trim()
-
-                            if (finalUrl.isNotEmpty()) {
-                                val newItem = StreamHistoryItem(
-                                    finalUrl, finalCookie, finalReferer, finalOrigin, finalDrmLicense, finalUa, drmScheme
-                                )
-                                historyUrls.removeAll { it.url == finalUrl }
-                                historyUrls.add(0, newItem)
-                                
-                                // Save to SharedPreferences
-                                val array = JSONArray()
-                                historyUrls.forEach { array.put(it.toJson().toString()) }
-                                sharedPreferences.edit().putString("history_items_array", array.toString()).apply()
-                                
-                                val selectedUa = if (finalUa == "Custom") finalCustomUa else if (finalUa != "Default") finalUa else null
-                                val drmConfig = if (drmScheme != "None" && drmScheme.isNotBlank()) {
-                                    DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
-                                } else null
-                                
-                                val streamSource = com.streambd.iptv.data.models.StreamSource(
-                                    url = finalUrl,
-                                    provider = "Stream",
-                                    headers = mapOf(
-                                        "User-Agent" to (selectedUa ?: ""),
-                                        "Cookie" to finalCookie,
-                                        "Referer" to finalReferer,
-                                        "Origin" to finalOrigin
-                                    ).filterValues { it.isNotBlank() },
-                                    drm = drmConfig
-                                )
-                                
-                                mainViewModel.selectStream(streamSource)
-                                tmdbViewModel.clearSelectedMedia()
-                                navController.navigate(com.streambd.iptv.ui.navigation.Routes.VOD_PLAYER)
-                            }
-                        },
+                        .tvTouchClick(onClick = handlePlay),
                     colors = androidx.tv.material3.ButtonDefaults.colors(
                         containerColor = TealAccent,
                         focusedContainerColor = Color(0xFF008D94)
