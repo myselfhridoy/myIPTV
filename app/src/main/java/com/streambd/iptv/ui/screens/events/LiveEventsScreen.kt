@@ -247,14 +247,22 @@ fun LiveEventsScreen(
                                 streams.forEachIndexed { index, s ->
                                     var name = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${index + 1}"
                                     if (sourcesMap.containsKey(name)) name = "$name (${index + 1})"
-                                    sourcesMap[name] = s.stream_url ?: ""
+                                    var srcUrl = s.stream_url ?: ""
+                                    if (s.drm_key != null && s.drm_kid != null) {
+                                        srcUrl += "|drm-type=clearkey|drm-key=${s.drm_kid}:${s.drm_key}"
+                                    }
+                                    sourcesMap[name] = srcUrl
                                 }
                                 
                                 if (streams.size == 1) {
                                     val stream = streams.first()
+                                    var initialUrl = stream.stream_url ?: ""
+                                    if (stream.drm_key != null && stream.drm_kid != null) {
+                                        initialUrl += "|drm-type=clearkey|drm-key=${stream.drm_kid}:${stream.drm_key}"
+                                    }
                                     val ch = Channel(
                                         name = event.league ?: "Live Event",
-                                        url = stream.stream_url ?: "",
+                                        url = initialUrl,
                                         group = event.sport ?: "Live",
                                         isLiveEvent = true,
                                         drm = if (stream.drm_key != null) DrmConfig(
@@ -323,13 +331,23 @@ fun LiveEventsScreen(
                                     showStreamSelectionFor?.forEachIndexed { idx, s ->
                                         var sName = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${idx + 1}"
                                         if (sourcesMap.containsKey(sName)) sName = "$sName (${idx + 1})"
-                                        sourcesMap[sName] = s.stream_url ?: ""
+                                        var srcUrl = s.stream_url ?: ""
+                                        if (s.drm_key != null && s.drm_kid != null) {
+                                            srcUrl += "|drm-type=clearkey|drm-key=${s.drm_kid}:${s.drm_key}"
+                                        }
+                                        sourcesMap[sName] = srcUrl
                                     }
                                     
                                     showStreamSelectionFor = null
+                                    
+                                    var initialUrl = stream.stream_url ?: ""
+                                    if (stream.drm_key != null && stream.drm_kid != null) {
+                                        initialUrl += "|drm-type=clearkey|drm-key=${stream.drm_kid}:${stream.drm_key}"
+                                    }
+                                    
                                     val ch = Channel(
                                         name = selectedEventForStream?.league ?: "Live Event",
-                                        url = stream.stream_url ?: "",
+                                        url = initialUrl,
                                         group = selectedEventForStream?.sport ?: "Live",
                                         isLiveEvent = true,
                                         drm = if (stream.drm_key != null) DrmConfig(
