@@ -280,7 +280,7 @@ fun LivePlayerScreen(
                         val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
 
                         val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                        val clearkeyDataUri = "data:;base64," + android.util.Base64.encodeToString(clearkeyJson.toByteArray(), android.util.Base64.NO_WRAP)
+                        val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(clearkeyJson.toByteArray(), android.util.Base64.NO_WRAP)
                         
                         drmBuilder.setLicenseUri(clearkeyDataUri)
                     } catch (e: Exception) {
@@ -291,7 +291,7 @@ fun LivePlayerScreen(
                 if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
                     // The license "server" is actually a JSON ClearKey payload
                     try {
-                        val clearkeyDataUri = "data:;base64," + android.util.Base64.encodeToString(finalDrm.licenseServer.trim().toByteArray(), android.util.Base64.NO_WRAP)
+                        val clearkeyDataUri = "data:application/json;base64," + android.util.Base64.encodeToString(finalDrm.licenseServer.trim().toByteArray(), android.util.Base64.NO_WRAP)
                         drmBuilder.setLicenseUri(clearkeyDataUri)
                     } catch (e: Exception) {
                         e.printStackTrace()
