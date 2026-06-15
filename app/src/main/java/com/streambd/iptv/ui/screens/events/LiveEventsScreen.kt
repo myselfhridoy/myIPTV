@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
@@ -241,6 +243,13 @@ fun LiveEventsScreen(
                         coroutineScope.launch {
                             val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
                             if (streams.isNotEmpty()) {
+                                val sourcesMap = mutableMapOf<String, String>()
+                                streams.forEachIndexed { index, s ->
+                                    var name = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${index + 1}"
+                                    if (sourcesMap.containsKey(name)) name = "$name (${index + 1})"
+                                    sourcesMap[name] = s.stream_url ?: ""
+                                }
+                                
                                 if (streams.size == 1) {
                                     val stream = streams.first()
                                     val ch = Channel(
@@ -251,7 +260,8 @@ fun LiveEventsScreen(
                                         drm = if (stream.drm_key != null) DrmConfig(
                                             type = "clearkey",
                                             rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
-                                        ) else null
+                                        ) else null,
+                                        sources = sourcesMap
                                     )
                                     mainViewModel.selectChannel(ch)
                                     navController.navigate(Routes.LIVE_PLAYER)
@@ -289,6 +299,7 @@ fun LiveEventsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(bottom = 32.dp, start = 24.dp, end = 24.dp)
                 ) {
                     Text(
@@ -308,6 +319,13 @@ fun LiveEventsScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                                 .clickable {
+                                    val sourcesMap = mutableMapOf<String, String>()
+                                    showStreamSelectionFor?.forEachIndexed { idx, s ->
+                                        var sName = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${idx + 1}"
+                                        if (sourcesMap.containsKey(sName)) sName = "$sName (${idx + 1})"
+                                        sourcesMap[sName] = s.stream_url ?: ""
+                                    }
+                                    
                                     showStreamSelectionFor = null
                                     val ch = Channel(
                                         name = selectedEventForStream?.league ?: "Live Event",
@@ -317,7 +335,8 @@ fun LiveEventsScreen(
                                         drm = if (stream.drm_key != null) DrmConfig(
                                             type = "clearkey",
                                             rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
-                                        ) else null
+                                        ) else null,
+                                        sources = sourcesMap
                                     )
                                     mainViewModel.selectChannel(ch)
                                     navController.navigate(Routes.LIVE_PLAYER)
