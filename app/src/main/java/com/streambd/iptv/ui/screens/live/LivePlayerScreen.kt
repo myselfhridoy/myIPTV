@@ -146,6 +146,8 @@ fun LivePlayerScreen(
         isLoading = true // Show loading while resolving
         playerError = null
         exoPlayer.stop() // Immediately stop the previous channel
+        exoPlayer.clearMediaItems() // Clear previous media state
+
         
         val parsedSource = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(currentSourceUrl)
         val rawSourceUrl = parsedSource.cleanUrl
@@ -202,7 +204,7 @@ fun LivePlayerScreen(
                         }.head().build() // Use HEAD first
                         
                         var res = client.newCall(req).execute()
-                        if (!res.isSuccessful && res.code == 405) {
+                        if (!res.isSuccessful) {
                             res.close()
                             val getReq = req.newBuilder().get().build()
                             res = client.newCall(getReq).execute()

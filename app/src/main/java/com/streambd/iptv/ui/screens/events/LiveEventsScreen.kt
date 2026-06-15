@@ -195,8 +195,8 @@ fun LiveEventsScreen(
         // Circular Categories Row
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(categories) { cat ->
                 CategoryCircle(
@@ -212,8 +212,8 @@ fun LiveEventsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val recentCount = events.count { it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) <= System.currentTimeMillis() }
             StatusChip("Recent", recentCount, selectedStatus == "Recent") { selectedStatus = "Recent" }
@@ -373,7 +373,7 @@ fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () ->
                 if (isSelected) TealAccent.copy(alpha = 0.15f) else Color(0xFF1E2638).copy(alpha = 0.5f)
             )
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -381,7 +381,7 @@ fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () ->
                 name, 
                 color = if (isSelected) TealAccent else Color.White, 
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, 
-                fontSize = 15.sp
+                fontSize = 14.sp
             )
             
             if (count > 0) {
@@ -411,12 +411,12 @@ fun StatusChip(name: String, count: Int, isSelected: Boolean, onClick: () -> Uni
             .clip(RoundedCornerShape(20.dp))
             .background(if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f))
             .clickable { onClick() }
-            .padding(horizontal = 18.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Text(
             "$name ($count)", 
             color = if (isSelected) TealAccent else Color.LightGray, 
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
     }
@@ -470,19 +470,31 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                 // Time & Live Badge
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val dateObj = parseEventDate(event.starts_at)
-                    val timeFormatted = if (dateObj != null) {
-                        val outSdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                        outSdf.format(dateObj)
-                    } else {
-                        event.starts_at ?: ""
-                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (dateObj != null && event.is_live == 0) {
+                            val dateSdf = SimpleDateFormat("dd MMM", Locale.getDefault())
+                            Text(
+                                text = dateSdf.format(dateObj),
+                                color = Color.LightGray,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        
+                        val timeFormatted = if (dateObj != null) {
+                            val outSdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                            outSdf.format(dateObj)
+                        } else {
+                            event.starts_at ?: ""
+                        }
 
-                    Text(
-                        text = timeFormatted,
-                        color = TealAccent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                        Text(
+                            text = timeFormatted,
+                            color = TealAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     
                     if (event.is_live == 1) {
@@ -535,7 +547,8 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                 }
 
@@ -561,7 +574,8 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.End,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
                     if (!event.team_b_logo.isNullOrEmpty()) {
                         Spacer(modifier = Modifier.width(10.dp))
