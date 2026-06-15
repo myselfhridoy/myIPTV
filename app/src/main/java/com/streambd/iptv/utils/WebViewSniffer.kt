@@ -210,7 +210,10 @@ object WebViewSniffer {
                     setAcceptCookie(true)
                 }
 
-                val webView = WebView(context)
+                val webView = WebView(context).apply {
+                    alpha = 0f
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
                 
                 var windowManager: android.view.WindowManager? = null
