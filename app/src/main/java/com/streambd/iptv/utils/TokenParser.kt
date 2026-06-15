@@ -300,6 +300,86 @@ object TokenParser {
             return@withContext null
         }
 
+        // 6. fetch (Generic Mini-M3U Fetch)
+        if (lowerTokenUrl == "fetch") {
+            try {
+                val req = Request.Builder().url(baseUrl).apply {
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
+                }.build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val content = res.body?.string() ?: ""
+                    if (content.contains("#EXTM3U")) {
+                        var streamUrl = ""
+                        val streamHeaders = headers?.toMutableMap() ?: mutableMapOf()
+                        var drm: DrmConfig? = null
+                        
+                        val lines = content.split("\n").map { it.trim() }
+                        for (line in lines) {
+                            if (line.isEmpty() || line.startsWith("#EXTM3U") || line.startsWith("#EXTINF:")) continue
+                            if (line.startsWith("#KODIPROP:inputstream.adaptive.license_type=")) {
+                                val type = line.substringAfter("=").trim().lowercase()
+                                val parsedType = when {
+                                    type.contains("widevine") -> "widevine"
+                                    type.contains("playready") -> "playready"
+                                    type.contains("clearkey") -> "clearkey"
+                                    else -> null
+                                }
+                                drm = drm?.copy(type = parsedType) ?: DrmConfig(type = parsedType)
+                                continue
+                            }
+                            if (line.startsWith("#KODIPROP:inputstream.adaptive.license_key=")) {
+                                val keyVal = line.substringAfter("=").trim()
+                                if (keyVal.matches(Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$"))) {
+                                    drm = drm?.copy(type = "clearkey", rawKeyPair = keyVal) ?: DrmConfig(type = "clearkey", rawKeyPair = keyVal)
+                                } else {
+                                    drm = drm?.copy(licenseServer = keyVal) ?: DrmConfig(licenseServer = keyVal)
+                                }
+                                continue
+                            }
+                            if (line.startsWith("#EXTVLCOPT:")) {
+                                val payload = line.removePrefix("#EXTVLCOPT:").trim()
+                                val sep = payload.indexOf("=")
+                                if (sep != -1) {
+                                    val k = payload.substring(0, sep).trim()
+                                    val v = payload.substring(sep + 1).trim()
+                                    val lowerK = k.lowercase()
+                                    when {
+                                        lowerK == "http-user-agent" -> streamHeaders["User-Agent"] = v
+                                        lowerK == "http-referrer" || lowerK == "http-referer" -> streamHeaders["Referer"] = v
+                                        lowerK == "http-origin" -> streamHeaders["Origin"] = v
+                                        else -> streamHeaders[k] = v
+                                    }
+                                }
+                                continue
+                            }
+                            if (line.startsWith("#EXTHTTP:")) {
+                                try {
+                                    val jsonStr = line.removePrefix("#EXTHTTP:").trim()
+                                    val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
+                                    val extHeaders: Map<String, String> = com.google.gson.Gson().fromJson(jsonStr, type)
+                                    streamHeaders.putAll(extHeaders)
+                                } catch (e: Exception) {}
+                                continue
+                            }
+                            if (!line.startsWith("#")) {
+                                streamUrl = line
+                                continue
+                            }
+                        }
+                        if (streamUrl.isNotEmpty()) {
+                            if (!streamUrl.startsWith("http")) return@withContext ResolvedToken(url = res.request.url.toString(), headers = headers, mimeType = "application/x-mpegURL")
+                            return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm)
+                        }
+                    } else {
+                         return@withContext ResolvedToken(url = res.request.url.toString(), headers = headers)
+                    }
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+            return@withContext null
+        }
+
         // 6. handlerId logic (omitted complex extraction for brevity, basic fallback)
         val idMatch = Regex("^[\\\\/]?(\\d+)$").find(tokenUrl)
         if (idMatch != null) {

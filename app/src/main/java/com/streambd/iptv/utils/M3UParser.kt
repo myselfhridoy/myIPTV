@@ -407,6 +407,10 @@ object M3UParser {
                     httpReferer = ref,
                     origin = origin,
                     cookie = cookie,
+                    tokenUrl = parsed.custom["tokenurl"] ?: obj.optString("tokenUrl", null),
+                    tokenMatch = parsed.custom["tokenmatch"] ?: obj.optString("tokenMatch", null),
+                    tokenReplace = parsed.custom["tokenreplace"] ?: obj.optString("tokenReplace", null),
+                    tokenId = parsed.custom["tokenid"]?.toIntOrNull() ?: if (obj.has("tokenId")) obj.optInt("tokenId") else null,
                     drm = defaultDrm,
                     isLiveEvent = isLive,
                     sources = sourcesMap
