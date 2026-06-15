@@ -174,7 +174,7 @@ object TokenParser {
                 }
                 if (streamUrl.isNotEmpty()) {
                     if (!streamUrl.startsWith("http")) return@withContext ResolvedToken(url = bypass.url, headers = bypass.headers, mimeType = "application/x-mpegURL")
-                    return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm)
+                    return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm, mimeType = "application/x-mpegURL")
                 }
             } else if (bypass?.content != null) {
                 // Try jsdecode
@@ -195,7 +195,7 @@ object TokenParser {
                     return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, bypass.headers))
                 }
             }
-            return@withContext bypass?.let { ResolvedToken(url = it.url, headers = it.headers) }
+            return@withContext bypass?.let { ResolvedToken(url = it.url, headers = it.headers, mimeType = if (it.url.lowercase().contains(".mpd")) "application/dash+xml" else "application/x-mpegURL") }
         }
 
         // 2. JSDecode

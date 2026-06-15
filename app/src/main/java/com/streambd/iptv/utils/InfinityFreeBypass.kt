@@ -69,7 +69,7 @@ object InfinityFreeBypass {
             val decryptedValue = CryptoUtils.decryptSlowAES(c, a, b)
             val payloadCookie = "__test=$decryptedValue"
 
-            val redirectUrl = try {
+            var redirectUrl = try {
                 URL(bypassUrl, redirectPath).toString()
             } catch (e: Exception) {
                 if (redirectPath.startsWith("/")) {
@@ -108,6 +108,7 @@ object InfinityFreeBypass {
                     if (finalResponse.isSuccessful) {
                         content = finalResponse.body?.string() ?: ""
                         fetchSuccess = true
+                        redirectUrl = finalResponse.request.url.toString()
                         break
                     }
                 } catch (e: Exception) {
