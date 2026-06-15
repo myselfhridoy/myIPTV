@@ -522,9 +522,12 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                         AsyncImage(
                             model = event.team_a_logo,
                             contentDescription = "Team A Logo",
-                            modifier = Modifier.size(40.dp)
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(44.dp)
+                                .widthIn(max = 64.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                     }
                     Text(
                         text = event.team_a_name ?: "Team A",
@@ -561,11 +564,14 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                         overflow = TextOverflow.Ellipsis
                     )
                     if (!event.team_b_logo.isNullOrEmpty()) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         AsyncImage(
                             model = event.team_b_logo,
                             contentDescription = "Team B Logo",
-                            modifier = Modifier.size(40.dp)
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .height(44.dp)
+                                .widthIn(max = 64.dp)
                         )
                     }
                 }
