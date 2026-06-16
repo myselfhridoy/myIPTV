@@ -16,6 +16,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tv
+import androidx.activity.compose.BackHandler
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -56,12 +60,15 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     val categories by viewModel.liveCategories.collectAsState()
     val isLoading by viewModel.isLoadingLive.collectAsState()
 
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
 
     val displayedCategories = remember(searchQuery, categories) {
-        if (searchQuery.isBlank()) categories
+        if (searchQuery.length < 2) categories
         else categories.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
@@ -142,12 +149,19 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                         .fillMaxWidth()
                         .focusRequester(searchFocusRequester)
                 )
-                LaunchedEffect(isSearchActive) {
-                    if (isSearchActive) {
-                        try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
-                    }
-                }
             }
+        }
+
+        LaunchedEffect(isSearchActive) {
+            if (isSearchActive) {
+                kotlinx.coroutines.delay(100)
+                try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
+        }
+
+        BackHandler(enabled = isSearchActive) {
+            searchQuery = ""
+            isSearchActive = false
         }
 
         // Search result count hint
@@ -174,7 +188,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 196.dp), // Official TV Card minimum scale width
+                columns = GridCells.Fixed(if (isLandscape) 4 else 2),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), // TV Gutters
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -197,8 +211,7 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
-            .tvTouchClick(onClick),
+            .height(96.dp),
         colors = CardDefaults.colors(
             containerColor = Color(0xFF1C2230),
             focusedContainerColor = Color(0xFF242C3D)
@@ -206,7 +219,7 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
         scale = CardDefaults.scale(focusedScale = 1.1f),
         glow = CardDefaults.glow(
-            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+            focusedGlow = Glow(elevationColor = TealAccent.copy(alpha = 0.5f), elevation = 24.dp)
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -233,6 +246,13 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
                         contentDescription = category.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.size(36.dp).clip(CircleShape)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Tv,
+                        contentDescription = null,
+                        tint = TealAccent,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
