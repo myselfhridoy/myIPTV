@@ -1,6 +1,8 @@
 package com.streambd.iptv
 
 import android.os.Bundle
+import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -28,6 +30,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         com.streambd.iptv.utils.RemoteConfigManager.init()
         mainViewModel.fetchAddons(applicationContext)
+        
+        // Subscribe to FCM topic for live match notifications
+        FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    Log.d("FCM", "Subscribed to all_users topic successfully!")
+                }
+            }
         
         setContent {
             var updateAvailable by androidx.compose.runtime.mutableStateOf<com.streambd.iptv.utils.GitHubRelease?>(null)
