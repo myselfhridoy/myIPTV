@@ -460,7 +460,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                     .padding(bottom = 24.dp) // TV overscan padding
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 StreamTextField("Media Stream URL", mediaStreamUrl) { mediaStreamUrl = it }
                 StreamTextField("Cookie Value", cookieValue) { cookieValue = it }
@@ -583,27 +583,20 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                     }
                 }
 
-                androidx.tv.material3.Button(
-                    onClick = handlePlay,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .tvTouchClick(onClick = handlePlay),
-                    colors = androidx.tv.material3.ButtonDefaults.colors(
-                        containerColor = TealAccent,
-                        focusedContainerColor = Color(0xFF008D94)
-                    ),
-                    shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    androidx.tv.material3.Button(
+                        onClick = handlePlay,
+                        modifier = Modifier
+                            .padding(bottom = 16.dp, top = 8.dp)
+                            .tvTouchClick(onClick = handlePlay),
+                        colors = androidx.tv.material3.ButtonDefaults.colors(
+                            containerColor = TealAccent,
+                            focusedContainerColor = Color(0xFF008D94)
+                        ),
+                        shape = androidx.tv.material3.ButtonDefaults.shape(CircleShape),
+                        contentPadding = PaddingValues(16.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(28.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("PLAY STREAM", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

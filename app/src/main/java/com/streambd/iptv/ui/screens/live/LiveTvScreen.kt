@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -218,71 +220,59 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     }
 }
 
-@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(96.dp),
-        colors = CardDefaults.colors(
-            containerColor = Color(0xFF1C2230),
-            focusedContainerColor = Color(0xFF242C3D)
-        ),
-        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.1f),
-        glow = CardDefaults.glow(
-            focusedGlow = Glow(elevationColor = TealAccent.copy(alpha = 0.5f), elevation = 24.dp)
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
-                inset = 0.dp,
-                shape = RoundedCornerShape(12.dp)
-            )
-        )
+            .height(72.dp)
+            .tvFocusBorder(RoundedCornerShape(12.dp))
+            .background(Color(0xFF1C2230), RoundedCornerShape(12.dp))
+            .border(1.dp, Color(0xFF2B3648), RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF242C3D))
+                .border(1.dp, Color.DarkGray, CircleShape),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF242C3D)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (category.logo.isNotEmpty()) {
-                    AsyncImage(
-                        model = category.logo,
-                        contentDescription = category.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(32.dp).clip(CircleShape)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Tv,
-                        contentDescription = null,
-                        tint = TealAccent,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+            if (category.logo.isNotEmpty()) {
+                AsyncImage(
+                    model = category.logo,
+                    contentDescription = category.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(40.dp).clip(CircleShape)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Tv,
+                    contentDescription = null,
+                    tint = TealAccent,
+                    modifier = Modifier.size(28.dp)
+                )
             }
-            
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            Text(
-                text = category.name,
-                color = WhiteText,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                lineHeight = 18.sp,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
         }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Text(
+            text = category.name,
+            color = WhiteText,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier
+                .weight(1f)
+                .basicMarquee(
+                    iterations = Int.MAX_VALUE,
+                    velocity = 30.dp
+                )
+        )
     }
 }

@@ -85,17 +85,20 @@ fun TvIconButton(
  * A modifier that bypasses TV component restrictions to manually capture
  * pointer tap events for mobile support AND properly handles D-Pad Enter for TV.
  */
-fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = this.then(
-    Modifier
-        .pointerInput(Unit) {
-            detectTapGestures(onTap = { onClick() })
-        }
-        .onKeyEvent {
-            if (it.type == KeyEventType.KeyDown && (it.key == Key.Enter || it.key == Key.DirectionCenter || it.key == Key.NumPadEnter)) {
-                onClick()
-                true
-            } else {
-                false
+fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = composed {
+    val currentOnClick by androidx.compose.runtime.rememberUpdatedState(onClick)
+    this.then(
+        Modifier
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { currentOnClick() })
             }
-        }
-)
+            .onKeyEvent {
+                if (it.type == KeyEventType.KeyDown && (it.key == Key.Enter || it.key == Key.DirectionCenter || it.key == Key.NumPadEnter)) {
+                    currentOnClick()
+                    true
+                } else {
+                    false
+                }
+            }
+    )
+}

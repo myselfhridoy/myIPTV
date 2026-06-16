@@ -73,6 +73,8 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -94,7 +96,8 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     item {
-                        Spacer(modifier = Modifier.height(100.dp))
+                        val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                        Spacer(modifier = Modifier.height(if (isMobilePortrait) 76.dp else 100.dp))
                     }
 
                     // Media Rows
@@ -312,6 +315,13 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia) -> Unit = {}, onClick: (TmdbMedia) -> Unit) {
+    val configuration = LocalConfiguration.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
+    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val spacing = if (isMobilePortrait) 12.dp else 24.dp
+    val verticalPadding = if (isMobilePortrait) 8.dp else 20.dp
+
     Column {
         // Section Header
         Row(
@@ -331,16 +341,16 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
             Text(
                 text = title,
                 color = WhiteText,
-                fontSize = 19.sp,
+                fontSize = if (isMobilePortrait) 17.sp else 19.sp,
                 fontWeight = FontWeight.Bold
             )
         }
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(24.dp), // Official TV Card Gutter
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp)
+            horizontalArrangement = Arrangement.spacedBy(spacing),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
         ) {
-            items(mediaList) { media ->
+            items(items = mediaList, key = { it.id }) { media ->
                 TmdbMediaCard(media, onFocus = { onFocus(media) }) { onClick(media) }
             }
         }
@@ -350,11 +360,18 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Unit) {
+    val configuration = LocalConfiguration.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
+    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
+    val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
+
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(180.dp) // Official 5-card layout size
-            .height(270.dp) // 2:3 aspect ratio
+            .width(cardWidth)
+            .height(cardHeight)
             .onFocusChanged { if (it.isFocused) onFocus() }
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
