@@ -38,6 +38,7 @@ import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.PlaylistChannelsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.tvFocusBorder
 import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,17 +65,6 @@ fun PlaylistChannelsScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(playlistTitle, color = WhiteText) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = WhiteText)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkNavyBackground)
-            )
-        },
         containerColor = DarkNavyBackground
     ) { padding ->
         Column(
@@ -82,6 +72,30 @@ fun PlaylistChannelsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Standard Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
+                        contentDescription = "Back", 
+                        tint = WhiteText,
+                        modifier = Modifier.tvFocusBorder(CircleShape)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = playlistTitle,
+                    color = WhiteText,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = TealAccent)

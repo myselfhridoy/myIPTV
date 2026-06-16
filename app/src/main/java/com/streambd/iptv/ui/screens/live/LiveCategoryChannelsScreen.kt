@@ -93,25 +93,24 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = WhiteText,
-                modifier = Modifier
-                    .size(28.dp)
-                    .tvFocusBorder(CircleShape)
-                    .clickable { 
-                        if (isSearchActive) {
-                            isSearchActive = false
-                            searchQuery = ""
-                        } else {
-                            navController.popBackStack() 
-                        }
-                    }
-            )
+            IconButton(onClick = { 
+                if (isSearchActive) {
+                    isSearchActive = false
+                    searchQuery = ""
+                } else {
+                    navController.popBackStack() 
+                }
+            }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = WhiteText,
+                    modifier = Modifier.tvFocusBorder(CircleShape)
+                )
+            }
             Spacer(modifier = Modifier.width(16.dp))
             
             if (isSearchActive) {
@@ -132,23 +131,23 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 Text(
                     text = categoryName,
                     color = WhiteText,
-                    fontSize = 20.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = WhiteText,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .tvFocusBorder(CircleShape)
-                        .background(Color(0xFF1E2638), CircleShape)
-                        .clickable { isSearchActive = true }
-                        .padding(8.dp)
-                )
+                IconButton(onClick = { isSearchActive = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = WhiteText,
+                        modifier = Modifier
+                            .tvFocusBorder(CircleShape)
+                            .background(com.streambd.iptv.ui.theme.SurfaceDark, CircleShape)
+                            .padding(8.dp)
+                    )
+                }
             }
         }
 

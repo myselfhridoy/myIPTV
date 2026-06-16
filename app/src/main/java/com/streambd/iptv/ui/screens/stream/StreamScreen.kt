@@ -49,6 +49,7 @@ import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.DrmConfig
 import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.tvFocusBorder
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.TealAccent
@@ -417,30 +418,37 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp) // TV overscan padding
         ) {
             // Top Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (onMenuClick != null) {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                    androidx.compose.material3.IconButton(onClick = onMenuClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White, modifier = Modifier.tvFocusBorder(CircleShape))
                     }
+                    Spacer(modifier = Modifier.width(16.dp))
                 }
                 Text(
                     text = "Network Stream",
                     color = Color.White,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f).padding(start = if (onMenuClick != null) 8.dp else 0.dp)
+                    modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { showHistoryDialog = true }) {
-                    Icon(Icons.Default.History, contentDescription = "History", tint = Color.LightGray)
+                androidx.compose.material3.IconButton(onClick = { showHistoryDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.History, 
+                        contentDescription = "History", 
+                        tint = Color.White,
+                        modifier = Modifier
+                            .tvFocusBorder(CircleShape)
+                            .background(com.streambd.iptv.ui.theme.SurfaceDark, CircleShape)
+                            .padding(8.dp)
+                    )
                 }
             }
 
@@ -448,6 +456,8 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 24.dp) // TV overscan padding
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)

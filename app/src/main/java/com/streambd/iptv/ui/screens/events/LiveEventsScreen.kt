@@ -181,8 +181,8 @@ fun LiveEventsScreen(
                 Text(
                     "Live Events", 
                     color = TealAccent, 
-                    fontSize = 26.sp, 
-                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 24.sp, 
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center
                 )

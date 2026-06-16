@@ -71,35 +71,44 @@ fun PlaylistsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
         ) {
-            Text(
-                text = "Playlists",
-                color = WhiteText,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            // Standard Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Playlists",
+                    color = WhiteText,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
-            if (playlists.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No playlists added yet.", color = Color.Gray)
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(playlists) { playlist ->
-                        PlaylistCard(
-                            playlist = playlist,
-                            onClick = {
-                                val encodedUrl = URLEncoder.encode(playlist.url, "UTF-8")
-                                navController.navigate("playlist_channels/${playlist.title}/$encodedUrl")
-                            },
-                            onEdit = {
-                                playlistToEdit = playlist
-                                showDialog = true
-                            },
-                            onDelete = { playlistViewModel.deletePlaylist(playlist) }
-                        )
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                if (playlists.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No playlists added yet.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(playlists) { playlist ->
+                            PlaylistCard(
+                                playlist = playlist,
+                                onClick = {
+                                    val encodedUrl = URLEncoder.encode(playlist.url, "UTF-8")
+                                    navController.navigate("playlist_channels/${playlist.title}/$encodedUrl")
+                                },
+                                onEdit = {
+                                    playlistToEdit = playlist
+                                    showDialog = true
+                                },
+                                onDelete = { playlistViewModel.deletePlaylist(playlist) }
+                            )
+                        }
                     }
                 }
             }

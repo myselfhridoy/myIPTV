@@ -74,43 +74,39 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (!isSearchActive) {
                 if (onMenuClick != null) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Menu",
-                        tint = WhiteText,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .tvFocusBorder(CircleShape)
-                            .clickable { onMenuClick() }
-                            .padding(4.dp)
-                    )
-                    Spacer(modifier = Modifier.width(24.dp))
+                    androidx.compose.material3.IconButton(onClick = { onMenuClick() }) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            tint = WhiteText,
+                            modifier = Modifier.tvFocusBorder(CircleShape)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
                 }
                 Text(
                     text = "Live TV",
                     color = WhiteText,
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = WhiteText,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .tvFocusBorder(CircleShape)
-                        .background(SurfaceDark, CircleShape)
-                        .clickable {
-                            isSearchActive = true
-                        }
-                        .padding(8.dp)
-                )
+                androidx.compose.material3.IconButton(onClick = { isSearchActive = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = WhiteText,
+                        modifier = Modifier
+                            .tvFocusBorder(CircleShape)
+                            .background(SurfaceDark, CircleShape)
+                            .padding(8.dp)
+                    )
+                }
             } else {
                 // Search Mode
                 OutlinedTextField(

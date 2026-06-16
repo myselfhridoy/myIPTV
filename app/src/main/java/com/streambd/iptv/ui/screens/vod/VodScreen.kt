@@ -422,7 +422,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     var isSearchExpanded by remember { mutableStateOf(false) }
 
@@ -473,35 +473,38 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     } else {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (onMenuClick != null) {
-                                Box(
+                                androidx.compose.material3.IconButton(onClick = { onMenuClick() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "Menu",
+                                        tint = Color.White,
+                                        modifier = Modifier
+                                            .tvFocusBorder(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                            }
+                            Text(
+                                text = "Media",
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            androidx.compose.material3.IconButton(onClick = { isSearchExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = Color.White,
                                     modifier = Modifier
-                                        .size(48.dp)
                                         .tvFocusBorder(CircleShape)
                                         .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                        .tvTouchClick(onMenuClick)
-                                        .clickable { onMenuClick() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
-                                }
-                            } else {
-                                Spacer(modifier = Modifier.size(48.dp))
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .tvFocusBorder(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                    .tvTouchClick { isSearchExpanded = true }
-                                    .clickable { isSearchExpanded = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
+                                        .padding(8.dp)
+                                )
                             }
                         }
                     }
