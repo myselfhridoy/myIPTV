@@ -77,6 +77,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     val isLoading by viewModel.isLoading.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
+    var isSearchExpanded by remember { mutableStateOf(false) }
     
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -93,18 +94,10 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
         } else {
             var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
-            val playButtonFocusRequester = remember { FocusRequester() }
 
             LaunchedEffect(trendingMovies) {
                 if (focusedMedia == null && trendingMovies.isNotEmpty()) {
                     focusedMedia = trendingMovies.first()
-                }
-            }
-            
-            LaunchedEffect(focusedMedia, searchQuery) {
-                if (focusedMedia != null && searchQuery.isEmpty() && isLandscape) {
-                    kotlinx.coroutines.delay(200) // Wait for UI to settle
-                    try { playButtonFocusRequester.requestFocus() } catch (e: Exception) {}
                 }
             }
 
@@ -245,13 +238,15 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         val playAction = {
                                             viewModel.selectMedia(featured)
-                                            navController.navigate(Routes.TMDB_DETAILS)
+                                            if (featured.isMovie) {
+                                                navController.navigate(Routes.SOURCE_SELECTION)
+                                            } else {
+                                                navController.navigate(Routes.TMDB_DETAILS)
+                                            }
                                         }
                                         androidx.tv.material3.Button(
                                             onClick = playAction,
-                                            modifier = Modifier
-                                                .tvTouchClick(playAction)
-                                                .focusRequester(playButtonFocusRequester),
+                                            modifier = Modifier.tvTouchClick(playAction),
                                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                                 containerColor = Color.White,
                                                 contentColor = Color.Black,
@@ -301,7 +296,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                     item {
                         if (searchQuery.isEmpty() && focusedMedia != null) {
                             // Transparent spacer to reveal the Hero banner behind
-                            Spacer(modifier = Modifier.height(if (isLandscape) 400.dp else 450.dp))
+                            Spacer(modifier = Modifier.height(if (isLandscape) 450.dp else 500.dp))
                         } else if (searchQuery.isNotEmpty()) {
                             // Spacer to push search results below Top Nav Bar
                             Spacer(modifier = Modifier.height(100.dp))
@@ -331,12 +326,18 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     .background(PrimaryDark)
                             ) {
                         // ── Content Sections ──
-                        if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
-                            MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
-                                viewModel.selectMedia(media)
-                                navController.navigate(Routes.TMDB_DETAILS)
+                        if (searchQuery.isNotEmpty()) {
+                            if (searchResults.isNotEmpty()) {
+                                MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
+                                    viewModel.selectMedia(media)
+                                    navController.navigate(Routes.TMDB_DETAILS)
+                                }
+                            } else if (!isLoading) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    Text("No results found for \"$searchQuery\"", color = Color.Gray, fontSize = 18.sp)
+                                }
                             }
-                        } else if (searchQuery.isEmpty()) {
+                        } else {
                             if (trendingMovies.isNotEmpty()) {
                                 MediaSection(
                                     title = "Trending Movies",
@@ -424,8 +425,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    var isSearchExpanded by remember { mutableStateOf(false) }
-
                     if (isSearchExpanded || searchQuery.isNotEmpty()) {
                         var isSearchFocused by remember { mutableStateOf(false) }
                         OutlinedTextField(
