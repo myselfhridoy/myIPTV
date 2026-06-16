@@ -488,7 +488,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // TV-Friendly Play Button
                 val handlePlay = {
@@ -587,7 +587,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                     onClick = handlePlay,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 32.dp)
+                        .padding(bottom = 16.dp)
                         .tvTouchClick(onClick = handlePlay),
                     colors = androidx.tv.material3.ButtonDefaults.colors(
                         containerColor = TealAccent,
@@ -701,6 +701,7 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun DropdownField(
     label: String,
@@ -709,37 +710,34 @@ fun DropdownField(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    Box(
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
-            .tvTouchClick { onExpandedChange(!expanded) }
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color.DarkGray,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 16.dp, vertical = 16.dp)
-    ) {
-        Row(
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, color = Color.Gray) },
+            trailingIcon = {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = Color.Gray
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                if (value.isEmpty()) {
-                    Text(label, color = Color.Gray)
-                } else {
-                    Text(label, color = Color.Gray, fontSize = 12.sp)
-                    Text(value, color = Color.White)
-                }
-            }
-            Icon(
-                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                contentDescription = null,
-                tint = Color.Gray
-            )
-        }
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = TealAccent,
+                unfocusedBorderColor = Color.DarkGray,
+                cursorColor = TealAccent
+            ),
+            shape = RoundedCornerShape(8.dp)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color.Transparent)
+                .clickable { onExpandedChange(!expanded) }
+        )
     }
 }

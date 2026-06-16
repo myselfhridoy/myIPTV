@@ -68,7 +68,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     val columns = when {
         isTV -> 5
         isLandscape -> 4
-        else -> 2
+        else -> 1
     }
 
     var searchQuery by remember { mutableStateOf("") }
