@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -36,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import com.streambd.iptv.ui.components.tvFocusBorder
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -47,7 +45,6 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.LiveCategory
-import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.PrimaryDark
 import com.streambd.iptv.ui.theme.SurfaceDark
@@ -126,16 +123,18 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                androidx.compose.material3.IconButton(onClick = { isSearchActive = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = WhiteText,
-                        modifier = Modifier
-                            .tvFocusBorder(CircleShape)
-                            .background(SurfaceDark, CircleShape)
-                            .padding(8.dp)
-                    )
+                if (!isTV) {
+                    androidx.compose.material3.IconButton(onClick = { isSearchActive = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = WhiteText,
+                            modifier = Modifier
+                                .tvFocusBorder(CircleShape)
+                                .background(SurfaceDark, CircleShape)
+                                .padding(8.dp)
+                        )
+                    }
                 }
             } else {
                 // Search Mode
@@ -209,7 +208,9 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                 items(displayedCategories) { category ->
                     CategoryCard(category = category) {
                         viewModel.selectCategory(category)
-                        navController.navigate(Routes.LIVE_CATEGORY_CHANNELS)
+                        navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
+                            launchSingleTop = true
+                        }
                     }
                 }
             }
