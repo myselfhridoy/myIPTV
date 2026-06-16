@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.activity.compose.BackHandler
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -62,14 +63,36 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val context = LocalContext.current
+    val isTV = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
+
+    val columns = when {
+        isTV -> 5
+        isLandscape -> 4
+        else -> 2
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
 
     val displayedCategories = remember(searchQuery, categories) {
-        if (searchQuery.length < 2) categories
+        if (searchQuery.isBlank()) categories
         else categories.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
+    LaunchedEffect(isSearchActive) {
+        if (isSearchActive) {
+            kotlinx.coroutines.delay(100)
+            try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    BackHandler(enabled = isSearchActive) {
+        searchQuery = ""
+        isSearchActive = false
     }
 
     Column(
@@ -152,17 +175,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             }
         }
 
-        LaunchedEffect(isSearchActive) {
-            if (isSearchActive) {
-                kotlinx.coroutines.delay(100)
-                try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
-            }
-        }
 
-        BackHandler(enabled = isSearchActive) {
-            searchQuery = ""
-            isSearchActive = false
-        }
 
         // Search result count hint
         AnimatedVisibility(visible = isSearchActive && searchQuery.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
@@ -188,7 +201,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(if (isLandscape) 4 else 2),
+                columns = GridCells.Fixed(columns),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), // TV Gutters
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
