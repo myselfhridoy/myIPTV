@@ -59,11 +59,11 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     val categoryName = selectedCategory?.name ?: ""
     val allChannels = allChannelsMap[categoryName]
 
-    var selectedGroup by remember { mutableStateOf("All") }
-    var isGroupsModalExpanded by remember { mutableStateOf(false) }
+    var selectedGroup by rememberSaveable { mutableStateOf("All") }
+    var isGroupsModalExpanded by rememberSaveable { mutableStateOf(false) }
     
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
     val groups = remember(allChannels) {
         val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()

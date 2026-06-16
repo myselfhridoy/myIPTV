@@ -158,6 +158,7 @@ fun LivePlayerScreen(
         channel.cookie?.let { initialHeaders["Cookie"] = it }
         channel.httpReferer?.let { initialHeaders["Referer"] = it }
         channel.origin?.let { initialHeaders["Origin"] = it }
+        channel.httpHeaders?.forEach { (k, v) -> initialHeaders[k] = v }
         
         parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
         

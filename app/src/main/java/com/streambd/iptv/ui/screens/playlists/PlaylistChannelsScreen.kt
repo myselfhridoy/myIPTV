@@ -41,6 +41,12 @@ import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.components.tvFocusBorder
 import java.net.URLEncoder
 
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.streambd.iptv.ui.theme.PrimaryDark
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistChannelsScreen(
@@ -51,96 +57,220 @@ fun PlaylistChannelsScreen(
     navController: NavController
 ) {
     val isLoading by viewModel.isLoading.collectAsState()
-    val groups by viewModel.groups.collectAsState()
+    val allGroups by viewModel.groups.collectAsState()
     val selectedGroup by viewModel.selectedGroup.collectAsState()
     val channels by viewModel.displayedChannels.collectAsState()
 
-    // Use rememberUpdatedState so the click lambda inside LazyVerticalGrid items
-    // always captures the LATEST channels list, even when Compose skips
-    // recomposition of items whose Channel data hasn't changed.
+    var isGroupsModalExpanded by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+
     val currentPlaylist by rememberUpdatedState(channels)
 
     LaunchedEffect(playlistUrl) {
         viewModel.loadPlaylist(playlistUrl)
     }
 
-    Scaffold(
-        containerColor = DarkNavyBackground
-    ) { padding ->
-        Column(
+    val filteredChannels = remember(channels, searchQuery) {
+        if (searchQuery.isBlank()) {
+            channels
+        } else {
+            channels.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PrimaryDark)
+    ) {
+        // Custom Top Bar
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Standard Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { navController.popBackStack() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
-                        contentDescription = "Back", 
-                        tint = WhiteText,
-                        modifier = Modifier.tvFocusBorder(CircleShape)
-                    )
+            IconButton(onClick = { 
+                if (isSearchActive) {
+                    isSearchActive = false
+                    searchQuery = ""
+                } else {
+                    navController.popBackStack() 
                 }
-                Spacer(modifier = Modifier.width(16.dp))
+            }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack, 
+                    contentDescription = "Back", 
+                    tint = WhiteText,
+                    modifier = Modifier.tvFocusBorder(CircleShape)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            if (isSearchActive) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search channels...", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TealAccent,
+                        unfocusedBorderColor = Color.DarkGray,
+                        focusedTextColor = WhiteText,
+                        unfocusedTextColor = WhiteText,
+                        cursorColor = TealAccent
+                    ),
+                    modifier = Modifier.weight(1f).height(50.dp)
+                )
+            } else {
                 Text(
                     text = playlistTitle,
                     color = WhiteText,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                IconButton(onClick = { isSearchActive = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = WhiteText,
+                        modifier = Modifier
+                            .tvFocusBorder(CircleShape)
+                            .background(com.streambd.iptv.ui.theme.SurfaceDark, CircleShape)
+                            .padding(8.dp)
+                    )
+                }
             }
-            if (isLoading) {
+        }
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = TealAccent)
+            }
+        } else {
+            // Chips Row
+            if (allGroups.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    item {
+                        FilterChipItem(
+                            text = "Groups",
+                            icon = Icons.AutoMirrored.Filled.List,
+                            isSelected = false,
+                            onClick = { isGroupsModalExpanded = true }
+                        )
+                    }
+                    
+                    items(allGroups.take(10)) { group ->
+                        FilterChipItem(
+                            text = group,
+                            icon = if (selectedGroup == group) Icons.Default.Check else null,
+                            isSelected = selectedGroup == group,
+                            onClick = { viewModel.selectGroup(group) }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (filteredChannels.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = TealAccent)
+                    Text("No channels available.", color = WhiteText)
                 }
             } else {
-                if (groups.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp, horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(groups) { group ->
-                            GroupChip(
-                                title = group,
-                                isSelected = selectedGroup == group,
-                                onClick = { viewModel.selectGroup(group) }
-                            )
-                        }
+                val groupedChannels = remember(filteredChannels, selectedGroup) {
+                    if (selectedGroup != "All") {
+                        mapOf(selectedGroup to filteredChannels)
+                    } else {
+                        filteredChannels.groupBy { it.group }
                     }
                 }
 
-                if (channels.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                        Text("No channels found", color = Color.Gray)
-                    }
-                } else {
-                    val configuration = LocalConfiguration.current
-                    val gridCells = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 6 else 3
-                    
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(gridCells),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(channels) { channel ->
-                            PlaylistChannelCard(channel) {
-                                viewModel.selectChannel(channel) // local selected state
-                                mainViewModel.setCurrentPlaylist(currentPlaylist)
-                                mainViewModel.selectChannel(channel) // global selected state for LivePlayerScreen
-                                val encodedUrl = URLEncoder.encode(channel.url, "UTF-8")
-                                navController.navigate("live_player")
+                androidx.compose.foundation.lazy.LazyColumn(
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    groupedChannels.forEach { (group, groupChannels) ->
+                        item(key = group ?: "Unknown") {
+                            Text(
+                                text = (group ?: "Unknown").uppercase(),
+                                color = Color.Gray,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                            )
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(groupChannels) { channel ->
+                                    Box(modifier = Modifier.width(180.dp)) {
+                                        PlaylistChannelCard(channel) {
+                                            viewModel.selectChannel(channel)
+                                            mainViewModel.setCurrentPlaylist(currentPlaylist)
+                                            mainViewModel.selectChannel(channel)
+                                            navController.navigate("live_player")
+                                        }
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isGroupsModalExpanded) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { isGroupsModalExpanded = false }) {
+            androidx.compose.material3.Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.8f)
+                    .padding(16.dp),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Select Group", 
+                            color = WhiteText, 
+                            fontSize = 20.sp, 
+                            fontWeight = FontWeight.Bold, 
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
+                    items(allGroups) { group ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusBorder(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    viewModel.selectGroup(group)
+                                    isGroupsModalExpanded = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (selectedGroup == group) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = TealAccent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                            } else {
+                                Spacer(modifier = Modifier.width(32.dp))
+                            }
+                            Text(group, color = if (selectedGroup == group) TealAccent else WhiteText, fontSize = 16.sp)
                         }
                     }
                 }
@@ -150,26 +280,40 @@ fun PlaylistChannelsScreen(
 }
 
 @Composable
-fun GroupChip(title: String, isSelected: Boolean, onClick: () -> Unit) {
+fun FilterChipItem(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, isSelected: Boolean, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    Surface(
-        color = if (isSelected) TealAccent else DarkNavySurface,
-        shape = CircleShape,
+
+    Row(
         modifier = Modifier
+            .height(36.dp)
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = CircleShape
+                color = if (isFocused) TealAccent else if (isSelected) WhiteText else Color.Gray,
+                shape = RoundedCornerShape(18.dp)
             )
-            .padding(2.dp)
+            .background(
+                color = if (isSelected) Color(0xFF353C4B) else Color.Transparent,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = WhiteText,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
         Text(
-            text = title,
-            color = if (isSelected) DarkNavyBackground else Color.Gray,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            text = text,
+            color = WhiteText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }

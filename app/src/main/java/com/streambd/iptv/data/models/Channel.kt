@@ -12,6 +12,7 @@ data class Channel(
     val cookie: String? = null,
     val httpReferer: String? = null,
     val origin: String? = null,
+    val httpHeaders: Map<String, String>? = null,
     val tokenUrl: String? = null,
     val tokenMatch: String? = null,
     val tokenReplace: String? = null,

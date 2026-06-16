@@ -324,15 +324,16 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                             DrmConfig(type = item.drmScheme, licenseServer = item.drmLicense.takeIf { it.isNotBlank() })
                                         } else null
                                         
+                                        val finalHeadersMap = mutableMapOf<String, String>()
+                                        if (selectedUa?.isNotBlank() == true) finalHeadersMap["User-Agent"] = selectedUa
+                                        if (item.cookie.isNotBlank()) finalHeadersMap["Cookie"] = item.cookie
+                                        if (item.referer.isNotBlank()) finalHeadersMap["Referer"] = item.referer
+                                        if (item.origin.isNotBlank()) finalHeadersMap["Origin"] = item.origin
+                                        
                                         val streamSource = com.streambd.iptv.data.models.StreamSource(
                                             url = item.url,
                                             provider = "Stream",
-                                            headers = mapOf(
-                                                "User-Agent" to (selectedUa ?: ""),
-                                                "Cookie" to item.cookie,
-                                                "Referer" to item.referer,
-                                                "Origin" to item.origin
-                                            ).filterValues { it.isNotBlank() },
+                                            headers = finalHeadersMap,
                                             drm = drmConfig,
                                             tokenUrl = item.tokenUrl,
                                             tokenMatch = item.tokenMatch,
@@ -388,15 +389,16 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                                 DrmConfig(type = item.drmScheme, licenseServer = item.drmLicense.takeIf { it.isNotBlank() })
                                             } else null
                                             
+                                            val finalHeadersMap = mutableMapOf<String, String>()
+                                            if (selectedUa?.isNotBlank() == true) finalHeadersMap["User-Agent"] = selectedUa
+                                            if (item.cookie.isNotBlank()) finalHeadersMap["Cookie"] = item.cookie
+                                            if (item.referer.isNotBlank()) finalHeadersMap["Referer"] = item.referer
+                                            if (item.origin.isNotBlank()) finalHeadersMap["Origin"] = item.origin
+                                            
                                             val streamSource = com.streambd.iptv.data.models.StreamSource(
                                                 url = item.url,
                                                 provider = "Stream",
-                                                headers = mapOf(
-                                                    "User-Agent" to (selectedUa ?: ""),
-                                                    "Cookie" to item.cookie,
-                                                    "Referer" to item.referer,
-                                                    "Origin" to item.origin
-                                                ).filterValues { it.isNotBlank() },
+                                                headers = finalHeadersMap,
                                                 drm = drmConfig,
                                                 tokenUrl = item.tokenUrl,
                                                 tokenMatch = item.tokenMatch,
@@ -522,6 +524,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                         var tokenMatch: String? = null
                         var tokenReplace: String? = null
                         var tokenId: Int? = null
+                        val customHeaders = mutableMapOf<String, String>()
 
                         if (mediaStreamUrl.contains("|")) {
                             val parts = mediaStreamUrl.split("|")
@@ -547,6 +550,10 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                                     "tokenmatch" -> tokenMatch = value
                                     "tokenreplace" -> tokenReplace = value
                                     "tokenid" -> tokenId = value.toIntOrNull()
+                                    else -> {
+                                        val originalKey = part.substringBefore("=").trim()
+                                        customHeaders[originalKey] = value
+                                    }
                                 }
                             }
                             
@@ -576,15 +583,17 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                             DrmConfig(type = drmScheme, licenseServer = finalDrmLicense.takeIf { it.isNotBlank() })
                         } else null
                         
+                        val finalHeadersMap = mutableMapOf<String, String>()
+                        if (selectedUa?.isNotBlank() == true) finalHeadersMap["User-Agent"] = selectedUa
+                        if (finalCookie.isNotBlank()) finalHeadersMap["Cookie"] = finalCookie
+                        if (finalReferer.isNotBlank()) finalHeadersMap["Referer"] = finalReferer
+                        if (finalOrigin.isNotBlank()) finalHeadersMap["Origin"] = finalOrigin
+                        finalHeadersMap.putAll(customHeaders)
+                        
                         val streamSource = com.streambd.iptv.data.models.StreamSource(
                             url = finalUrl,
                             provider = "Stream",
-                            headers = mapOf(
-                                "User-Agent" to (selectedUa ?: ""),
-                                "Cookie" to finalCookie,
-                                "Referer" to finalReferer,
-                                "Origin" to finalOrigin
-                            ).filterValues { it.isNotBlank() },
+                            headers = finalHeadersMap,
                             drm = drmConfig,
                             tokenUrl = tokenUrl,
                             tokenMatch = tokenMatch,
@@ -731,6 +740,8 @@ fun DropdownField(
                     tint = Color.Gray
                 )
             },
+            singleLine = true,
+            maxLines = 1,
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,

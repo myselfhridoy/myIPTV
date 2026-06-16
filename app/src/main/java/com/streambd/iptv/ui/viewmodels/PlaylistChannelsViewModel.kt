@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 
 class PlaylistChannelsViewModel : ViewModel() {
     private val liveRepository = LiveRepository()
+    private var currentUrl: String? = null
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -30,6 +31,9 @@ class PlaylistChannelsViewModel : ViewModel() {
     val selectedChannel: StateFlow<Channel?> = _selectedChannel.asStateFlow()
 
     fun loadPlaylist(url: String) {
+        if (currentUrl == url && _allChannels.value.isNotEmpty()) return
+        currentUrl = url
+        
         viewModelScope.launch {
             _isLoading.value = true
             // Clear old state

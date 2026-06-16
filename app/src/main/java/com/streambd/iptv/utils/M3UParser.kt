@@ -68,6 +68,7 @@ object M3UParser {
         var currentTokenReplace: String? = null
         var currentTokenId: Int? = null
         var currentDrm: DrmConfig? = null
+        var currentHttpHeaders: MutableMap<String, String>? = null
 
         fun resetCurrentChannel() {
             currentName = ""
@@ -82,6 +83,7 @@ object M3UParser {
             currentTokenReplace = null
             currentTokenId = null
             currentDrm = null
+            currentHttpHeaders = null
         }
 
         for (line in lines) {
@@ -152,29 +154,30 @@ object M3UParser {
                     val payload = line.removePrefix("#EXTHTTP:").trim()
                     if (payload.startsWith("{")) {
                         val jsonObj = JSONObject(payload)
+                        val map = currentHttpHeaders ?: mutableMapOf()
+                        
+                        fun processHeader(k: String, v: String) {
+                            when (k.lowercase()) {
+                                "cookie" -> currentCookie = v
+                                "user-agent" -> currentUserAgent = v
+                                "referer", "referrer" -> currentHttpReferer = v
+                                "origin" -> currentOrigin = v
+                                else -> map[k] = v
+                            }
+                        }
+
                         if (jsonObj.has("headers")) {
                             val headersObj = jsonObj.getJSONObject("headers")
                             headersObj.keys().forEach { k ->
-                                val v = headersObj.getString(k)
-                                when (k.lowercase()) {
-                                    "cookie" -> currentCookie = v
-                                    "user-agent" -> currentUserAgent = v
-                                    "referer", "referrer" -> currentHttpReferer = v
-                                    "origin" -> currentOrigin = v
-                                }
+                                processHeader(k, headersObj.getString(k))
                             }
                         }
                         jsonObj.keys().forEach { k ->
                             if (k.lowercase() != "headers") {
-                                val v = jsonObj.getString(k)
-                                when (k.lowercase()) {
-                                    "cookie" -> currentCookie = v
-                                    "user-agent" -> currentUserAgent = v
-                                    "referer", "referrer" -> currentHttpReferer = v
-                                    "origin" -> currentOrigin = v
-                                }
+                                processHeader(k, jsonObj.getString(k))
                             }
                         }
+                        if (map.isNotEmpty()) currentHttpHeaders = map
                     } else if (payload.isNotEmpty()) {
                         currentCookie = payload
                     }
@@ -228,6 +231,7 @@ object M3UParser {
                             cookie = currentCookie,
                             httpReferer = currentHttpReferer,
                             origin = currentOrigin,
+                            httpHeaders = currentHttpHeaders,
                             tokenUrl = currentTokenUrl,
                             tokenMatch = currentTokenMatch,
                             tokenReplace = currentTokenReplace,
@@ -265,6 +269,7 @@ object M3UParser {
                         httpReferer = parsed.headers["referer"],
                         origin = parsed.headers["origin"],
                         cookie = parsed.headers["cookie"],
+                        httpHeaders = parsed.headers.filterKeys { it !in listOf("user-agent", "referer", "origin", "cookie") }.takeIf { it.isNotEmpty() },
                         tokenUrl = parsed.custom["tokenurl"],
                         tokenId = parsed.custom["tokenid"]?.toIntOrNull(),
                         isLiveEvent = true
@@ -320,6 +325,7 @@ object M3UParser {
                     httpReferer = parsed.headers["referer"],
                     origin = parsed.headers["origin"],
                     cookie = parsed.headers["cookie"],
+                    httpHeaders = parsed.headers.filterKeys { it !in listOf("user-agent", "referer", "origin", "cookie") }.takeIf { it.isNotEmpty() },
                     isLiveEvent = true
                 ))
             }
@@ -366,8 +372,10 @@ object M3UParser {
                 if (obj.has("origin")) origin = obj.getString("origin")
                 
                 if (obj.has("userAgent")) ua = obj.getString("userAgent")
-                else if (obj.has("user-agent")) ua = obj.getString("user-agent")
+                if (obj.has("user-agent")) ua = obj.getString("user-agent")
                 else if (obj.has("user_agent")) ua = obj.getString("user_agent")
+                
+                var httpHeaders: MutableMap<String, String>? = null
                 
                 if (obj.has("headers")) {
                     val hObj = obj.getJSONObject("headers")
@@ -378,8 +386,18 @@ object M3UParser {
                             "user-agent" -> ua = v
                             "referer", "referrer" -> ref = v
                             "origin" -> origin = v
+                            else -> {
+                                if (httpHeaders == null) httpHeaders = mutableMapOf()
+                                httpHeaders!![k] = v
+                            }
                         }
                     }
+                }
+                
+                val urlCustomHeaders = parsed.headers.filterKeys { it !in listOf("user-agent", "referer", "origin", "cookie") }
+                if (urlCustomHeaders.isNotEmpty()) {
+                    if (httpHeaders == null) httpHeaders = mutableMapOf()
+                    httpHeaders!!.putAll(urlCustomHeaders)
                 }
                 
                 var defaultDrm: DrmConfig? = null
@@ -407,6 +425,7 @@ object M3UParser {
                     httpReferer = ref,
                     origin = origin,
                     cookie = cookie,
+                    httpHeaders = httpHeaders,
                     tokenUrl = parsed.custom["tokenurl"] ?: obj.optString("tokenUrl", null),
                     tokenMatch = parsed.custom["tokenmatch"] ?: obj.optString("tokenMatch", null),
                     tokenReplace = parsed.custom["tokenreplace"] ?: obj.optString("tokenReplace", null),

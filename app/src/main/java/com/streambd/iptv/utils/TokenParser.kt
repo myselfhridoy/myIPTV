@@ -160,10 +160,14 @@ object TokenParser {
                     }
                     if (line.startsWith("#EXTHTTP:")) {
                         try {
-                            val jsonStr = line.substring("#EXTHTTP:".length).trim()
-                            val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
-                            val extHeaders: Map<String, String> = com.google.gson.Gson().fromJson(jsonStr, type)
-                            streamHeaders.putAll(extHeaders)
+                            val jsonStr = line.substringAfter("#EXTHTTP:").trim()
+                            val jsonObj = org.json.JSONObject(jsonStr)
+                            val headersToParse = if (jsonObj.has("headers")) jsonObj.getJSONObject("headers") else jsonObj
+                            val keys = headersToParse.keys()
+                            while (keys.hasNext()) {
+                                val k = keys.next()
+                                streamHeaders[k] = headersToParse.getString(k)
+                            }
                         } catch (e: Exception) {}
                         continue
                     }
@@ -356,10 +360,14 @@ object TokenParser {
                             }
                             if (line.startsWith("#EXTHTTP:")) {
                                 try {
-                                    val jsonStr = line.removePrefix("#EXTHTTP:").trim()
-                                    val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
-                                    val extHeaders: Map<String, String> = com.google.gson.Gson().fromJson(jsonStr, type)
-                                    streamHeaders.putAll(extHeaders)
+                                    val jsonStr = line.substringAfter("#EXTHTTP:").trim()
+                                    val jsonObj = org.json.JSONObject(jsonStr)
+                                    val headersToParse = if (jsonObj.has("headers")) jsonObj.getJSONObject("headers") else jsonObj
+                                    val keys = headersToParse.keys()
+                                    while (keys.hasNext()) {
+                                        val k = keys.next()
+                                        streamHeaders[k] = headersToParse.getString(k)
+                                    }
                                 } catch (e: Exception) {}
                                 continue
                             }
