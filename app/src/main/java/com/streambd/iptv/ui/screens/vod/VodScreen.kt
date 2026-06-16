@@ -95,7 +95,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
         } else {
             var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
-            var initialFocusSet by remember { mutableStateOf(false) }
+            var initialFocusSet by remember(isLandscape) { mutableStateOf(false) }
             val playButtonFocusRequester = remember { FocusRequester() }
 
             LaunchedEffect(trendingMovies) {
@@ -117,7 +117,11 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             Box(modifier = Modifier.fillMaxSize()) {
                 // 1. Fixed Hero Banner in Background
                 if (searchQuery.isEmpty() && focusedMedia != null) {
-                    Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
+                    Crossfade(
+                        targetState = focusedMedia,
+                        modifier = Modifier.focusGroup().focusRequester(playButtonFocusRequester),
+                        label = "heroCrossfade"
+                    ) { featured ->
                         featured?.let {
                             Box(
                                 modifier = Modifier
@@ -257,9 +261,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         }
                                         androidx.tv.material3.Button(
                                             onClick = playAction,
-                                            modifier = Modifier.tvTouchClick(playAction).then(
-                                                if (featured == focusedMedia) Modifier.focusRequester(playButtonFocusRequester) else Modifier
-                                            ),
+                                            modifier = Modifier.tvTouchClick(playAction),
                                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                                 containerColor = Color.White,
                                                 contentColor = Color.Black,
@@ -645,7 +647,7 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
             Text(
                 text = media.displayTitle,
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
