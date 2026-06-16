@@ -238,7 +238,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         }
                                         androidx.tv.material3.Button(
                                             onClick = playAction,
-                                            modifier = Modifier.tvTouchClick(playAction),
+                                            modifier = Modifier,
                                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                                 containerColor = Color.White,
                                                 contentColor = Color.Black,
@@ -259,7 +259,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         }
                                         androidx.tv.material3.Button(
                                             onClick = moreInfoAction,
-                                            modifier = Modifier.tvTouchClick(moreInfoAction),
+                                            modifier = Modifier,
                                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                                 containerColor = Color(0x66333333),
                                                 contentColor = Color.White,
