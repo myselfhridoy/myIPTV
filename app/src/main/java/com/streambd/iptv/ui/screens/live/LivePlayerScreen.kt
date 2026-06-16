@@ -205,7 +205,12 @@ fun LivePlayerScreen(
                         }.head().build() // Use HEAD first
                         
                         var res = client.newCall(req).execute()
-                        if (!res.isSuccessful) {
+                        // If HEAD failed or Content-Type is a playlist or text, we should GET to check the body for EXTHTTP
+                        val isPlaylistType = res.header("Content-Type")?.lowercase()?.let { 
+                            it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") 
+                        } == true
+                        
+                        if (!res.isSuccessful || isPlaylistType) {
                             res.close()
                             val getReq = req.newBuilder().get().build()
                             res = client.newCall(getReq).execute()
@@ -219,6 +224,29 @@ fun LivePlayerScreen(
                                 if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
                                 else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                 else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                
+                                val bodyString = response.peekBody(1024 * 1024).string()
+                                if (bodyString.startsWith("#EXTM3U") && bodyString.contains("#EXTHTTP:")) {
+                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyString)
+                                    if (parsedChannels.isNotEmpty()) {
+                                        val first = parsedChannels.first()
+                                        val mergedHeaders = initialHeaders.toMutableMap()
+                                        first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        first.userAgent?.let { mergedHeaders["User-Agent"] = it }
+                                        first.cookie?.let { mergedHeaders["Cookie"] = it }
+                                        first.httpReferer?.let { mergedHeaders["Referer"] = it }
+                                        first.origin?.let { mergedHeaders["Origin"] = it }
+                                        
+                                        val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
+                                        innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        
+                                        return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                            url = innerParsed.cleanUrl,
+                                            headers = mergedHeaders,
+                                            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                        )
+                                    }
+                                }
                                 
                                 com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
                             } else null
