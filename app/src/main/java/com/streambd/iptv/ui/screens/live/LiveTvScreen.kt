@@ -68,7 +68,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     val columns = when {
         isTV -> 5
         isLandscape -> 4
-        else -> 1
+        else -> 2
     }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -225,7 +225,8 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(96.dp),
+            .height(96.dp)
+            .com.streambd.iptv.ui.components.tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = Color(0xFF1C2230),
             focusedContainerColor = Color(0xFF242C3D)
@@ -244,12 +245,12 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
         )
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF242C3D)),
                 contentAlignment = Alignment.Center
@@ -259,26 +260,27 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
                         model = category.logo,
                         contentDescription = category.name,
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(36.dp).clip(CircleShape)
+                        modifier = Modifier.size(32.dp).clip(CircleShape)
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Tv,
                         contentDescription = null,
                         tint = TealAccent,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
             
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             
             Text(
                 text = category.name,
                 color = WhiteText,
-                fontSize = 16.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                maxLines = 2,
+                lineHeight = 18.sp,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
