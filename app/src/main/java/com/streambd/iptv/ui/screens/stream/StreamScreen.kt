@@ -142,6 +142,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
     var showUserAgentDropdown by remember { mutableStateOf(false) }
     var showDrmSchemeDropdown by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
+    var showEmptyUrlErrorDialog by remember { mutableStateOf(false) }
 
     val userAgents = listOf("Default", "Chrome(Android)", "Chrome(PC)", "IE(PC)", "Firefox(PC)", "iPhone", "Nokia", "Custom")
     val drmSchemes = listOf("None", "clearkey", "widevine", "playready")
@@ -156,6 +157,20 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                 }
             } catch (e: Exception) {}
         }
+    }
+
+    if (showEmptyUrlErrorDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmptyUrlErrorDialog = false },
+            title = { Text("Error", color = Color.White) },
+            text = { Text("Please enter a valid media stream URL.", color = Color.White) },
+            confirmButton = {
+                TextButton(onClick = { showEmptyUrlErrorDialog = false }) {
+                    Text("OK", color = TealAccent)
+                }
+            },
+            containerColor = Color(0xFF1F2430)
+        )
     }
 
     if (showCustomUaDialog) {
@@ -493,7 +508,7 @@ fun StreamScreen(mainViewModel: MainViewModel, tmdbViewModel: com.streambd.iptv.
                 // TV-Friendly Play Button
                 val handlePlay = {
                     if (mediaStreamUrl.isBlank()) {
-                        Toast.makeText(context, "Please Check the Play URL", Toast.LENGTH_SHORT).show()
+                        showEmptyUrlErrorDialog = true
                     } else {
                         var finalUrl = mediaStreamUrl
                         var finalCookie = cookieValue

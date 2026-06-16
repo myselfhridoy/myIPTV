@@ -97,7 +97,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 ) {
                     item {
                         val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-                        Spacer(modifier = Modifier.height(if (isMobilePortrait) 76.dp else 100.dp))
+                        Spacer(modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp))
                     }
 
                     // Media Rows
@@ -278,7 +278,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         tint = Color.White,
                                         modifier = Modifier
                                             .tvFocusBorder(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                            .background(Color.Transparent, CircleShape)
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
@@ -297,7 +297,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                     tint = Color.White,
                                     modifier = Modifier
                                         .tvFocusBorder(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                        .background(Color.Transparent, CircleShape)
                                         .padding(8.dp)
                                 )
                             }

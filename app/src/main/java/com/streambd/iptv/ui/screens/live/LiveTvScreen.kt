@@ -226,17 +226,17 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(56.dp)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .background(Color(0xFF1C2230), RoundedCornerShape(12.dp))
             .border(1.dp, Color(0xFF2B3648), RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(Color(0xFF242C3D))
                 .border(1.dp, Color.DarkGray, CircleShape),
@@ -247,24 +247,24 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
                     model = category.logo,
                     contentDescription = category.name,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(40.dp).clip(CircleShape)
+                    modifier = Modifier.size(32.dp).clip(CircleShape)
                 )
             } else {
                 Icon(
                     imageVector = Icons.Default.Tv,
                     contentDescription = null,
                     tint = TealAccent,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
         
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
         
         Text(
             text = category.name,
             color = WhiteText,
-            fontSize = 16.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             modifier = Modifier
