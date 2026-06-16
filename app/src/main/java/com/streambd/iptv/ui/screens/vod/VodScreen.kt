@@ -78,6 +78,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
     
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -94,6 +95,8 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
         } else {
             var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
+            var initialFocusSet by remember { mutableStateOf(false) }
+            val playButtonFocusRequester = remember { FocusRequester() }
 
             LaunchedEffect(trendingMovies) {
                 if (focusedMedia == null && trendingMovies.isNotEmpty()) {
@@ -101,7 +104,15 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                 }
             }
 
-            val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
+            LaunchedEffect(focusedMedia) {
+                if (!initialFocusSet && focusedMedia != null && isLandscape) {
+                    kotlinx.coroutines.delay(300)
+                    try { playButtonFocusRequester.requestFocus() } catch (e: Exception) {}
+                    initialFocusSet = true
+                }
+            }
+
+            val onMediaFocus: (TmdbMedia) -> Unit = remember { { focusedMedia = it } }
 
             Box(modifier = Modifier.fillMaxSize()) {
                 // 1. Fixed Hero Banner in Background
@@ -246,7 +257,9 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                         }
                                         androidx.tv.material3.Button(
                                             onClick = playAction,
-                                            modifier = Modifier.tvTouchClick(playAction),
+                                            modifier = Modifier.tvTouchClick(playAction).then(
+                                                if (featured == focusedMedia) Modifier.focusRequester(playButtonFocusRequester) else Modifier
+                                            ),
                                             colors = androidx.tv.material3.ButtonDefaults.colors(
                                                 containerColor = Color.White,
                                                 contentColor = Color.Black,
@@ -426,7 +439,6 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                        var isSearchFocused by remember { mutableStateOf(false) }
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = {
@@ -463,7 +475,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
                                 focusedContainerColor = Color(0xFF333333).copy(alpha = 0.9f),
                                 unfocusedContainerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)
                             ),
-                            shape = CircleShape,
+                            shape = RoundedCornerShape(8.dp),
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -544,7 +556,7 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
         }
 
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(20.dp), // Official TV Card Gutter
+            horizontalArrangement = Arrangement.spacedBy(24.dp), // Official TV Card Gutter
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp)
         ) {
             items(mediaList) { media ->
@@ -560,8 +572,8 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(124.dp) // Official 5-card layout size
-            .height(186.dp) // 2:3 aspect ratio
+            .width(180.dp) // Official 5-card layout size
+            .height(270.dp) // 2:3 aspect ratio
             .onFocusChanged { if (it.isFocused) onFocus() }
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
@@ -569,7 +581,7 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
             focusedContainerColor = SurfaceDark // For images, background color change is less important
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.05f),
+        scale = CardDefaults.scale(focusedScale = 1.1f),
         glow = CardDefaults.glow(
             focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
         ),
