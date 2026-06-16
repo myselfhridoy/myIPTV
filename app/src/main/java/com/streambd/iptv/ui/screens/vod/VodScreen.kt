@@ -95,20 +95,10 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
         } else {
             var focusedMedia by remember { mutableStateOf<TmdbMedia?>(null) }
-            var initialFocusSet by remember(isLandscape) { mutableStateOf(false) }
-            val playButtonFocusRequester = remember { FocusRequester() }
 
             LaunchedEffect(trendingMovies) {
                 if (focusedMedia == null && trendingMovies.isNotEmpty()) {
                     focusedMedia = trendingMovies.first()
-                }
-            }
-
-            LaunchedEffect(focusedMedia) {
-                if (!initialFocusSet && focusedMedia != null && isLandscape) {
-                    kotlinx.coroutines.delay(300)
-                    try { playButtonFocusRequester.requestFocus() } catch (e: Exception) {}
-                    initialFocusSet = true
                 }
             }
 
@@ -117,11 +107,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             Box(modifier = Modifier.fillMaxSize()) {
                 // 1. Fixed Hero Banner in Background
                 if (searchQuery.isEmpty() && focusedMedia != null) {
-                    Crossfade(
-                        targetState = focusedMedia,
-                        modifier = Modifier.focusGroup().focusRequester(playButtonFocusRequester),
-                        label = "heroCrossfade"
-                    ) { featured ->
+                    Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
                         featured?.let {
                             Box(
                                 modifier = Modifier
