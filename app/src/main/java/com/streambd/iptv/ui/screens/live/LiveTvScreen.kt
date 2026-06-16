@@ -27,7 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.Text
+import androidx.compose.material3.Text
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Border
 import androidx.compose.runtime.*

@@ -25,7 +25,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.Text
+import androidx.compose.material3.Text
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Border
 import androidx.tv.material3.ExperimentalTvMaterial3Api
