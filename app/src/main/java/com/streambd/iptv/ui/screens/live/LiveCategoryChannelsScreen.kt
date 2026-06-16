@@ -86,7 +86,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF151A25)) // Match mockup
+            .background(PrimaryDark) // Match mockup
     ) {
         // Custom Top Bar
         Row(
@@ -329,7 +329,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
             .aspectRatio(1.77f) // 16:9 aspect ratio
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
-            containerColor = Color(0xFFE0E0E0), // White/Light background
+            containerColor = Color.White,
             focusedContainerColor = Color.White
         ),
         shape = CardDefaults.shape(RoundedCornerShape(4.dp)), // Slight rounded corners
@@ -338,7 +338,11 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
             focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.5f), elevation = 16.dp)
         ),
         border = CardDefaults.border(
-            focusedBorder = Border.None
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(3.dp, Color.Red),
+                inset = 0.dp,
+                shape = RoundedCornerShape(4.dp)
+            )
         )
     ) {
         Box(

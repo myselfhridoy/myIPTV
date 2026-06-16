@@ -119,7 +119,7 @@ fun PlaylistChannelsScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(channels) { channel ->
-                            PlaylistChannelItem(channel) {
+                            PlaylistChannelCard(channel) {
                                 viewModel.selectChannel(channel) // local selected state
                                 mainViewModel.setCurrentPlaylist(currentPlaylist)
                                 mainViewModel.selectChannel(channel) // global selected state for LivePlayerScreen
@@ -159,65 +159,57 @@ fun GroupChip(title: String, isSelected: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
-fun PlaylistChannelItem(channel: Channel, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-    Card(
+fun PlaylistChannelCard(channel: Channel, onClick: () -> Unit) {
+    androidx.tv.material3.Card(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.85f)
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkNavySurface)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.1f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (channel.logo.isNullOrBlank()) {
-                    Text(
-                        text = channel.name.take(1).uppercase(),
-                        color = WhiteText,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else {
-                    AsyncImage(
-                        model = channel.logo,
-                        contentDescription = channel.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = channel.name,
-                color = WhiteText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+            .aspectRatio(1.77f) // 16:9 aspect ratio
+            .com.streambd.iptv.ui.components.tvTouchClick(onClick),
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = Color.White,
+            focusedContainerColor = Color.White
+        ),
+        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(4.dp)), // Slight rounded corners
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1.05f),
+        glow = androidx.tv.material3.CardDefaults.glow(
+            focusedGlow = androidx.tv.material3.Glow(elevationColor = Color.Black.copy(alpha = 0.5f), elevation = 16.dp)
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(3.dp, Color.Red),
+                inset = 0.dp,
+                shape = RoundedCornerShape(4.dp)
             )
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (channel.logo.isNotEmpty()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                )
+            } else {
+                Text(
+                    text = channel.name,
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
         }
     }
 }

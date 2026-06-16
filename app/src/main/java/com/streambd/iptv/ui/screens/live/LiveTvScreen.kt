@@ -66,7 +66,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF151A25))
+            .background(PrimaryDark)
     ) {
         // Custom Top Bar
         Row(
@@ -103,7 +103,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                     modifier = Modifier
                         .size(40.dp)
                         .tvFocusBorder(CircleShape)
-                        .background(Color(0xFF1E2638), CircleShape)
+                        .background(SurfaceDark, CircleShape)
                         .clickable {
                             isSearchActive = true
                         }
@@ -135,8 +135,8 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                         focusedTextColor = WhiteText,
                         unfocusedTextColor = WhiteText,
                         cursorColor = TealAccent,
-                        focusedContainerColor = Color(0xFF1C2230),
-                        unfocusedContainerColor = Color(0xFF1C2230)
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark
                     ),
                     shape = RoundedCornerShape(14.dp),
                     singleLine = true,

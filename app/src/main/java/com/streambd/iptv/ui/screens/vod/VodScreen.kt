@@ -102,7 +102,7 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             }
             
             LaunchedEffect(focusedMedia, searchQuery) {
-                if (focusedMedia != null && searchQuery.isEmpty()) {
+                if (focusedMedia != null && searchQuery.isEmpty() && isLandscape) {
                     kotlinx.coroutines.delay(200) // Wait for UI to settle
                     try { playButtonFocusRequester.requestFocus() } catch (e: Exception) {}
                 }
@@ -111,204 +111,225 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             val onMediaFocus: (TmdbMedia) -> Unit = { focusedMedia = it }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                // ── Unified Scrollable Content ──
-                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
-                    
-                    // 1. Scrolling Hero Banner
-                    if (searchQuery.isEmpty() && focusedMedia != null) {
-                        Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
-                            featured?.let {
+                // 1. Fixed Hero Banner in Background
+                if (searchQuery.isEmpty() && focusedMedia != null) {
+                    Crossfade(targetState = focusedMedia, label = "heroCrossfade") { featured ->
+                        featured?.let {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
+                            ) {
+                                // Backdrop Image
+                                AsyncImage(
+                                    model = featured.backdropUrl.ifEmpty { featured.posterUrl },
+                                    contentDescription = featured.displayTitle,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                // Gradient Overlay (Bottom)
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(if (isLandscape) 450.dp else 500.dp) // Netflix-style taller banner
-                                ) {
-                                    // Backdrop Image
-                                    AsyncImage(
-                                        model = featured.backdropUrl.ifEmpty { featured.posterUrl },
-                                        contentDescription = featured.displayTitle,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    // Gradient Overlay (Bottom)
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.verticalGradient(
-                                                    colors = listOf(
-                                                        Color.Transparent,
-                                                        PrimaryDark.copy(alpha = 0.5f),
-                                                        PrimaryDark
-                                                    ),
-                                                    startY = 100f
-                                                )
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    PrimaryDark.copy(alpha = 0.5f),
+                                                    PrimaryDark
+                                                ),
+                                                startY = 100f
                                             )
-                                    )
-                                    // Gradient Overlay (Left)
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                Brush.horizontalGradient(
-                                                    colors = listOf(
-                                                        PrimaryDark.copy(alpha = 0.9f),
-                                                        PrimaryDark.copy(alpha = 0.6f),
-                                                        Color.Transparent
-                                                    ),
-                                                    endX = 600f
-                                                )
-                                            )
-                                    )
-                                    // Hero Content
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .fillMaxWidth(if (isLandscape) 0.5f else 1f) // Take up left half on TV, full on mobile
-                                            .padding(
-                                                start = if (isLandscape) 58.dp else 24.dp,
-                                                end = if (isLandscape) 0.dp else 24.dp,
-                                                bottom = if (isLandscape) 40.dp else 32.dp
-                                            ), // align with general tv margins
-                                        verticalArrangement = Arrangement.Bottom
-                                    ) {
-                                        Text(
-                                            text = featured.displayTitle,
-                                            color = Color.White,
-                                            fontSize = if (isLandscape) 42.sp else 32.sp,
-                                            fontWeight = FontWeight.Black,
-                                            maxLines = if (isLandscape) 2 else 3,
-                                            overflow = TextOverflow.Ellipsis,
-                                            lineHeight = if (isLandscape) 48.sp else 36.sp
                                         )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        // Metadata Row
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (featured.vote_average != null && featured.vote_average > 0) {
-                                                Text(
-                                                    text = "${(featured.vote_average * 10).toInt()}% Match",
-                                                    color = Color(0xFF46D369), // Netflix Match Green
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                            }
-                                            if (featured.displayDate.isNotEmpty()) {
-                                                Text(
-                                                    text = featured.displayDate.take(4),
-                                                    color = Color.White,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(Color.Transparent, RoundedCornerShape(2.dp))
-                                                    .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
-                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (featured.isMovie) "MOVIE" else "TV",
-                                                    color = Color.LightGray,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(Color.Transparent, RoundedCornerShape(2.dp))
-                                                    .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
-                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "HD",
-                                                    color = Color.LightGray,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        // Overview
-                                        if (!featured.overview.isNullOrEmpty()) {
-                                            Text(
-                                                text = featured.overview,
-                                                color = Color(0xFFCCCCCC),
-                                                fontSize = 14.sp,
-                                                maxLines = 3,
-                                                overflow = TextOverflow.Ellipsis,
-                                                lineHeight = 20.sp
+                                )
+                                // Gradient Overlay (Left)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    PrimaryDark.copy(alpha = 0.9f),
+                                                    PrimaryDark.copy(alpha = 0.6f),
+                                                    Color.Transparent
+                                                ),
+                                                endX = 600f
                                             )
-                                            Spacer(modifier = Modifier.height(16.dp))
+                                        )
+                                )
+                                // Hero Content
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(if (isLandscape) 0.5f else 1f) // Take up left half on TV, full on mobile
+                                        .padding(
+                                            start = if (isLandscape) 58.dp else 24.dp,
+                                            end = if (isLandscape) 0.dp else 24.dp,
+                                            bottom = if (isLandscape) 40.dp else 32.dp
+                                        ), // align with general tv margins
+                                    verticalArrangement = Arrangement.Bottom
+                                ) {
+                                    Text(
+                                        text = featured.displayTitle,
+                                        color = Color.White,
+                                        fontSize = if (isLandscape) 42.sp else 32.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = if (isLandscape) 2 else 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        lineHeight = if (isLandscape) 48.sp else 36.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    // Metadata Row
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (featured.vote_average != null && featured.vote_average > 0) {
+                                            Text(
+                                                text = "${(featured.vote_average * 10).toInt()}% Match",
+                                                color = Color(0xFF46D369), // Netflix Match Green
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                        }
+                                        if (featured.displayDate.isNotEmpty()) {
+                                            Text(
+                                                text = featured.displayDate.take(4),
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.Transparent, RoundedCornerShape(2.dp))
+                                                .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (featured.isMovie) "MOVIE" else "TV",
+                                                color = Color.LightGray,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.Transparent, RoundedCornerShape(2.dp))
+                                                .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "HD",
+                                                color = Color.LightGray,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    // Overview
+                                    if (!featured.overview.isNullOrEmpty()) {
+                                        Text(
+                                            text = featured.overview,
+                                            color = Color(0xFFCCCCCC),
+                                            fontSize = 14.sp,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis,
+                                            lineHeight = 20.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                    }
+                                    
+                                    // Netflix Style Action Buttons
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        val playAction = {
+                                            viewModel.selectMedia(featured)
+                                            navController.navigate(Routes.TMDB_DETAILS)
+                                        }
+                                        androidx.tv.material3.Button(
+                                            onClick = playAction,
+                                            modifier = Modifier
+                                                .tvTouchClick(playAction)
+                                                .focusRequester(playButtonFocusRequester),
+                                            colors = androidx.tv.material3.ButtonDefaults.colors(
+                                                containerColor = Color.White,
+                                                contentColor = Color.Black,
+                                                focusedContainerColor = Color.LightGray,
+                                                focusedContentColor = Color.Black
+                                            ),
+                                            shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
+                                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                        ) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Play", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                         }
                                         
-                                        // Netflix Style Action Buttons
-                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            val playAction = {
-                                                viewModel.selectMedia(featured)
-                                                navController.navigate(Routes.TMDB_DETAILS)
-                                            }
-                                            androidx.tv.material3.Button(
-                                                onClick = playAction,
-                                                modifier = Modifier
-                                                    .tvTouchClick(playAction)
-                                                    .focusRequester(playButtonFocusRequester),
-                                                colors = androidx.tv.material3.ButtonDefaults.colors(
-                                                    containerColor = Color.White,
-                                                    contentColor = Color.Black,
-                                                    focusedContainerColor = Color.LightGray,
-                                                    focusedContentColor = Color.Black
-                                                ),
-                                                shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
-                                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                                            ) {
-                                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(24.dp))
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Play", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                            
-                                            val moreInfoAction = {
-                                                viewModel.selectMedia(featured)
-                                                navController.navigate(Routes.TMDB_DETAILS)
-                                            }
-                                            androidx.tv.material3.Button(
-                                                onClick = moreInfoAction,
-                                                modifier = Modifier.tvTouchClick(moreInfoAction),
-                                                colors = androidx.tv.material3.ButtonDefaults.colors(
-                                                    containerColor = Color(0x66333333),
-                                                    contentColor = Color.White,
-                                                    focusedContainerColor = Color.White,
-                                                    focusedContentColor = Color.Black
-                                                ),
-                                                shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
-                                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                                            ) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("More Info", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
+                                        val moreInfoAction = {
+                                            viewModel.selectMedia(featured)
+                                            navController.navigate(Routes.TMDB_DETAILS)
+                                        }
+                                        androidx.tv.material3.Button(
+                                            onClick = moreInfoAction,
+                                            modifier = Modifier.tvTouchClick(moreInfoAction),
+                                            colors = androidx.tv.material3.ButtonDefaults.colors(
+                                                containerColor = Color(0x66333333),
+                                                contentColor = Color.White,
+                                                focusedContainerColor = Color.White,
+                                                focusedContentColor = Color.Black
+                                            ),
+                                            shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(4.dp)),
+                                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                                        ) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("More Info", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.width(8.dp))
                                         }
                                     }
                                 }
                             }
                         }
-                    } else if (searchQuery.isNotEmpty()) {
-                        // Spacer to push search results below Top Nav Bar when Hero Banner is hidden
-                        Spacer(modifier = Modifier.height(100.dp))
+                    }
+                }
+
+                // 2. Scrollable Rows Overlay
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 32.dp)
+                ) {
+                    item {
+                        if (searchQuery.isEmpty() && focusedMedia != null) {
+                            // Transparent spacer to reveal the Hero banner behind
+                            Spacer(modifier = Modifier.height(if (isLandscape) 400.dp else 450.dp))
+                        } else if (searchQuery.isNotEmpty()) {
+                            // Spacer to push search results below Top Nav Bar
+                            Spacer(modifier = Modifier.height(100.dp))
+                        }
                     }
 
-                    }
-
-                    // 2. Media Rows
+                    // Media Rows
                     item {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(PrimaryDark)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
+                            // Gradient transition from transparent to background
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(60.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(Color.Transparent, PrimaryDark)
+                                        )
+                                    )
+                            )
+                            // Solid background for rows
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PrimaryDark)
+                            ) {
                         // ── Content Sections ──
                         if (searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
                             MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
@@ -392,8 +413,9 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 
                             Spacer(modifier = Modifier.height(24.dp))
                         } // closes else-if
-                    } // closes Content Column
-                    } // closes item {
+                    } // closes inner Content Column
+                    } // closes outer Column
+                    } // closes item
                 } // closes Scrollable Column
 
                 // ── Overlay Top Navigation Bar (Fixed on Top) ──

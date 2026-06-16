@@ -11,9 +11,9 @@ val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
 // Premium Bioscope Theme Colors
-val DarkNavyBackground = Color(0xFF111818) // Dark Navy/Slate (was BioBackground)
-val DarkNavySurface = Color(0xFF181C1E)      // Slightly lighter card (was BioCard)
-val BioCardLight = Color(0xFF282B2C) // Hover/Focus card background
+val DarkNavyBackground = Color(0xFF0A0E17) // Deep Navy/Black
+val DarkNavySurface = Color(0xFF111723)      // Slightly lighter card
+val BioCardLight = Color(0xFF1C2436) // Hover/Focus card background
 val BioAccent = Color(0xFF48E5E5)    // Cyan primary accent
 val BioBrand = Color(0xFF4361EE)     // Deep Blue brand color
 val BioTextPrimary = Color(0xFFFFFFFF)

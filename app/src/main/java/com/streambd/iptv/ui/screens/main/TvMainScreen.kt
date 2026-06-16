@@ -167,11 +167,11 @@ fun TvMainScreen(
                 .padding(horizontal = 58.dp, vertical = 28.dp)
         ) {
             when (selectedTab) {
-                0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = null)
-                1 -> {
+                0 -> {
                     val eventsViewModel: LiveEventsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                     LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
                 }
+                1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = null)
                 2 -> VodScreen(tmdbViewModel, navController, onMenuClick = null)
                 3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = null)
             }

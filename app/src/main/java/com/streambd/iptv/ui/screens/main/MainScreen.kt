@@ -83,14 +83,14 @@ fun MainScreen(
     navController: NavController,
     onCheckUpdate: () -> Unit = {}
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(1) } // Default: Media tab
+    var selectedTab by rememberSaveable { mutableStateOf(0) } // Default: Events tab
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
     var showMoreDialog by remember { mutableStateOf(false) }
 
     val tvTabs = listOf(
-        TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
+        TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
         TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi),
         TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder),
@@ -100,8 +100,8 @@ fun MainScreen(
     )
 
     val mobileTabs = listOf(
-        TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
+        TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
         TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
         TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi)
     )
@@ -455,11 +455,11 @@ fun MainScreen(
             ) { innerPadding ->
                 Box(modifier = Modifier.padding(innerPadding)) {
                     when (selectedTab) {
-                        0 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
-                        1 -> {
+                        0 -> {
                             val eventsViewModel: LiveEventsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
                             LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                         }
+                        1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                         2 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                         3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                     }
