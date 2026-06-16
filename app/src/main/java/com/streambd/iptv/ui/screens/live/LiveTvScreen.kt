@@ -44,6 +44,8 @@ import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.LiveCategory
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
+import com.streambd.iptv.ui.theme.PrimaryDark
+import com.streambd.iptv.ui.theme.SurfaceDark
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel

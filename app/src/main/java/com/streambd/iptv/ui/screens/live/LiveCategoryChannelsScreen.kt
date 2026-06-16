@@ -46,6 +46,7 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.TealAccent
+import com.streambd.iptv.ui.theme.PrimaryDark
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 

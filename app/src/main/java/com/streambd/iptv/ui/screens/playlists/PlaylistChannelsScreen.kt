@@ -37,6 +37,7 @@ import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.PlaylistChannelsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import com.streambd.iptv.ui.components.tvTouchClick
 import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -167,7 +168,7 @@ fun PlaylistChannelCard(channel: Channel, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1.77f) // 16:9 aspect ratio
-            .com.streambd.iptv.ui.components.tvTouchClick(onClick),
+            .tvTouchClick(onClick),
         colors = androidx.tv.material3.CardDefaults.colors(
             containerColor = Color.White,
             focusedContainerColor = Color.White
