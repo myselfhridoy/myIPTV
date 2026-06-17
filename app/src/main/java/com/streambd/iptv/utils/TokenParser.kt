@@ -385,10 +385,98 @@ object TokenParser {
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
+        }
+
+        // 7. dlhd
+        if (lowerTokenUrl == "dlhd") {
+            try {
+                var req = Request.Builder().url(baseUrl).apply {
+                    header("User-Agent", USER_AGENT)
+                    header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                    header("Accept-Language", "en-US,en;q=0.9")
+                    header("Upgrade-Insecure-Requests", "1")
+                    headers?.forEach { (k, v) -> header(k, v) }
+                }.build()
+                var res = client.newCall(req).execute()
+                
+                if (res.isSuccessful) {
+                    var html = res.body?.string() ?: ""
+                    
+                    val iframeRegex = Regex("<iframe[^>]*id=[\"']playerFrame[\"'][^>]*src=[\"']([^\"']+)[\"']|<iframe[^>]*src=[\"']([^\"']+)[\"'][^>]*id=[\"']playerFrame[\"']", RegexOption.IGNORE_CASE)
+                    val match = iframeRegex.find(html)
+                    
+                    if (match != null) {
+                        var iframeUrl = match.groupValues[1].takeIf { it.isNotEmpty() } ?: match.groupValues[2]
+                        if (!iframeUrl.startsWith("http")) {
+                            val parsedUrl = URL(baseUrl)
+                            val base = "${parsedUrl.protocol}://${parsedUrl.host}"
+                            iframeUrl = base + (if (iframeUrl.startsWith("/")) "" else "/") + iframeUrl
+                        }
+                        
+                        req = Request.Builder().url(iframeUrl).apply {
+                            header("User-Agent", USER_AGENT)
+                            header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                            header("Accept-Language", "en-US,en;q=0.9")
+                            header("Upgrade-Insecure-Requests", "1")
+                            header("Referer", baseUrl)
+                        }.build()
+                        res = client.newCall(req).execute()
+                        
+                        if (res.isSuccessful) {
+                            var iframeHtml = res.body?.string() ?: ""
+                            
+                            if (!iframeHtml.contains("window.atob", ignoreCase = true)) {
+                                val innerIframeRegex = Regex("<iframe[^>]*src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+                                val innerMatch = innerIframeRegex.find(iframeHtml)
+                                if (innerMatch != null) {
+                                    var innerUrl = innerMatch.groupValues[1]
+                                    if (!innerUrl.startsWith("http")) {
+                                        if (innerUrl.startsWith("//")) {
+                                            innerUrl = "https:$innerUrl"
+                                        } else {
+                                            val parsedInner = URL(iframeUrl)
+                                            val baseInner = "${parsedInner.protocol}://${parsedInner.host}"
+                                            innerUrl = baseInner + (if (innerUrl.startsWith("/")) "" else "/") + innerUrl
+                                        }
+                                    }
+                                    req = Request.Builder().url(innerUrl).apply {
+                                        header("User-Agent", USER_AGENT)
+                                        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                                        header("Accept-Language", "en-US,en;q=0.9")
+                                        header("Upgrade-Insecure-Requests", "1")
+                                        header("Referer", iframeUrl)
+                                    }.build()
+                                    res = client.newCall(req).execute()
+                                    if (res.isSuccessful) {
+                                        iframeHtml = res.body?.string() ?: ""
+                                    }
+                                }
+                            }
+                            
+                            val b64Regex = Regex("window\\.atob\\(['\"]([A-Za-z0-9+/=\\-_]+)['\"]\\)", RegexOption.IGNORE_CASE)
+                            val b64Match = b64Regex.find(iframeHtml)
+                            if (b64Match != null) {
+                                val base64Str = b64Match.groupValues[1]
+                                val decodedBytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
+                                val m3u8Url = String(decodedBytes, Charsets.UTF_8)
+                                
+                                val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
+                                streamHeaders["Referer"] = "https://dlhd.pk/"
+                                streamHeaders["Origin"] = "https://dlhd.pk"
+                                streamHeaders["User-Agent"] = USER_AGENT
+                                
+                                return@withContext ResolvedToken(url = m3u8Url, headers = streamHeaders)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             return@withContext null
         }
 
-        // 6. handlerId logic (omitted complex extraction for brevity, basic fallback)
+        // 8. handlerId logic (omitted complex extraction for brevity, basic fallback)
         val idMatch = Regex("^[\\\\/]?(\\d+)$").find(tokenUrl)
         if (idMatch != null) {
             // Simplified handler logic
