@@ -6,6 +6,34 @@ import javax.crypto.spec.SecretKeySpec
 
 object CryptoUtils {
 
+    init {
+        System.loadLibrary("native-keys")
+    }
+
+    external fun getNativeAesKey(): String
+    external fun getNativeAesIv(): String
+
+    // JSON Encryption Algorithm
+    private const val JSON_ALGORITHM = "AES/CBC/PKCS5Padding"
+
+    fun decryptJson(encryptedBase64: String): String {
+        return try {
+            val keySpec = SecretKeySpec(getNativeAesKey().toByteArray(Charsets.UTF_8), "AES")
+            val ivSpec = IvParameterSpec(getNativeAesIv().toByteArray(Charsets.UTF_8))
+            
+            val cipher = Cipher.getInstance(JSON_ALGORITHM)
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+            
+            val encryptedBytes = android.util.Base64.decode(encryptedBase64, android.util.Base64.DEFAULT)
+            val decryptedBytes = cipher.doFinal(encryptedBytes)
+            
+            String(decryptedBytes, Charsets.UTF_8)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            encryptedBase64
+        }
+    }
+
     /**
      * Decrypts AES-CBC with NoPadding using Hex encoded strings.
      * Equivalent to decrypt_slowAES in JS.
