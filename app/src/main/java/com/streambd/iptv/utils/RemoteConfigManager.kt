@@ -8,9 +8,9 @@ object RemoteConfigManager {
 
     // Default values matching the current hardcoded strings
     private const val DEFAULT_TMDB_API_KEY = "460327acf6e0235a391222cb530de9c8"
-    private const val DEFAULT_IPTV_PLAYLIST_URL = "https://streambd-iptv.netlify.app/playlists/IPTV.json"
-    private const val DEFAULT_ADDON_REGISTRY_URL = "https://streambd-iptv.netlify.app/addons/StreamBD_IPTV_Addon.json"
-    private const val DEFAULT_LIVE_EVENTS_API_URL = "https://streambdlive-events.netlify.app/api/all/events"
+    private const val DEFAULT_IPTV_PLAYLIST_URL = "https://myselfhridoy.github.io/streambd-libs/playlists/IPTV.json"
+    private const val DEFAULT_ADDON_REGISTRY_URL = "https://myselfhridoy.github.io/streambd-libs/addons/StreamBD_IPTV_Addon.json"
+    private const val DEFAULT_LIVE_EVENTS_API_URL = "https://myselfhridoy.github.io/LiveEventSchedule/api/all/events"
 
     // Remote Config Keys
     private const val KEY_TMDB_API_KEY = "tmdb_api_key"
