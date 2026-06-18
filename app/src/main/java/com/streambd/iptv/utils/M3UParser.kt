@@ -467,12 +467,7 @@ object M3UParser {
             
             if (separatorIndex > -1) {
                 val key = headerPart.substring(0, separatorIndex).trim()
-                var value = headerPart.substring(separatorIndex + 1).trim()
-                
-                try {
-                    val decoded = URLDecoder.decode(value.replace("+", " "), "UTF-8")
-                    value = decoded
-                } catch (e: Exception) {}
+                val value = headerPart.substring(separatorIndex + 1).trim()
                 
                 val lower = key.lowercase()
 
