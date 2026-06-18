@@ -48,7 +48,9 @@ class LiveRepository {
                 val suffix = uri.getQueryParameter("suffix") ?: ""
                 val headers = uri.getQueryParameter("headers") ?: ""
                 
-                val client = okhttp3.OkHttpClient()
+                val client = okhttp3.OkHttpClient.Builder()
+                    .addInterceptor(com.streambd.iptv.data.api.DecryptionInterceptor())
+                    .build()
                 val requestBuilder = okhttp3.Request.Builder().url(targetUrl)
                 
                 if (headers.isNotEmpty()) {
@@ -109,7 +111,13 @@ class LiveRepository {
             }
 
             // Fetch the M3U content directly from the normal URL
-            val m3uContent = URL(categoryUrl).readText()
+            var m3uContent = URL(categoryUrl).readText()
+            
+            // Decrypt manually since we are not using Retrofit here
+            if (!m3uContent.trim().startsWith("#EXTM3U")) {
+                m3uContent = com.streambd.iptv.utils.CryptoUtils.decryptJson(m3uContent)
+            }
+            
             // Parse using the provided M3UParser
             M3UParser.parsePlaylist(m3uContent)
         } catch (e: Exception) {
