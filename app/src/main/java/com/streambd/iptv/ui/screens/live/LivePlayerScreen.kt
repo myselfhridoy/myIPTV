@@ -278,7 +278,13 @@ fun LivePlayerScreen(
 
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
             setAllowCrossProtocolRedirects(true)
-            finalHeaders["User-Agent"]?.let { setUserAgent(it) }
+            
+            // Extract User-Agent case-insensitively
+            val userAgentKey = finalHeaders.keys.firstOrNull { it.lowercase() == "user-agent" }
+            if (userAgentKey != null) {
+                setUserAgent(finalHeaders[userAgentKey]!!)
+            }
+            
             val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
             if (requestHeaders.isNotEmpty()) {
                 setDefaultRequestProperties(requestHeaders)
