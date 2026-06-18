@@ -159,8 +159,20 @@ fun LivePlayerScreen(
         channel.httpReferer?.let { initialHeaders["Referer"] = it }
         channel.origin?.let { initialHeaders["Origin"] = it }
         channel.httpHeaders?.forEach { (k, v) -> initialHeaders[k] = v }
-        
         parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
+        
+        // Deduplicate all headers case-insensitively to prevent OkHttp/ExoPlayer from sending duplicates
+        val deduplicatedHeaders = mutableMapOf<String, String>()
+        initialHeaders.forEach { (k, v) -> 
+            val lowerKey = k.lowercase()
+            val existingKey = deduplicatedHeaders.keys.firstOrNull { it.lowercase() == lowerKey }
+            if (existingKey != null) {
+                deduplicatedHeaders.remove(existingKey)
+            }
+            deduplicatedHeaders[k] = v 
+        }
+        initialHeaders.clear()
+        initialHeaders.putAll(deduplicatedHeaders)
         
         val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
         val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
