@@ -19,8 +19,9 @@ object RemoteConfigManager {
     private const val KEY_LIVE_EVENTS_API_URL = "live_events_api_url"
 
     fun init() {
+        val fetchInterval = if (com.streambd.iptv.BuildConfig.DEBUG) 0L else 3600L
         val configSettings = FirebaseRemoteConfigSettings.Builder()
-            .setMinimumFetchIntervalInSeconds(3600) // Fetch once an hour in production
+            .setMinimumFetchIntervalInSeconds(fetchInterval) // 0 in debug, 1 hour in production
             .build()
         remoteConfig.setConfigSettingsAsync(configSettings)
 
