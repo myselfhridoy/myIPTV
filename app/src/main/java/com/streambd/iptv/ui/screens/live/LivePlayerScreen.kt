@@ -725,6 +725,9 @@ fun LivePlayerScreen(
                 Icon(Icons.Default.Error, contentDescription = "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(playerError?.message ?: "Unknown Error", color = Color.White, fontSize = 12.sp)
+                Text(playerError?.cause?.message ?: "", color = Color.LightGray, fontSize = 10.sp)
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
