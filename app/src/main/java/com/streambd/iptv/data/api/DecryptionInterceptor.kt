@@ -21,8 +21,8 @@ class DecryptionInterceptor : Interceptor {
         val charset = responseBody.contentType()?.charset(Charset.forName("UTF-8")) ?: Charset.forName("UTF-8")
         val responseString = buffer.clone().readString(charset).trim()
 
-        // Plain Text Check: If it looks like JSON, return the original response
-        if (responseString.startsWith("{") || responseString.startsWith("[")) {
+        // Plain Text Check: If it looks like JSON or M3U, return the original response
+        if (responseString.startsWith("{") || responseString.startsWith("[") || responseString.startsWith("#EXTM3U")) {
             return response
         }
 
@@ -30,8 +30,10 @@ class DecryptionInterceptor : Interceptor {
         try {
             val decryptedString = CryptoUtils.decryptJson(responseString)
             
-            // Re-check if the decrypted string is actually JSON
-            if (decryptedString.trim().startsWith("{") || decryptedString.trim().startsWith("[")) {
+            // Re-check if the decrypted string is actually JSON or M3U
+            if (decryptedString.trim().startsWith("{") || 
+                decryptedString.trim().startsWith("[") || 
+                decryptedString.trim().startsWith("#EXTM3U")) {
                 val newResponseBody = decryptedString.toResponseBody(responseBody.contentType())
                 return response.newBuilder().body(newResponseBody).build()
             }
