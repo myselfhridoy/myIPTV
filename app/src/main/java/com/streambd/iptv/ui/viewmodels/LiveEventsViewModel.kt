@@ -20,8 +20,14 @@ class LiveEventsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading
 
-    private val API_BASE_URL: String
+    private val fullApiUrl: String
         get() = com.streambd.iptv.utils.RemoteConfigManager.getLiveEventsApiUrl()
+
+    private val baseDirectory: String
+        get() = fullApiUrl.substringBeforeLast("/")
+        
+    private val fileName: String
+        get() = fullApiUrl.substringAfterLast("/")
 
     init {
         fetchEvents()
@@ -32,7 +38,7 @@ class LiveEventsViewModel : ViewModel() {
             _isLoading.value = true
             try {
                 val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEvents(
-                    "$API_BASE_URL/index.json"
+                    fullApiUrl
                 )
                 _events.value = response.events
             } catch (e: Exception) {
@@ -45,8 +51,9 @@ class LiveEventsViewModel : ViewModel() {
 
     suspend fun getStreamsForEvent(eventId: String): List<SportzfyStream> {
         return try {
+            val streamUrl = "$baseDirectory/${eventId}/$fileName"
             val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEventStreams(
-                "$API_BASE_URL/${eventId}/index.json"
+                streamUrl
             )
             response.streams
         } catch (e: Exception) {
