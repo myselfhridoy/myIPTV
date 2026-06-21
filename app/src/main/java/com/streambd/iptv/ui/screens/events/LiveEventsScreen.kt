@@ -308,7 +308,8 @@ fun LiveEventsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 32.dp, start = 24.dp, end = 24.dp)
+                        .padding(start = 24.dp, end = 24.dp)
+                        .navigationBarsPadding()
                 ) {
                     Text(
                         text = "Select Stream",
@@ -371,6 +372,7 @@ fun LiveEventsScreen(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(48.dp))
                 }
             }
         }

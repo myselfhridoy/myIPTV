@@ -8,9 +8,9 @@ object RemoteConfigManager {
 
     // Default values matching the current hardcoded strings
     private const val DEFAULT_TMDB_API_KEY = "460327acf6e0235a391222cb530de9c8"
-    private const val DEFAULT_IPTV_PLAYLIST_URL = "https://myselfhridoy.github.io/streambd-libs/playlists/IPTV.json"
-    private const val DEFAULT_ADDON_REGISTRY_URL = "https://myselfhridoy.github.io/streambd-libs/addons/StreamBD_IPTV_Addon.json"
-    private const val DEFAULT_LIVE_EVENTS_API_URL = "https://myselfhridoy.github.io/LiveEventSchedule/api/all/events"
+    private const val DEFAULT_IPTV_PLAYLIST_URL = "VJTWEO8X/OvQrNObPPdfY0dPDtTdp02ZA5vuwudM08AtAJ7sLVYJpO2b5rDcbDsW31PcjyDTNXmvN89i5FMs11dWOWXh+U2J19vcgczuI20="
+    private const val DEFAULT_ADDON_REGISTRY_URL = "VJTWEO8X/OvQrNObPPdfY0dPDtTdp02ZA5vuwudM08BQEQzu+2ffIAfnsrnQ6sviFcFvAuuNnPP93U7pk0FCUMelLRvlVHblOmdTVETlJpc="
+    private const val DEFAULT_LIVE_EVENTS_API_URL = "VJTWEO8X/OvQrNObPPdfY0dPDtTdp02ZA5vuwudM08Cx9M76O0ljeP8W5U8OUHq+4l2nsmQOvUR0kccfoQivFiwecDnbPD2PNcNTQ3uOexQ="
 
     // Remote Config Keys
     private const val KEY_TMDB_API_KEY = "tmdb_api_key"
@@ -53,16 +53,19 @@ object RemoteConfigManager {
     
     fun getIptvPlaylistUrl(): String {
         val value = remoteConfig.getString(KEY_IPTV_PLAYLIST_URL).replace("\\s".toRegex(), "")
-        return value.ifEmpty { DEFAULT_IPTV_PLAYLIST_URL }
+        val encryptedStr = value.ifEmpty { DEFAULT_IPTV_PLAYLIST_URL }
+        return CryptoUtils.decryptJson(encryptedStr)
     }
     
     fun getAddonRegistryUrl(): String {
         val value = remoteConfig.getString(KEY_ADDON_REGISTRY_URL).replace("\\s".toRegex(), "")
-        return value.ifEmpty { DEFAULT_ADDON_REGISTRY_URL }
+        val encryptedStr = value.ifEmpty { DEFAULT_ADDON_REGISTRY_URL }
+        return CryptoUtils.decryptJson(encryptedStr)
     }
     
     fun getLiveEventsApiUrl(): String {
         val value = remoteConfig.getString(KEY_LIVE_EVENTS_API_URL).replace("\\s".toRegex(), "")
-        return value.ifEmpty { DEFAULT_LIVE_EVENTS_API_URL }
+        val encryptedStr = value.ifEmpty { DEFAULT_LIVE_EVENTS_API_URL }
+        return CryptoUtils.decryptJson(encryptedStr)
     }
 }

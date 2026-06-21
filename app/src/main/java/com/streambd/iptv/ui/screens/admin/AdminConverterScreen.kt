@@ -319,42 +319,25 @@ private suspend fun fetchAndConvert(
         
         val body = response.body?.string() ?: return@withContext Pair("Empty response", "")
         
-        var jsonArray: JSONArray? = null
+        var rootElement: Any? = null
         if (body.trim().startsWith("[")) {
-            jsonArray = JSONArray(body)
+            rootElement = JSONArray(body)
         } else if (body.trim().startsWith("{")) {
             val obj = JSONObject(body)
             if (arrayPath.isNotEmpty() && obj.has(arrayPath)) {
-                jsonArray = obj.getJSONArray(arrayPath)
+                rootElement = obj.opt(arrayPath)
+            } else {
+                rootElement = obj
             }
         }
         
-        if (jsonArray == null) return@withContext Pair("Could not find JSON Array. Make sure Array Path is correct.", "")
+        if (rootElement == null) return@withContext Pair("Could not parse JSON. Make sure Array Path is correct or leave it empty.", "")
         
         val sb = java.lang.StringBuilder()
         sb.append("#EXTM3U\n")
         
-        for (i in 0 until jsonArray.length()) {
-            try {
-                val item = jsonArray.getJSONObject(i)
-                val title = item.optString(titleField, "Unknown")
-                val logo = item.optString(logoField, "")
-                val category = item.optString(categoryField, "Uncategorized")
-                
-                var stream = item.optString(streamField, "")
-                if (stream.isEmpty()) continue
-                
-                // Url encode stream name if prefix suggests it is a query parameter
-                if (streamField == "stream_name" && prefix.contains("channel=")) {
-                     stream = java.net.URLEncoder.encode(stream, "UTF-8")
-                }
-                
-                val finalUrl = "$prefix$stream$suffix"
-                
-                sb.append("#EXTINF:-1 tvg-logo=\"$logo\" group-title=\"$category\",$title\n")
-                sb.append("$finalUrl\n")
-            } catch (e: Exception) { }
-        }
+        extractChannelsRecursively(rootElement, "Uncategorized", streamField, titleField, logoField, categoryField, prefix, suffix, sb)
+
         
         // Generate proxy URL
         val uriBuilder = android.net.Uri.Builder()
@@ -380,3 +363,45 @@ private suspend fun fetchAndConvert(
         return@withContext Pair("Error: ${e.message}", "")
     }
 }
+
+private fun extractChannelsRecursively(
+    element: Any?,
+    currentCategory: String,
+    streamField: String,
+    titleField: String,
+    logoField: String,
+    categoryField: String,
+    prefix: String,
+    suffix: String,
+    sb: java.lang.StringBuilder
+) {
+    if (element is JSONArray) {
+        for (i in 0 until element.length()) {
+            extractChannelsRecursively(element.opt(i), currentCategory, streamField, titleField, logoField, categoryField, prefix, suffix, sb)
+        }
+    } else if (element is JSONObject) {
+        if (element.has(streamField)) {
+            val title = element.optString(titleField, "Unknown").takeIf { it.isNotBlank() } ?: "Unknown"
+            val logo = element.optString(logoField, "")
+            val category = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+            
+            var stream = element.optString(streamField, "")
+            if (stream.isNotBlank()) {
+                if (streamField == "stream_name" && prefix.contains("channel=")) {
+                     stream = java.net.URLEncoder.encode(stream, "UTF-8")
+                }
+                val finalUrl = "$prefix$stream$suffix"
+                sb.append("#EXTINF:-1 tvg-logo=\"$logo\" group-title=\"$category\",$title\n")
+                sb.append("$finalUrl\n")
+            }
+        } else {
+            val nextCategory = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+            val keys = element.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                extractChannelsRecursively(element.opt(key), nextCategory, streamField, titleField, logoField, categoryField, prefix, suffix, sb)
+            }
+        }
+    }
+}
+
