@@ -145,12 +145,7 @@ fun TvMainScreen(
                     }
                 } else {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .focusable()
-                            .onFocusChanged { 
-                                if (it.isFocused) scope.launch { drawerState.setValue(DrawerValue.Open) }
-                            }
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
@@ -164,12 +159,21 @@ fun TvMainScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onKeyEvent {
+                    if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft) {
+                        if (drawerState.currentValue == DrawerValue.Closed) {
+                            scope.launch { drawerState.setValue(DrawerValue.Open) }
+                            return@onKeyEvent true
+                        }
+                    }
+                    false
+                }
                 .padding(horizontal = 58.dp, vertical = 28.dp)
         ) {
             when (selectedTab) {
                 0 -> {
                     val eventsViewModel: LiveEventsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-                    LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = { scope.launch { drawerState.setValue(DrawerValue.Open) } })
+                    LiveEventsScreen(eventsViewModel, mainViewModel, navController, onMenuClick = null)
                 }
                 1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = null)
                 2 -> VodScreen(tmdbViewModel, navController, onMenuClick = null)

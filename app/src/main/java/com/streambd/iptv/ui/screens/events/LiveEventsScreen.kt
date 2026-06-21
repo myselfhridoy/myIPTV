@@ -33,6 +33,7 @@ import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.DrmConfig
 import com.streambd.iptv.data.models.SportzfyEvent
+import com.streambd.iptv.ui.components.tvFocusBorder
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
@@ -44,6 +45,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -70,7 +72,7 @@ fun LiveEventsScreen(
     eventsViewModel: LiveEventsViewModel,
     mainViewModel: MainViewModel,
     navController: NavController,
-    onMenuClick: () -> Unit
+    onMenuClick: (() -> Unit)? = null
 ) {
     val events by eventsViewModel.events.collectAsState()
     val isLoading by eventsViewModel.isLoading.collectAsState()
@@ -148,8 +150,12 @@ fun LiveEventsScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onMenuClick) {
-                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+            if (onMenuClick != null) {
+                IconButton(onClick = onMenuClick) {
+                    Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White, modifier = Modifier.tvFocusBorder(CircleShape))
+                }
+            } else {
+                Spacer(modifier = Modifier.width(16.dp))
             }
             if (isSearchActive) {
                 OutlinedTextField(
@@ -187,7 +193,7 @@ fun LiveEventsScreen(
                     textAlign = TextAlign.Center
                 )
                 IconButton(onClick = { isSearchActive = true }) {
-                    Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White)
+                    Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.tvFocusBorder(CircleShape))
                 }
             }
         }
@@ -383,6 +389,7 @@ fun LiveEventsScreen(
 fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .tvFocusBorder(RoundedCornerShape(24.dp))
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
                 color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
@@ -423,6 +430,7 @@ fun CategoryCircle(name: String, count: Int, isSelected: Boolean, onClick: () ->
 fun StatusChip(name: String, count: Int, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
+            .tvFocusBorder(RoundedCornerShape(20.dp))
             .border(
                 width = 1.dp,
                 color = if (isSelected) TealAccent else Color.White.copy(alpha = 0.1f),
@@ -447,6 +455,7 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .border(
                 width = 1.dp, 
@@ -518,6 +527,16 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                     
                     if (event.is_live == 1) {
+                        val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition()
+                        val dotAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.2f,
+                            targetValue = 1f,
+                            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                animation = androidx.compose.animation.core.tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                            )
+                        )
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -530,7 +549,7 @@ fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(Color.White)
+                                        .background(Color.White.copy(alpha = dotAlpha))
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
