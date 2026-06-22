@@ -87,6 +87,7 @@ fun MainScreen(
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
     var showMoreDialog by remember { mutableStateOf(false) }
+    var showCopyrightDialog by remember { mutableStateOf(false) }
 
     val tvTabs = listOf(
         TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
@@ -149,7 +150,7 @@ fun MainScreen(
     }
 
     val showCopyright = {
-        android.widget.Toast.makeText(context, "© 2026 StreamBD. All rights reserved.", android.widget.Toast.LENGTH_SHORT).show()
+        showCopyrightDialog = true
     }
 
     BackHandler(enabled = true) {
@@ -178,6 +179,26 @@ fun MainScreen(
             dismissButton = {
                 TextButton(onClick = { showExitDialog = false }) {
                     Text("No", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    if (showCopyrightDialog) {
+        AlertDialog(
+            onDismissRequest = { showCopyrightDialog = false },
+            title = { Text("Copyright & Disclaimer", color = Color.White) },
+            text = { 
+                Text(
+                    text = "We do not host, manage, or upload any of the channels or video content provided in this application. All streams and multimedia content are aggregated from publicly available free sources on the internet.\n\nThis app acts purely as a streaming platform. If you believe any content infringes upon your copyright, please contact the original content hosts directly.\n\n© 2026 StreamBD. All rights reserved.", 
+                    color = Color.LightGray,
+                    fontSize = 14.sp
+                ) 
+            },
+            containerColor = DarkNavyBackground,
+            confirmButton = {
+                TextButton(onClick = { showCopyrightDialog = false }) {
+                    Text("OK", color = TealAccent)
                 }
             }
         )
