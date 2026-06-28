@@ -492,9 +492,32 @@ object TokenParser {
                     var jsonStreamUrl: String? = null
                     try {
                         val jsonObj = org.json.JSONObject(body)
-                        if (jsonObj.has("url")) jsonStreamUrl = jsonObj.getString("url")
-                        else if (jsonObj.has("stream_url")) jsonStreamUrl = jsonObj.getString("stream_url")
-                        else if (jsonObj.has("link")) jsonStreamUrl = jsonObj.getString("link")
+                        // Recursively search JSON for any value that is a valid stream URL
+                        fun findStreamUrl(json: Any?): String? {
+                            when (json) {
+                                is org.json.JSONObject -> {
+                                    for (key in json.keys()) {
+                                        val result = findStreamUrl(json.opt(key))
+                                        if (result != null) return result
+                                    }
+                                }
+                                is org.json.JSONArray -> {
+                                    for (i in 0 until json.length()) {
+                                        val result = findStreamUrl(json.opt(i))
+                                        if (result != null) return result
+                                    }
+                                }
+                                is String -> {
+                                    val trimmed = json.trim()
+                                    if (trimmed.startsWith("http") && isStreamUrl(trimmed)) {
+                                        return trimmed
+                                    }
+                                }
+                            }
+                            return null
+                        }
+                        
+                        jsonStreamUrl = findStreamUrl(jsonObj)
                     } catch (e: Exception) {}
 
                     if (!jsonStreamUrl.isNullOrEmpty()) {
