@@ -338,9 +338,42 @@ fun LivePlayerScreen(
                 }
             } else if (finalDrm.licenseServer != null) {
                 if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
-                    // The license "server" is actually a JSON ClearKey payload
-                    clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
-                    useLocalClearKey = true
+                    val jsonStr = finalDrm.licenseServer.trim()
+                    try {
+                        val jsonObj = org.json.JSONObject(jsonStr)
+                        if (jsonObj.has("keys")) {
+                            // Already a JWK set
+                            clearKeyBytes = jsonStr.toByteArray()
+                        } else {
+                            // Map of kid:key
+                            val keysArray = org.json.JSONArray()
+                            jsonObj.keys().forEach { kidHex ->
+                                val keyHex = jsonObj.getString(kidHex)
+                                try {
+                                    val kidBytes = kidHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                                    val keyBytes = keyHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                                    val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                                    val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                                    val keyObj = org.json.JSONObject().apply {
+                                        put("kty", "oct")
+                                        put("k", keyB64)
+                                        put("kid", kidB64)
+                                    }
+                                    keysArray.put(keyObj)
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }
+                            val jwkSet = org.json.JSONObject().apply {
+                                put("keys", keysArray)
+                                put("type", "temporary")
+                            }
+                            clearKeyBytes = jwkSet.toString().toByteArray()
+                        }
+                        useLocalClearKey = true
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        clearKeyBytes = jsonStr.toByteArray()
+                        useLocalClearKey = true
+                    }
                 } else {
                     drmBuilder.setLicenseUri(finalDrm.licenseServer)
                     drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
