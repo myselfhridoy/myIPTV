@@ -162,10 +162,7 @@ fun VodPlayerScreen(
             if (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url)) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val client = okhttp3.OkHttpClient.Builder()
-                            .followRedirects(true)
-                            .followSslRedirects(true)
-                            .build()
+                        val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
                         val req = okhttp3.Request.Builder().url(stream.url).apply {
                             initialHeaders.forEach { (k, v) -> header(k, v) }
                         }.head().build()
@@ -203,14 +200,28 @@ fun VodPlayerScreen(
         val finalDrm = resolved?.drm ?: stream.drm
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory().apply {
-                setAllowCrossProtocolRedirects(true)
-                finalHeaders["User-Agent"]?.let { setUserAgent(it) }
+            val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
+                finalHeaders["User-Agent"]?.let { ua ->
+                    addInterceptor { chain ->
+                        val request = chain.request().newBuilder()
+                            .header("User-Agent", ua)
+                            .build()
+                        chain.proceed(request)
+                    }
+                }
                 val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
                 if (requestHeaders.isNotEmpty()) {
-                    setDefaultRequestProperties(requestHeaders)
+                    addInterceptor { chain ->
+                        val builder = chain.request().newBuilder()
+                            requestHeaders.forEach { (k, v) ->
+                                builder.header(k, v)
+                            }
+                        chain.proceed(builder.build())
+                    }
                 }
-            }
+            }.build()
+
+            val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)

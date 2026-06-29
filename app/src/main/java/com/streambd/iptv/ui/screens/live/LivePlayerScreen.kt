@@ -208,10 +208,7 @@ fun LivePlayerScreen(
                 // Pre-resolve non-standard extensions (like .php) to find actual media URL and Content-Type
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val client = okhttp3.OkHttpClient.Builder()
-                            .followRedirects(true)
-                            .followSslRedirects(true)
-                            .build()
+                        val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
                         val req = okhttp3.Request.Builder().url(rawSourceUrl).apply {
                             initialHeaders.forEach { (k, v) -> header(k, v) }
                         }.head().build() // Use HEAD first
@@ -276,20 +273,31 @@ fun LivePlayerScreen(
         val finalHeaders = resolved?.headers ?: initialHeaders
         val finalDrm = resolved?.drm ?: sourceDrm
 
-        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory().apply {
-            setAllowCrossProtocolRedirects(true)
-            
+        val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
             // Extract User-Agent case-insensitively
             val userAgentKey = finalHeaders.keys.firstOrNull { it.lowercase() == "user-agent" }
             if (userAgentKey != null) {
-                setUserAgent(finalHeaders[userAgentKey]!!)
+                addInterceptor { chain ->
+                    val request = chain.request().newBuilder()
+                        .header("User-Agent", finalHeaders[userAgentKey]!!)
+                        .build()
+                    chain.proceed(request)
+                }
             }
-            
+            // Add other headers
             val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
             if (requestHeaders.isNotEmpty()) {
-                setDefaultRequestProperties(requestHeaders)
+                addInterceptor { chain ->
+                    val builder = chain.request().newBuilder()
+                        requestHeaders.forEach { (k, v) ->
+                            builder.header(k, v)
+                        }
+                    chain.proceed(builder.build())
+                }
             }
-        }
+        }.build()
+
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
         
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)

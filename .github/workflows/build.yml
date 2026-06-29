@@ -49,6 +49,7 @@ jobs:
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 3
 
     - name: Decode Keystore & Sign Release APK
       if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'Release'
@@ -69,3 +70,4 @@ jobs:
       with:
         name: app-release
         path: ${{steps.sign_app.outputs.signedReleaseFile}}
+        retention-days: 3
