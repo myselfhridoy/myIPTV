@@ -310,7 +310,24 @@ fun LivePlayerScreen(
         }
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
+        // Live stream low-latency & speed adjustment configuration (like VLC/TiviMate)
+        val liveConfig = MediaItem.LiveConfiguration.Builder()
+            .setTargetOffsetMs(5000)
+            .setMinOffsetMs(2000)
+            .setMaxOffsetMs(15000)
+            .setMinPlaybackSpeed(0.97f)
+            .setMaxPlaybackSpeed(1.03f)
+            .build()
+        mediaItemBuilder.setLiveConfiguration(liveConfig)
+
+        val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+            override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                return if (loadErrorInfo.errorCount <= 5) 1000L else super.getRetryDelayMsFor(loadErrorInfo)
+            }
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
+        }
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
         // DRM Setup
         if (finalDrm != null && finalDrm.type != null) {

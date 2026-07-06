@@ -8,6 +8,9 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 object UnsafeOkHttpClient {
+    // Default Whitelisted Media Player User-Agent (VLC & OTT Navigator hybrid)
+    const val DEFAULT_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20 (OTT Navigator; TiviMate)"
+
     fun getUnsafeOkHttpClient(): OkHttpClient {
         return try {
             // Create a trust manager that does not validate certificate chains
@@ -31,6 +34,25 @@ object UnsafeOkHttpClient {
             builder.hostnameVerifier { _, _ -> true }
             builder.followRedirects(true)
             builder.followSslRedirects(true)
+            builder.connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            builder.readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            builder.writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            builder.retryOnConnectionFailure(true)
+            builder.pingInterval(10, java.util.concurrent.TimeUnit.SECONDS) // Keeps live stream TCP connections alive
+
+            // Automatically inject Whitelisted Media Player User-Agent if not explicitly provided
+            builder.addInterceptor { chain ->
+                val originalRequest = chain.request()
+                val hasUserAgent = originalRequest.header("User-Agent") != null || originalRequest.header("user-agent") != null
+                val newRequest = if (!hasUserAgent) {
+                    originalRequest.newBuilder()
+                        .header("User-Agent", DEFAULT_USER_AGENT)
+                        .build()
+                } else {
+                    originalRequest
+                }
+                chain.proceed(newRequest)
+            }
 
             builder.build()
         } catch (e: Exception) {

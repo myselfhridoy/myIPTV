@@ -247,7 +247,14 @@ fun VodPlayerScreen(
                 mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
             }
 
+            val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                    return if (loadErrorInfo.errorCount <= 5) 1000L else super.getRetryDelayMsFor(loadErrorInfo)
+                }
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
+            }
             val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+                .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
             // DRM Setup
             if (finalDrm != null && finalDrm.type != null) {

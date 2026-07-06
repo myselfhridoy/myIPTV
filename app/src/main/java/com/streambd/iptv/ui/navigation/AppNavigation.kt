@@ -48,11 +48,41 @@ fun AppNavigation(
     val navController = rememberNavController()
     val context = LocalContext.current
     
-    // Global Player Instance
+    // Global Player Instance with Optimized IPTV / Live Stream settings
     val trackSelector = remember { DefaultTrackSelector(context) }
+    
+    val loadControl = remember {
+        androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 2500,
+                /* maxBufferMs = */ 15000,
+                /* bufferForPlaybackMs = */ 1000,
+                /* bufferForPlaybackAfterRebufferMs = */ 2000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+    }
+    
+    val renderersFactory = remember {
+        androidx.media3.exoplayer.DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+    }
+    
+    val audioAttributes = remember {
+        androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+    }
+
     val globalExoPlayer = remember {
-        ExoPlayer.Builder(context)
+        ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
+            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .build()
     }
 
