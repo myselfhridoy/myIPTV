@@ -31,6 +31,13 @@ class MainActivity : ComponentActivity() {
         com.streambd.iptv.utils.RemoteConfigManager.init()
         mainViewModel.fetchAddons(applicationContext)
         
+        // Configure global Coil ImageLoader with UnsafeOkHttpClient to bypass SSL/TLS & User-Agent blocks on IPTV logo servers
+        val imageLoader = coil.ImageLoader.Builder(applicationContext)
+            .okHttpClient { com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient() }
+            .crossfade(true)
+            .build()
+        coil.Coil.setImageLoader(imageLoader)
+        
         // Subscribe to FCM topic for live match notifications
         FirebaseMessaging.getInstance().subscribeToTopic("all_users")
             .addOnCompleteListener { task ->

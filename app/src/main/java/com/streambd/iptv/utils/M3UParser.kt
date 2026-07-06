@@ -90,10 +90,10 @@ object M3UParser {
             if (line.isEmpty()) continue
 
             if (line.startsWith("#EXTINF:")) {
-                val logoMatch = Regex("""tvg-logo="([^"]+)"""").find(line)
+                val logoMatch = Regex("""(?:tvg-logo|logo)\s*=\s*["']?([^"'\s,]+)["']?""", RegexOption.IGNORE_CASE).find(line)
                 val groupMatch = Regex("""group-title="([^"]+)"""").find(line)
                 
-                currentLogo = logoMatch?.groupValues?.get(1) ?: ""
+                currentLogo = logoMatch?.groupValues?.get(1)?.trim() ?: ""
                 currentGroup = groupMatch?.groupValues?.get(1) ?: "Uncategorized"
 
                 val uaMatch = Regex("""http-user-agent="([^"]+)"""", RegexOption.IGNORE_CASE).find(line)
