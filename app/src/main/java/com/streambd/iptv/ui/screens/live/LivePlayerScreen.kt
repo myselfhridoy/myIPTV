@@ -178,6 +178,7 @@ fun LivePlayerScreen(
         val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
         val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
         val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
+        val currentPlayRef = parsedSource.custom["playref"]
         
         var sourceDrm = channel.drm
         if (parsedSource.custom.containsKey("drm-type")) {
@@ -199,7 +200,8 @@ fun LivePlayerScreen(
                 tokenId = currentTokenId?.toString(),
                 headers = initialHeaders,
                 tokenMatch = currentTokenMatch,
-                tokenReplace = currentTokenReplace
+                tokenReplace = currentTokenReplace,
+                playRef = currentPlayRef
             )
         } else {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
@@ -221,22 +223,14 @@ fun LivePlayerScreen(
                         
                         if (!res.isSuccessful || isPlaylistType) {
                             res.close()
-                            val getReq = req.newBuilder().get().build()
+                            val getReq = okhttp3.Request.Builder().url(rawSourceUrl).apply {
+                                initialHeaders.forEach { (k, v) -> header(k, v) }
+                            }.build()
                             res = client.newCall(getReq).execute()
-                        }
-                        
-                        res.use { response ->
-                            if (response.isSuccessful) {
-                                val finalUrl = response.request.url.toString()
-                                val contentType = response.header("Content-Type")?.lowercase()
-                                var mimeType: String? = null
-                                if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                
-                                val bodyString = response.peekBody(1024 * 1024).string()
-                                if (bodyString.startsWith("#EXTM3U") && bodyString.contains("#EXTHTTP:")) {
-                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyString)
+                            if (res.isSuccessful && isPlaylistType) {
+                                val bodyStr = res.body?.string() ?: ""
+                                if (bodyStr.contains("#EXTM3U")) {
+                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
                                     if (parsedChannels.isNotEmpty()) {
                                         val first = parsedChannels.first()
                                         val mergedHeaders = initialHeaders.toMutableMap()
@@ -256,6 +250,17 @@ fun LivePlayerScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        
+                        res.use { response ->
+                            if (response.isSuccessful) {
+                                val finalUrl = response.request.url.toString()
+                                val contentType = response.header("Content-Type")?.lowercase()
+                                var mimeType: String? = null
+                                if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
                                 
                                 com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
                             } else null
@@ -270,7 +275,8 @@ fun LivePlayerScreen(
         }
 
         val finalUrl = resolved?.url ?: rawSourceUrl
-        val finalHeaders = resolved?.headers ?: initialHeaders
+        val rawFinalHeaders = resolved?.headers ?: initialHeaders
+        val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
         val finalDrm = resolved?.drm ?: sourceDrm
 
         val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
@@ -310,13 +316,11 @@ fun LivePlayerScreen(
         }
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // Live stream low-latency & speed adjustment configuration (like VLC/TiviMate)
+        // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(5000)
-            .setMinOffsetMs(2000)
-            .setMaxOffsetMs(15000)
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.03f)
+            .setTargetOffsetMs(20000)
+            .setMinOffsetMs(5000)
+            .setMaxOffsetMs(60000)
             .build()
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 

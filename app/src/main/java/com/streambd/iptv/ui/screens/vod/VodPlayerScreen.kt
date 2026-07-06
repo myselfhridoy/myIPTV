@@ -146,6 +146,10 @@ fun VodPlayerScreen(
         val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
 
         // Resolve token if present, or pre-resolve generic links
+        val currentPlayRef = stream.headers?.entries?.firstOrNull { 
+            val l = it.key.lowercase()
+            l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref"
+        }?.value
         val resolved = if (!stream.tokenUrl.isNullOrEmpty()) {
             com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
@@ -154,7 +158,8 @@ fun VodPlayerScreen(
                 tokenId = stream.tokenId?.toString(),
                 headers = initialHeaders,
                 tokenMatch = stream.tokenMatch,
-                tokenReplace = stream.tokenReplace
+                tokenReplace = stream.tokenReplace,
+                playRef = currentPlayRef
             )
         } else {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
@@ -165,13 +170,43 @@ fun VodPlayerScreen(
                         val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
                         val req = okhttp3.Request.Builder().url(stream.url).apply {
                             initialHeaders.forEach { (k, v) -> header(k, v) }
-                        }.head().build()
+                        }.head().build() // Use HEAD first
                         
                         var res = client.newCall(req).execute()
-                        if (!res.isSuccessful && res.code == 405) {
+                        val isPlaylistType = res.header("Content-Type")?.lowercase()?.let { 
+                            it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") 
+                        } == true
+                        
+                        if (!res.isSuccessful || isPlaylistType) {
                             res.close()
-                            val getReq = req.newBuilder().get().build()
+                            val getReq = okhttp3.Request.Builder().url(stream.url).apply {
+                                initialHeaders.forEach { (k, v) -> header(k, v) }
+                            }.build()
                             res = client.newCall(getReq).execute()
+                            if (res.isSuccessful && isPlaylistType) {
+                                val bodyStr = res.body?.string() ?: ""
+                                if (bodyStr.contains("#EXTM3U")) {
+                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
+                                    if (parsedChannels.isNotEmpty()) {
+                                        val first = parsedChannels.first()
+                                        val mergedHeaders = initialHeaders.toMutableMap()
+                                        first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        first.userAgent?.let { mergedHeaders["User-Agent"] = it }
+                                        first.cookie?.let { mergedHeaders["Cookie"] = it }
+                                        first.httpReferer?.let { mergedHeaders["Referer"] = it }
+                                        first.origin?.let { mergedHeaders["Origin"] = it }
+                                        
+                                        val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
+                                        innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        
+                                        return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                            url = innerParsed.cleanUrl,
+                                            headers = mergedHeaders,
+                                            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                        )
+                                    }
+                                }
+                            }
                         }
                         
                         res.use { response ->
@@ -196,7 +231,8 @@ fun VodPlayerScreen(
         }
 
         val finalUrl = resolved?.url ?: stream.url
-        val finalHeaders = resolved?.headers ?: initialHeaders
+        val rawFinalHeaders = resolved?.headers ?: initialHeaders
+        val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
         val finalDrm = resolved?.drm ?: stream.drm
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {

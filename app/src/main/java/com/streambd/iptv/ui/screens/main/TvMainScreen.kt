@@ -97,7 +97,16 @@ fun TvMainScreen(
             ) {
                 if (isDrawerExpanded) {
                     Column(
-                        modifier = Modifier.fillMaxSize().focusRequester(drawerFocusRequester),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .focusRequester(drawerFocusRequester)
+                            .onKeyEvent {
+                                if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionRight || it.key == Key.Back)) {
+                                    scope.launch { drawerState.setValue(DrawerValue.Closed) }
+                                    return@onKeyEvent true
+                                }
+                                false
+                            },
                         horizontalAlignment = Alignment.Start,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -124,7 +133,15 @@ fun TvMainScreen(
                                         contentDescription = tab.title
                                     )
                                 },
-                                modifier = Modifier.padding(vertical = 4.dp),
+                                modifier = Modifier
+                                    .padding(vertical = 4.dp)
+                                    .onKeyEvent {
+                                        if (it.type == KeyEventType.KeyDown && (it.key == Key.DirectionRight || it.key == Key.Back)) {
+                                            scope.launch { drawerState.setValue(DrawerValue.Closed) }
+                                            return@onKeyEvent true
+                                        }
+                                        false
+                                    },
                                 colors = NavigationDrawerItemDefaults.colors(
                                     containerColor = Color.Transparent,
                                     contentColor = Color.Gray,
@@ -159,15 +176,6 @@ fun TvMainScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .onKeyEvent {
-                    if (it.type == KeyEventType.KeyDown && it.key == Key.DirectionLeft) {
-                        if (drawerState.currentValue == DrawerValue.Closed) {
-                            scope.launch { drawerState.setValue(DrawerValue.Open) }
-                            return@onKeyEvent true
-                        }
-                    }
-                    false
-                }
                 .padding(horizontal = 58.dp, vertical = 28.dp)
         ) {
             when (selectedTab) {

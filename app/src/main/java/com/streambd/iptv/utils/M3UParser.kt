@@ -474,6 +474,11 @@ object M3UParser {
                 if (lower == "tokenurl" || lower == "token-url" || lower == "tokenid" || lower == "tokenmatch" || lower == "tokenreplace" || lower == "drm-type" || lower == "drm-url" || lower == "drm-key") {
                     custom[key] = value
                     custom[lower] = value
+                } else if (lower == "playref" || lower == "play-ref" || lower == "streamref" || lower == "stream-ref" || lower == "stream-referer" || lower == "m3u8-referer" || lower == "cdnref" || lower == "mediaref" || lower == "liveref") {
+                    custom["playref"] = value
+                    custom[key] = value
+                    custom[lower] = value
+                    headers["PlayRef"] = value
                 } else {
                     headers[key] = value
                     if (lower == "http-referer" || lower == "http-referrer" || lower == "referrer") {

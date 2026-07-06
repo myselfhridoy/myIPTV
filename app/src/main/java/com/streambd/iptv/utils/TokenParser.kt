@@ -20,9 +20,9 @@ data class ResolvedToken(
 
 object TokenParser {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
+    private val client = UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -34,7 +34,8 @@ object TokenParser {
         tokenId: String? = null,
         headers: Map<String, String>? = null,
         tokenMatch: String? = null,
-        tokenReplace: String? = null
+        tokenReplace: String? = null,
+        playRef: String? = null
     ): ResolvedToken? = withContext(Dispatchers.IO) {
         if (tokenUrl.isNullOrEmpty()) return@withContext null
 
@@ -560,12 +561,49 @@ object TokenParser {
         return null
     }
 
-    private fun getStreamHeaders(baseUrl: String, headers: Map<String, String>?): Map<String, String> {
+    fun applyPlayRefToHeaders(baseUrl: String, headers: Map<String, String>?, playRef: String? = null): Map<String, String> {
+        return getStreamHeaders(baseUrl, headers, playRef)
+    }
+
+    private fun getStreamHeaders(baseUrl: String, headers: Map<String, String>?, playRef: String? = null): Map<String, String> {
         val out = headers?.toMutableMap() ?: mutableMapOf()
         try {
-            val u = URL(baseUrl)
-            out["Referer"] = "${u.protocol}://${u.host}/"
-            out["Origin"] = "${u.protocol}://${u.host}"
+            // 1. Check if user specified a dedicated PlayRef / stream-referer for video playback
+            val explicitPlayRef = playRef ?: out.entries.firstOrNull { 
+                val l = it.key.lowercase()
+                l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref" || l == "stream-referer" || l == "m3u8-referer" || l == "cdnref" || l == "mediaref" || l == "liveref"
+            }?.value
+            
+            // Remove control keys from out map so OkHttp/ExoPlayer only sends clean standard HTTP headers
+            out.keys.filter { 
+                val l = it.lowercase()
+                l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref" || l == "stream-referer" || l == "m3u8-referer" || l == "cdnref" || l == "mediaref" || l == "liveref"
+            }.forEach { out.remove(it) }
+
+            if (!explicitPlayRef.isNullOrEmpty()) {
+                out["Referer"] = explicitPlayRef
+                try {
+                    val ru = URL(explicitPlayRef)
+                    out["Origin"] = "${ru.protocol}://${ru.host}"
+                } catch (e: Exception) {}
+                return out
+            }
+            
+            // 2. If no PlayRef is specified, check if Referer already exists
+            val existingRefererKey = out.keys.firstOrNull { it.lowercase() == "referer" || it.lowercase() == "referrer" }
+            if (existingRefererKey == null) {
+                val u = URL(baseUrl)
+                out["Referer"] = "${u.protocol}://${u.host}/"
+                out["Origin"] = "${u.protocol}://${u.host}"
+            } else if (!out.keys.any { it.lowercase() == "origin" }) {
+                val refVal = out[existingRefererKey]
+                if (!refVal.isNullOrEmpty()) {
+                    try {
+                        val ru = URL(refVal)
+                        out["Origin"] = "${ru.protocol}://${ru.host}"
+                    } catch (e: Exception) {}
+                }
+            }
         } catch (e: Exception) {}
         return out
     }

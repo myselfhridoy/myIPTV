@@ -218,29 +218,35 @@ object WebViewSniffer {
                 
                 var windowManager: android.view.WindowManager? = null
                 var layoutParams: android.view.WindowManager.LayoutParams? = null
-                
+                var addedToWindow = false
+
                 try {
-                    windowManager = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-                    layoutParams = android.view.WindowManager.LayoutParams(
-                        1, 1,
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-                            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                        else
-                            android.view.WindowManager.LayoutParams.TYPE_PHONE,
-                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        android.graphics.PixelFormat.TRANSPARENT
-                    )
-                    if (context is android.app.Activity) {
-                        layoutParams.type = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG
-                    }
-                    windowManager.addView(webView, layoutParams)
-                } catch (e: Exception) {
-                    try {
-                        if (context is android.app.Activity) {
-                            val rootView = context.findViewById<android.view.ViewGroup>(android.R.id.content)
-                            rootView?.addView(webView, android.view.ViewGroup.LayoutParams(1, 1))
+                    if (context is android.app.Activity && !context.isFinishing && !context.isDestroyed) {
+                        val rootView = context.findViewById<android.view.ViewGroup>(android.R.id.content)
+                        if (rootView != null) {
+                            rootView.addView(webView, android.view.ViewGroup.LayoutParams(20, 20))
+                            addedToWindow = true
                         }
-                    } catch (e2: Exception) {}
+                    }
+                } catch (e: Exception) {}
+
+                if (!addedToWindow) {
+                    try {
+                        windowManager = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+                        layoutParams = android.view.WindowManager.LayoutParams(
+                            20, 20,
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+                                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            else
+                                android.view.WindowManager.LayoutParams.TYPE_PHONE,
+                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            android.graphics.PixelFormat.TRANSPARENT
+                        )
+                        if (context is android.app.Activity) {
+                            layoutParams.type = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG
+                        }
+                        windowManager.addView(webView, layoutParams)
+                    } catch (e: Exception) {}
                 }
 
                 fun cleanup() {
@@ -316,6 +322,9 @@ object WebViewSniffer {
                 webView.settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    databaseEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
                     mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
                     useWideViewPort = true
@@ -697,6 +706,15 @@ object WebViewSniffer {
                 }
 
                 webView.webViewClient = object : WebViewClient() {
+                    override fun onReceivedSslError(
+                        view: WebView?,
+                        handler: android.webkit.SslErrorHandler?,
+                        error: android.net.http.SslError?
+                    ) {
+                        // Crucial for Android 7.0 TV Box: Let's Encrypt / modern SSL root certs are expired or untrusted on older OS
+                        handler?.proceed()
+                    }
+
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
                         if (!url.isNullOrBlank()) currentPageUrl = url
