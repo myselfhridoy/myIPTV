@@ -54,10 +54,10 @@ fun AppNavigation(
     val loadControl = remember {
         androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 2500,
-                /* maxBufferMs = */ 15000,
-                /* bufferForPlaybackMs = */ 1000,
-                /* bufferForPlaybackAfterRebufferMs = */ 2000
+                /* minBufferMs = */ 5000,
+                /* maxBufferMs = */ 60000,
+                /* bufferForPlaybackMs = */ 500,
+                /* bufferForPlaybackAfterRebufferMs = */ 1500
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
