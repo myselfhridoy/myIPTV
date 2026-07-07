@@ -124,22 +124,48 @@ class LiveRepository {
                 extractChannelsRecursively(element.opt(i), currentCategory, streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
             }
         } else if (element is org.json.JSONObject) {
-            if (element.has(streamField)) {
-                val title = element.optString(titleField, "Unknown").takeIf { it.isNotBlank() } ?: "Unknown"
-                val logo = element.optString(logoField, "").trim().replace(" ", "%20")
-                val category = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+            val hasDirectStream = element.has(streamField) || element.has("url") || element.has("stream_url") || element.has("link")
+            val hasSourcesObj = element.has("sources") && element.opt("sources") is org.json.JSONObject
+            
+            if (hasDirectStream || hasSourcesObj) {
+                val title = element.optString(titleField, element.optString("name", element.optString("title", element.optString("tv_name", "Unknown")))).takeIf { it.isNotBlank() } ?: "Unknown"
+                val logo = M3UParser.extractBestLogo(element, logoField)
+                val category = element.optString(categoryField, element.optString("group-title", element.optString("category", element.optString("group", currentCategory)))).takeIf { it.isNotBlank() } ?: currentCategory
                 
-                var stream = element.optString(streamField, "")
-                if (stream.isNotBlank()) {
+                val sourcesMap = mutableMapOf<String, String>()
+                if (hasSourcesObj) {
+                    try {
+                        val sObj = element.getJSONObject("sources")
+                        sObj.keys().forEach { k ->
+                            val sVal = sObj.optString(k, "").trim()
+                            if (sVal.isNotEmpty()) {
+                                sourcesMap[k] = if (streamField == "stream_name" && prefix.contains("channel=")) {
+                                    "$prefix${java.net.URLEncoder.encode(sVal, "UTF-8")}$suffix"
+                                } else {
+                                    "$prefix$sVal$suffix"
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {}
+                }
+                
+                var stream = element.optString(streamField, element.optString("url", element.optString("stream_url", element.optString("link", "")))).trim()
+                if (stream.isEmpty() && sourcesMap.isNotEmpty()) {
+                    stream = sourcesMap.values.first()
+                } else if (stream.isNotEmpty()) {
                     if (streamField == "stream_name" && prefix.contains("channel=")) {
-                         stream = java.net.URLEncoder.encode(stream, "UTF-8")
+                        stream = java.net.URLEncoder.encode(stream, "UTF-8")
                     }
-                    val finalUrl = "$prefix$stream$suffix"
+                    stream = "$prefix$stream$suffix"
+                }
+                
+                if (stream.isNotBlank()) {
                     channelList.add(Channel(
                         name = title,
-                        url = finalUrl,
+                        url = stream,
                         logo = logo,
-                        group = category
+                        group = category,
+                        sources = sourcesMap
                     ))
                 }
             } else {

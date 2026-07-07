@@ -28,6 +28,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import com.streambd.iptv.utils.M3UParser
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -380,12 +381,22 @@ private fun extractChannelsRecursively(
             extractChannelsRecursively(element.opt(i), currentCategory, streamField, titleField, logoField, categoryField, prefix, suffix, sb)
         }
     } else if (element is JSONObject) {
-        if (element.has(streamField)) {
-            val title = element.optString(titleField, "Unknown").takeIf { it.isNotBlank() } ?: "Unknown"
-            val logo = element.optString(logoField, "").trim().replace(" ", "%20")
-            val category = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+        val hasDirectStream = element.has(streamField) || element.has("url") || element.has("stream_url") || element.has("link")
+        val hasSourcesObj = element.has("sources") && element.opt("sources") is JSONObject
+        
+        if (hasDirectStream || hasSourcesObj) {
+            val title = element.optString(titleField, element.optString("name", element.optString("title", element.optString("tv_name", "Unknown")))).takeIf { it.isNotBlank() } ?: "Unknown"
+            val logo = M3UParser.extractBestLogo(element, logoField)
+            val category = element.optString(categoryField, element.optString("group-title", element.optString("category", element.optString("group", currentCategory)))).takeIf { it.isNotBlank() } ?: currentCategory
             
-            var stream = element.optString(streamField, "")
+            var stream = element.optString(streamField, element.optString("url", element.optString("stream_url", element.optString("link", "")))).trim()
+            if (stream.isEmpty() && hasSourcesObj) {
+                try {
+                    val sObj = element.getJSONObject("sources")
+                    val firstKey = sObj.keys().asSequence().firstOrNull()
+                    if (firstKey != null) stream = sObj.optString(firstKey, "").trim()
+                } catch (e: Exception) {}
+            }
             if (stream.isNotBlank()) {
                 if (streamField == "stream_name" && prefix.contains("channel=")) {
                      stream = java.net.URLEncoder.encode(stream, "UTF-8")

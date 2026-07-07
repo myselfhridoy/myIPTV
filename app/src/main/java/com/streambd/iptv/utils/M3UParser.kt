@@ -414,7 +414,7 @@ object M3UParser {
                 }
 
                 val name = obj.optString("name", obj.optString("title", "Unknown Channel"))
-                val logo = obj.optString("tvg-logo", obj.optString("logo", obj.optString("image", obj.optString("tvgLogo", ""))))
+                val logo = extractBestLogo(obj)
                 val group = obj.optString("group-title", obj.optString("group", obj.optString("category", obj.optString("groupTitle", "Uncategorized"))))
                 val isLive = obj.optBoolean("isLive", true)
                 
@@ -428,9 +428,9 @@ object M3UParser {
                     origin = origin,
                     cookie = cookie,
                     httpHeaders = httpHeaders,
-                    tokenUrl = parsed.custom["tokenurl"] ?: obj.optString("tokenUrl", null),
-                    tokenMatch = parsed.custom["tokenmatch"] ?: obj.optString("tokenMatch", null),
-                    tokenReplace = parsed.custom["tokenreplace"] ?: obj.optString("tokenReplace", null),
+                    tokenUrl = parsed.custom["tokenurl"] ?: if (obj.has("tokenUrl")) obj.optString("tokenUrl") else null,
+                    tokenMatch = parsed.custom["tokenmatch"] ?: if (obj.has("tokenMatch")) obj.optString("tokenMatch") else null,
+                    tokenReplace = parsed.custom["tokenreplace"] ?: if (obj.has("tokenReplace")) obj.optString("tokenReplace") else null,
                     tokenId = parsed.custom["tokenid"]?.toIntOrNull() ?: if (obj.has("tokenId")) obj.optInt("tokenId") else null,
                     drm = defaultDrm,
                     isLiveEvent = isLive,
@@ -496,5 +496,43 @@ object M3UParser {
             }
         }
         return ParsedUrl(cleanUrl, headers, custom)
+    }
+
+    fun extractBestLogo(element: org.json.JSONObject, configuredField: String = ""): String {
+        val candidates = mutableListOf<String>()
+        if (configuredField.isNotBlank()) {
+            candidates.add(configuredField)
+        }
+        candidates.addAll(listOf(
+            "tvg-logo", "logo", "logo_url", "poster_url", "poster",
+            "image", "icon", "thumb", "channel_logo", "tvgLogo", "logoUrl"
+        ))
+
+        var firstNonEmpty = ""
+        for (field in candidates) {
+            val valStr = element.optString(field, "").trim()
+            if (valStr.isNotEmpty()) {
+                if (valStr.startsWith("http://", ignoreCase = true) || valStr.startsWith("https://", ignoreCase = true) || valStr.startsWith("//")) {
+                    val url = if (valStr.startsWith("//")) "https:$valStr" else valStr
+                    return url.replace(" ", "%20")
+                }
+                if (firstNonEmpty.isEmpty()) {
+                    firstNonEmpty = valStr
+                }
+            }
+        }
+
+        if (firstNonEmpty.isNotEmpty() && !firstNonEmpty.startsWith("http", ignoreCase = true)) {
+            if (firstNonEmpty.endsWith(".png", ignoreCase = true) || firstNonEmpty.endsWith(".webp", ignoreCase = true) ||
+                firstNonEmpty.endsWith(".jpg", ignoreCase = true) || firstNonEmpty.endsWith(".jpeg", ignoreCase = true)) {
+                if (firstNonEmpty.matches(Regex("""^\d{10,}\.(png|jpg|jpeg|webp)$""", RegexOption.IGNORE_CASE))) {
+                    return "https://tstatic.akash-go.com/cms-ui/images/custom-content/$firstNonEmpty".replace(" ", "%20")
+                } else {
+                    return "https://cdnhost.akashbd.net/assets/uploads/channels_images/$firstNonEmpty?v=10.5.10".replace(" ", "%20")
+                }
+            }
+        }
+
+        return firstNonEmpty.replace(" ", "%20")
     }
 }
