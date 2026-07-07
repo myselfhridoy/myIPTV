@@ -382,7 +382,7 @@ private fun extractChannelsRecursively(
     } else if (element is JSONObject) {
         if (element.has(streamField)) {
             val title = element.optString(titleField, "Unknown").takeIf { it.isNotBlank() } ?: "Unknown"
-            val logo = element.optString(logoField, "")
+            val logo = element.optString(logoField, "").trim().replace(" ", "%20")
             val category = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
             
             var stream = element.optString(streamField, "")

@@ -31,9 +31,20 @@ class MainActivity : ComponentActivity() {
         com.streambd.iptv.utils.RemoteConfigManager.init()
         mainViewModel.fetchAddons(applicationContext)
         
-        // Configure global Coil ImageLoader with UnsafeOkHttpClient to bypass SSL/TLS & User-Agent blocks on IPTV logo servers
+        // Configure global Coil ImageLoader with UnsafeOkHttpClient & standard Browser User-Agent to bypass SSL/TLS & CDN blocks on IPTV logo servers
         val imageLoader = coil.ImageLoader.Builder(applicationContext)
-            .okHttpClient { com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient() }
+            .okHttpClient {
+                com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
+                    .addInterceptor { chain ->
+                        val req = chain.request()
+                        val newReq = req.newBuilder()
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                            .header("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                            .build()
+                        chain.proceed(newReq)
+                    }
+                    .build()
+            }
             .crossfade(true)
             .build()
         coil.Coil.setImageLoader(imageLoader)
