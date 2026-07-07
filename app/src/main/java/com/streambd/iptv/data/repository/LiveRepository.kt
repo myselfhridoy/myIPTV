@@ -48,13 +48,13 @@ class LiveRepository {
                 val suffix = uri.getQueryParameter("suffix") ?: ""
                 val headers = uri.getQueryParameter("headers") ?: ""
                 
-                val client = okhttp3.OkHttpClient.Builder()
+                val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
                     .addInterceptor(com.streambd.iptv.data.api.DecryptionInterceptor())
                     .build()
                 val requestBuilder = okhttp3.Request.Builder().url(targetUrl)
                 
                 if (headers.isNotEmpty()) {
-                    headers.split("\n").forEach { line ->
+                    headers.split("\r\n", "\n").forEach { line ->
                         val parts = line.split(":", limit = 2)
                         if (parts.size == 2) {
                             requestBuilder.addHeader(parts[0].trim(), parts[1].trim())
@@ -69,43 +69,22 @@ class LiveRepository {
                 
                 val body = response.body?.string() ?: return@withContext emptyList()
                 
-                var jsonArray: org.json.JSONArray? = null
+                var rootElement: Any? = null
                 if (body.trim().startsWith("[")) {
-                    jsonArray = org.json.JSONArray(body)
+                    rootElement = org.json.JSONArray(body)
                 } else if (body.trim().startsWith("{")) {
                     val obj = org.json.JSONObject(body)
                     if (arrayPath.isNotEmpty() && obj.has(arrayPath)) {
-                        jsonArray = obj.getJSONArray(arrayPath)
+                        rootElement = obj.opt(arrayPath)
+                    } else {
+                        rootElement = obj
                     }
                 }
                 
-                if (jsonArray == null) return@withContext emptyList()
+                if (rootElement == null) return@withContext emptyList()
                 
                 val channelList = mutableListOf<Channel>()
-                for (i in 0 until jsonArray.length()) {
-                    try {
-                        val item = jsonArray.getJSONObject(i)
-                        val title = item.optString(titleField, "Unknown")
-                        val logo = item.optString(logoField, "")
-                        val category = item.optString(categoryField, "Uncategorized")
-                        
-                        var stream = item.optString(streamField, "")
-                        if (stream.isEmpty()) continue
-                        
-                        if (streamField == "stream_name" && prefix.contains("channel=")) {
-                             stream = java.net.URLEncoder.encode(stream, "UTF-8")
-                        }
-                        
-                        val finalUrl = "$prefix$stream$suffix"
-                        
-                        channelList.add(Channel(
-                            name = title,
-                            url = finalUrl,
-                            logo = logo,
-                            group = category
-                        ))
-                    } catch (e: Exception) {}
-                }
+                extractChannelsRecursively(rootElement, "Uncategorized", streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
                 
                 return@withContext channelList
             }
@@ -126,6 +105,51 @@ class LiveRepository {
                 com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e)
             } catch (ce: Exception) {}
             emptyList()
+        }
+    }
+
+    private fun extractChannelsRecursively(
+        element: Any?,
+        currentCategory: String,
+        streamField: String,
+        titleField: String,
+        logoField: String,
+        categoryField: String,
+        prefix: String,
+        suffix: String,
+        channelList: MutableList<Channel>
+    ) {
+        if (element is org.json.JSONArray) {
+            for (i in 0 until element.length()) {
+                extractChannelsRecursively(element.opt(i), currentCategory, streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
+            }
+        } else if (element is org.json.JSONObject) {
+            if (element.has(streamField)) {
+                val title = element.optString(titleField, "Unknown").takeIf { it.isNotBlank() } ?: "Unknown"
+                val logo = element.optString(logoField, "")
+                val category = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+                
+                var stream = element.optString(streamField, "")
+                if (stream.isNotBlank()) {
+                    if (streamField == "stream_name" && prefix.contains("channel=")) {
+                         stream = java.net.URLEncoder.encode(stream, "UTF-8")
+                    }
+                    val finalUrl = "$prefix$stream$suffix"
+                    channelList.add(Channel(
+                        name = title,
+                        url = finalUrl,
+                        logo = logo,
+                        group = category
+                    ))
+                }
+            } else {
+                val nextCategory = element.optString(categoryField, "").takeIf { it.isNotBlank() } ?: currentCategory
+                val keys = element.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    extractChannelsRecursively(element.opt(key), nextCategory, streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
+                }
+            }
         }
     }
 }
