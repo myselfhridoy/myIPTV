@@ -41,6 +41,12 @@ object TokenParser {
 
         val lowerTokenUrl = tokenUrl.lowercase()
 
+        // 0. YouTube extractor via NewPipeExtractor
+        if (lowerTokenUrl == "youtube" || lowerTokenUrl == "yt" || YouTubeExtractor.isYouTubeUrl(baseUrl)) {
+            val ytToken = YouTubeExtractor.extractStreamUrl(baseUrl)
+            if (ytToken != null) return@withContext ytToken
+        }
+
         // 0. streamBD WebViewSniffer
         if (lowerTokenUrl == "streambd" || lowerTokenUrl == "streamplay") {
             if (baseUrl.contains("sportsupa.sbs") || baseUrl.contains("streamed.pk")) {
