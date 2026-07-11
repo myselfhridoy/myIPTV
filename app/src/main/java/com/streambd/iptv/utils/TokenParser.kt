@@ -242,10 +242,16 @@ object TokenParser {
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
                     val html = res.body?.string() ?: ""
-                    val m = Pattern.compile("return\\s*\\(\\s*\\[(.*?)\\]\\.join\\(", Pattern.CASE_INSENSITIVE).matcher(html)
-                    if (m.find()) {
-                        val arr = m.group(1)
-                        val chars = Regex("[\"']([^\"']*)[\"']").findAll(arr ?: "").map { it.groupValues[1] }.joinToString("").replace("\\/", "/")
+                    val funcRegex = Regex("function\\s+([a-zA-Z0-9_]+)\\s*\\(\\)\\s*\\{\\s*return\\s*\\(\\s*\\[(.*?)\\]\\.join", RegexOption.IGNORE_CASE)
+                    val allFuncs = funcRegex.findAll(html).toList()
+                    val targetFunc = allFuncs.find { match ->
+                        val name = match.groupValues[1]
+                        Regex("\\b$name\\b").findAll(html).count() > 1
+                    } ?: allFuncs.lastOrNull()
+
+                    if (targetFunc != null) {
+                        val arr = targetFunc.groupValues[2]
+                        val chars = Regex("[\"']([^\"']*)[\"']").findAll(arr).map { it.groupValues[1] }.joinToString("").replace("\\/", "/")
                         var finalUrl = chars
                         if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
                         return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers, playRef))
