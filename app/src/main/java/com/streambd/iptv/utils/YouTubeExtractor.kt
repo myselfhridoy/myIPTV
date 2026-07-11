@@ -65,6 +65,28 @@ object YouTubeExtractor {
     }
 
     suspend fun extractStreamUrl(url: String): ResolvedToken? = withContext(Dispatchers.IO) {
+        val mobileUa = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+        try {
+            val req = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", mobileUa)
+                .build()
+            val html = okHttpClient.newCall(req).execute().body?.string() ?: ""
+            val hlsMatch = Regex("hlsManifestUrl[\"']\\s*:\\s*[\"']([^\"']+)[\"']").find(html)
+            if (hlsMatch != null) {
+                val hlsUrl = hlsMatch.groupValues[1].replace("\\/", "/")
+                if (hlsUrl.isNotEmpty()) {
+                    return@withContext ResolvedToken(
+                        url = hlsUrl,
+                        headers = mapOf("User-Agent" to mobileUa),
+                        mimeType = "application/x-mpegURL"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         try {
             initIfNeeded()
             val service = ServiceList.YouTube
@@ -99,7 +121,19 @@ object YouTubeExtractor {
                 )
             }
 
-            // 2. Try video streams (HLS/DASH/Progressive)
+            // 2. Try DASH live stream URL
+            val dashUrl = streamInfo.dashMpdUrl
+            if (!dashUrl.isNullOrEmpty()) {
+                return@withContext ResolvedToken(
+                    url = dashUrl,
+                    headers = mapOf(
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    mimeType = "application/dash+xml"
+                )
+            }
+
+            // 3. Try video streams (HLS/DASH/Progressive)
             val videoStreams = streamInfo.videoStreams
             if (!videoStreams.isNullOrEmpty()) {
                 val bestStream = videoStreams.maxByOrNull { it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
