@@ -51,3 +51,11 @@
 
 # Firebase
 -keep class com.google.firebase.** { *; }
+
+# NewPipeExtractor & Rhino Javascript Engine
+-dontwarn java.beans.**
+-dontwarn org.mozilla.javascript.**
+-dontwarn org.schabi.newpipe.extractor.**
+-dontwarn org.jsoup.**
+-keep class org.schabi.newpipe.extractor.** { *; }
+-keep class org.mozilla.javascript.** { *; }
