@@ -414,6 +414,7 @@ object TokenParser {
                             iframeUrl = base + (if (iframeUrl.startsWith("/")) "" else "/") + iframeUrl
                         }
                         
+                        var currentIframeUrl = iframeUrl
                         req = Request.Builder().url(iframeUrl).apply {
                             header("User-Agent", USER_AGENT)
                             header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -440,6 +441,7 @@ object TokenParser {
                                             innerUrl = baseInner + (if (innerUrl.startsWith("/")) "" else "/") + innerUrl
                                         }
                                     }
+                                    currentIframeUrl = innerUrl
                                     req = Request.Builder().url(innerUrl).apply {
                                         header("User-Agent", USER_AGENT)
                                         header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
@@ -461,9 +463,16 @@ object TokenParser {
                                 val decodedBytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
                                 val m3u8Url = String(decodedBytes, Charsets.UTF_8)
                                 
+                                val parsedIframe = URL(currentIframeUrl)
+                                val dynamicDomain = if (parsedIframe.port != -1) {
+                                    "${parsedIframe.protocol}://${parsedIframe.host}:${parsedIframe.port}"
+                                } else {
+                                    "${parsedIframe.protocol}://${parsedIframe.host}"
+                                }
+                                
                                 val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
-                                streamHeaders["Referer"] = "https://dlhd.pk/"
-                                streamHeaders["Origin"] = "https://dlhd.pk"
+                                streamHeaders["Referer"] = "$dynamicDomain/"
+                                streamHeaders["Origin"] = dynamicDomain
                                 streamHeaders["User-Agent"] = USER_AGENT
                                 
                                 return@withContext ResolvedToken(url = m3u8Url, headers = streamHeaders)
