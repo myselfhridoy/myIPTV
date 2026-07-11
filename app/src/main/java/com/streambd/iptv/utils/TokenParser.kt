@@ -248,7 +248,7 @@ object TokenParser {
                         val chars = Regex("[\"']([^\"']*)[\"']").findAll(arr ?: "").map { it.groupValues[1] }.joinToString("").replace("\\/", "/")
                         var finalUrl = chars
                         if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
-                        return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers))
+                        return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers, playRef))
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }

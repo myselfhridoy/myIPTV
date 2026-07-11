@@ -68,7 +68,24 @@ object YouTubeExtractor {
         try {
             initIfNeeded()
             val service = ServiceList.YouTube
-            val streamInfo = StreamInfo.getInfo(service, url)
+            var targetUrl = url
+            if (!targetUrl.contains("watch?v=") && !targetUrl.contains("youtu.be/")) {
+                try {
+                    val req = okhttp3.Request.Builder()
+                        .url(targetUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .build()
+                    val html = okHttpClient.newCall(req).execute().body?.string() ?: ""
+                    val canonicalMatch = Regex("canonical.*?href=[\"']https://www\\.youtube\\.com/watch\\?v=([a-zA-Z0-9_-]+)").find(html)
+                        ?: Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"").find(html)
+                    canonicalMatch?.groupValues?.getOrNull(1)?.let { vid ->
+                        targetUrl = "https://www.youtube.com/watch?v=$vid"
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            val streamInfo = StreamInfo.getInfo(service, targetUrl)
 
             // 1. Try HLS live stream URL first
             val hlsUrl = streamInfo.hlsUrl
