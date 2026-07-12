@@ -165,7 +165,9 @@ fun VodPlayerScreen(
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            if (!extRegex.containsMatchIn(stream.url) && !paramRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url)) {
+            val shouldPreResolve = stream.url.contains(".php", ignoreCase = true) || 
+                (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
+            if (shouldPreResolve) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
