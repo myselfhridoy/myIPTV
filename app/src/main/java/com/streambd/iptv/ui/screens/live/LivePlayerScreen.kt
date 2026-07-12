@@ -281,26 +281,12 @@ fun LivePlayerScreen(
         val finalDrm = resolved?.drm ?: sourceDrm
 
         val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-            // Extract User-Agent case-insensitively
-            val userAgentKey = finalHeaders.keys.firstOrNull { it.lowercase() == "user-agent" }
-            if (userAgentKey != null) {
-                addInterceptor { chain ->
-                    val request = chain.request().newBuilder()
-                        .header("User-Agent", finalHeaders[userAgentKey]!!)
-                        .build()
-                    chain.proceed(request)
+            addInterceptor { chain ->
+                val builder = chain.request().newBuilder()
+                finalHeaders.forEach { (k, v) ->
+                    builder.header(k, v)
                 }
-            }
-            // Add other headers
-            val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
-            if (requestHeaders.isNotEmpty()) {
-                addInterceptor { chain ->
-                    val builder = chain.request().newBuilder()
-                        requestHeaders.forEach { (k, v) ->
-                            builder.header(k, v)
-                        }
-                    chain.proceed(builder.build())
-                }
+                chain.proceed(builder.build())
             }
         }.build()
 

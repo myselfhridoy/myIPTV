@@ -625,6 +625,9 @@ object TokenParser {
                     } catch (e: Exception) {}
                 }
             }
+            if (!out.keys.any { it.equals("User-Agent", ignoreCase = true) }) {
+                out["User-Agent"] = USER_AGENT
+            }
         } catch (e: Exception) {}
         return out
     }

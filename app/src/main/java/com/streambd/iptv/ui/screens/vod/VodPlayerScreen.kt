@@ -238,23 +238,12 @@ fun VodPlayerScreen(
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-                finalHeaders["User-Agent"]?.let { ua ->
-                    addInterceptor { chain ->
-                        val request = chain.request().newBuilder()
-                            .header("User-Agent", ua)
-                            .build()
-                        chain.proceed(request)
+                addInterceptor { chain ->
+                    val builder = chain.request().newBuilder()
+                    finalHeaders.forEach { (k, v) ->
+                        builder.header(k, v)
                     }
-                }
-                val requestHeaders = finalHeaders.filterKeys { it.lowercase() != "user-agent" }
-                if (requestHeaders.isNotEmpty()) {
-                    addInterceptor { chain ->
-                        val builder = chain.request().newBuilder()
-                            requestHeaders.forEach { (k, v) ->
-                                builder.header(k, v)
-                            }
-                        chain.proceed(builder.build())
-                    }
+                    chain.proceed(builder.build())
                 }
             }.build()
 

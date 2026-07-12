@@ -143,7 +143,7 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
                         $sId = $sm[1];
                     }
                     if ($sId) {
-                        $streamUrl = $hostBase . '/play/live.php?mac=' . urlencode($mac) . '&stream=' . urlencode($sId) . '&extension=m3u8';
+                        $streamUrl = $hostBase . '/play/live.php?mac=' . $mac . '&stream=' . $sId . '&extension=m3u8';
                     } else {
                         $streamUrl = preg_replace('/([?&]extension=)[^&]+/i', '${1}m3u8', preg_replace('/&play_token=[^&]+/i', '', $rawUrl));
                     }
@@ -161,7 +161,7 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
                 }
                 if (empty($streamId)) continue;
                 // Auto build standard live.php HLS stream URL from Portal & MAC
-                $streamUrl = ($baseUrl ?: 'http://line.tvdsz.cc') . '/play/live.php?mac=' . urlencode($mac) . '&stream=' . urlencode($streamId) . '&extension=m3u8';
+                $streamUrl = ($baseUrl ?: 'http://line.tvdsz.cc') . '/play/live.php?mac=' . $mac . '&stream=' . $streamId . '&extension=m3u8';
             }
         }
 
