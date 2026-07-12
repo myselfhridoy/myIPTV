@@ -629,11 +629,31 @@ object TokenParser {
         return out
     }
 
+    fun detectMimeType(url: String, explicitMimeType: String? = null): String? {
+        if (explicitMimeType != null) return explicitMimeType
+        val lower = url.lowercase()
+        if (lower.contains(".mpd") || lower.contains("extension=mpd") || lower.contains("output=mpd") || lower.contains("format=mpd")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_MPD
+        }
+        if (lower.contains(".m3u8") ||
+            lower.contains("extension=m3u8") ||
+            lower.contains("output=m3u8") ||
+            lower.contains("type=m3u8") ||
+            lower.contains("format=m3u8") ||
+            lower.contains("stream=m3u8") ||
+            lower.contains("hls=true") ||
+            lower.contains("m3u8=true")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        return null
+    }
+
     private fun isStreamUrl(url: String): Boolean {
         val ext = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
         val noDotExt = Regex("/(mpegts|hls|dash)(\\?|/|$)", RegexOption.IGNORE_CASE)
+        val paramExt = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
         val proto = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-        return ext.containsMatchIn(url) || noDotExt.containsMatchIn(url) || proto.containsMatchIn(url)
+        return ext.containsMatchIn(url) || noDotExt.containsMatchIn(url) || paramExt.containsMatchIn(url) || proto.containsMatchIn(url)
     }
 
     private fun extractAllUrls(payload: String): List<String> {

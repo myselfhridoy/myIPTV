@@ -205,8 +205,9 @@ fun LivePlayerScreen(
             )
         } else {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+            val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            if (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl)) {
+            if (!extRegex.containsMatchIn(rawSourceUrl) && !paramRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl)) {
                 // Pre-resolve non-standard extensions (like .php) to find actual media URL and Content-Type
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
@@ -260,7 +261,7 @@ fun LivePlayerScreen(
                                 var mimeType: String? = null
                                 if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
                                 else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
                                 
                                 com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
                             } else null
@@ -308,12 +309,7 @@ fun LivePlayerScreen(
         
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         
-        var mimeType = resolved?.mimeType
-        if (mimeType == null) {
-            val lowerUrl = finalUrl.lowercase()
-            if (lowerUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-            else if (lowerUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-        }
+        val mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
         // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)

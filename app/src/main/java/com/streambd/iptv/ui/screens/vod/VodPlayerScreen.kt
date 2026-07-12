@@ -163,8 +163,9 @@ fun VodPlayerScreen(
             )
         } else {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+            val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            if (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url)) {
+            if (!extRegex.containsMatchIn(stream.url) && !paramRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url)) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
@@ -216,7 +217,7 @@ fun VodPlayerScreen(
                                 var mimeType: String? = null
                                 if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
                                 else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                else if (finalUrl.contains(".m3u8")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
                                 
                                 com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
                             } else null
@@ -261,7 +262,8 @@ fun VodPlayerScreen(
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
-            resolved?.mimeType?.let { mediaItemBuilder.setMimeType(it) }
+            val mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
+            mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
             // Add subtitles from stream source if available
             val subtitleConfigs = stream.subtitles?.map { sub ->
