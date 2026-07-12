@@ -250,10 +250,22 @@ fun VodPlayerScreen(
             }
         }
 
-        val finalUrl = resolved?.url ?: stream.url
+        var finalUrl = resolved?.url ?: stream.url
         val rawFinalHeaders = resolved?.headers ?: initialHeaders
         val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
         val finalDrm = resolved?.drm ?: stream.drm
+
+        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
+            (finalUrl.contains("live.php", ignoreCase = true) ||
+             finalUrl.contains("extension=m3u8", ignoreCase = true) ||
+             !stream.tokenUrl.isNullOrEmpty() ||
+             finalUrl.contains("tokenUrl=", ignoreCase = true))
+
+        if (shouldWrapInMasterPlaylist) {
+            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n$finalUrl"
+            finalUrl = "data:application/x-mpegURL;base64," +
+                android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
+        }
 
         if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
             val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
@@ -270,7 +282,11 @@ fun VodPlayerScreen(
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
             val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
-            val mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
+            val mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
+                androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            } else {
+                com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
+            }
             mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
             // Add subtitles from stream source if available

@@ -298,10 +298,24 @@ fun LivePlayerScreen(
             }
         }
 
-        val finalUrl = resolved?.url ?: rawSourceUrl
+        var finalUrl = resolved?.url ?: rawSourceUrl
         val rawFinalHeaders = resolved?.headers ?: initialHeaders
         val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
         val finalDrm = resolved?.drm ?: sourceDrm
+
+        // Only wrap complex portal/redirect/tokenized HLS streams (live.php, extension=m3u8, or token-resolved streams like crichd)
+        // Leave direct standard CDN .m3u8 streams untouched to avoid unnecessary recursive playlist wrapping
+        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
+            (finalUrl.contains("live.php", ignoreCase = true) ||
+             finalUrl.contains("extension=m3u8", ignoreCase = true) ||
+             !currentTokenUrl.isNullOrEmpty() ||
+             finalUrl.contains("tokenUrl=", ignoreCase = true))
+
+        if (shouldWrapInMasterPlaylist) {
+            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n$finalUrl"
+            finalUrl = "data:application/x-mpegURL;base64," +
+                android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
+        }
 
         val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
             addInterceptor { chain ->
@@ -318,7 +332,11 @@ fun LivePlayerScreen(
         
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         
-        val mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
+        val mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
+            androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        } else {
+            com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
+        }
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
         // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)
