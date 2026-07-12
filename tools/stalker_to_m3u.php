@@ -98,9 +98,10 @@ function fetchStalkerChannels($portalUrl, $mac) {
     return ['channels' => $channels];
 }
 
-function generateM3uFromChannels($channels, $mac, $template) {
+function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
     $lines = ["#EXTM3U"];
     $count = 0;
+    $baseUrl = rtrim(cleanPortalUrl($portalUrl), '/');
 
     foreach ($channels as $ch) {
         if (!is_array($ch)) continue;
@@ -109,29 +110,48 @@ function generateM3uFromChannels($channels, $mac, $template) {
         $logo = trim($ch['logo'] ?? $ch['cmd_logo'] ?? '');
         $genre = trim($ch['tv_genre_id'] ?? $ch['category'] ?? 'Live TV');
         
-        // Extract stream ID
+        $cmd = trim($ch['cmd'] ?? $ch['url'] ?? '');
         $streamId = $ch['id'] ?? $ch['stream_id'] ?? null;
-        if (!$streamId && !empty($ch['cmd'])) {
-            // Extract numeric ID from cmd like "ffmpeg http://.../702"
-            if (preg_match('/\/(\d+)(?:\s|$|\?)/', $ch['cmd'], $m)) {
-                $streamId = $m[1];
+
+        // Determine Stream URL
+        $streamUrl = '';
+        if (!empty($template)) {
+            // User provided an explicit custom template
+            if (!$streamId && !empty($cmd)) {
+                if (preg_match('/\/(\d+)(?:\s|$|\?)/', $cmd, $m)) {
+                    $streamId = $m[1];
+                } else {
+                    $streamId = basename($cmd);
+                }
+            }
+            if (empty($streamId)) continue;
+            $streamUrl = str_replace(
+                ['{mac}', '{MAC}', '{stream_id}', '{id}', '{ID}'],
+                [$mac, $mac, $streamId, $streamId, $streamId],
+                $template
+            );
+        } else {
+            // Auto-detect directly from JSON / Portal
+            if (preg_match('/https?:\/\/[^\s\'"]+/i', $cmd, $matches)) {
+                $streamUrl = $matches[0];
             } else {
-                $streamId = basename(trim($ch['cmd']));
+                // Extract numeric stream ID if needed
+                if (!$streamId && !empty($cmd)) {
+                    if (preg_match('/[^\d](\d+)(?:[^\d]|$)/', $cmd, $m)) {
+                        $streamId = $m[1];
+                    } elseif (is_numeric($cmd)) {
+                        $streamId = $cmd;
+                    }
+                }
+                if (empty($streamId)) continue;
+                // Auto build standard live.php HLS stream URL from Portal & MAC
+                $streamUrl = ($baseUrl ?: 'http://line.tvdsz.cc') . '/play/live.php?mac=' . urlencode($mac) . '&stream=' . urlencode($streamId) . '&extension=m3u8';
             }
         }
 
-        if (empty($streamId)) continue;
-
-        // Build stream URL replacing placeholders
-        $streamUrl = str_replace(
-            ['{mac}', '{MAC}', '{stream_id}', '{id}', '{ID}'],
-            [$mac, $mac, $streamId, $streamId, $streamId],
-            $template
-        );
-
         $extInf = sprintf(
             '#EXTINF:-1 tvg-id="%s" tvg-logo="%s" group-title="%s",%s',
-            htmlspecialchars($streamId),
+            htmlspecialchars((string)$streamId),
             htmlspecialchars($logo),
             htmlspecialchars($genre),
             $name
@@ -146,16 +166,14 @@ function generateM3uFromChannels($channels, $mac, $template) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($action)) {
-    if (empty($streamTemplate)) {
-        $errorMessage = "Please enter a Custom Stream URL Template containing {stream_id}.";
-    } elseif ($inputMode === 'fetch' && (empty($portalUrl) || empty($macAddress))) {
+    if ($inputMode === 'fetch' && (empty($portalUrl) || empty($macAddress))) {
         $errorMessage = "Please enter both the Stalker Portal URL and MAC Address.";
     } elseif ($inputMode === 'fetch') {
         $result = fetchStalkerChannels($portalUrl, $macAddress);
         if (isset($result['error'])) {
             $errorMessage = $result['error'];
         } else {
-            $gen = generateM3uFromChannels($result['channels'], $macAddress, $streamTemplate);
+            $gen = generateM3uFromChannels($result['channels'], $macAddress, $streamTemplate, $portalUrl);
             $outputM3u = $gen['m3u'];
             $successCount = $gen['count'];
         }
@@ -165,7 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($action)) {
         if (!is_array($channels)) {
             $errorMessage = "Invalid JSON input. Must be a valid Stalker channel list JSON or array.";
         } else {
-            $gen = generateM3uFromChannels($channels, $macAddress, $streamTemplate);
+            $gen = generateM3uFromChannels($channels, $macAddress, $streamTemplate, $portalUrl);
             $outputM3u = $gen['m3u'];
             $successCount = $gen['count'];
         }
@@ -339,10 +357,10 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
                     </div>
 
                     <div class="form-group full-width">
-                        <label>Custom Stream URL Template</label>
+                        <label>Custom Stream URL Template <span style="text-transform: none; font-weight: normal; color: #64748b;">(Optional - auto-detected from JSON / Portal if empty)</span></label>
                         <input type="text" name="streamTemplate" value="<?= htmlspecialchars($streamTemplate) ?>" placeholder="e.g. http://your-server.com/play/live.php?mac={mac}&stream={stream_id}&extension=m3u8">
                         <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-                            Placeholders available: <b>{mac}</b> (MAC Address), <b>{stream_id}</b> (Channel Stream ID)
+                            Leave empty to auto-generate from Portal & JSON. Or use placeholders: <b>{mac}</b>, <b>{stream_id}</b> to customize.
                         </span>
                     </div>
                 </div>
