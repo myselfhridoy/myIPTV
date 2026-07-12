@@ -10,9 +10,9 @@
 // Handle CLI vs Web Request
 $isCli = (php_sapi_name() === 'cli');
 
-$portalUrl = $_POST['portalUrl'] ?? 'http://pro.jekol.cfd/c/';
-$macAddress = $_POST['macAddress'] ?? '00:1A:79:82:F7:D5';
-$streamTemplate = $_POST['streamTemplate'] ?? 'http://line.tvdsz.cc/play/live.php?mac={mac}&stream={stream_id}&extension=m3u8';
+$portalUrl = $_POST['portalUrl'] ?? '';
+$macAddress = $_POST['macAddress'] ?? '';
+$streamTemplate = $_POST['streamTemplate'] ?? '';
 $inputMode = $_POST['inputMode'] ?? 'fetch'; // 'fetch' or 'json'
 $rawJsonInput = $_POST['rawJsonInput'] ?? '';
 $action = $_POST['action'] ?? '';
@@ -146,7 +146,11 @@ function generateM3uFromChannels($channels, $mac, $template) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($action)) {
-    if ($inputMode === 'fetch') {
+    if (empty($streamTemplate)) {
+        $errorMessage = "Please enter a Custom Stream URL Template containing {stream_id}.";
+    } elseif ($inputMode === 'fetch' && (empty($portalUrl) || empty($macAddress))) {
+        $errorMessage = "Please enter both the Stalker Portal URL and MAC Address.";
+    } elseif ($inputMode === 'fetch') {
         $result = fetchStalkerChannels($portalUrl, $macAddress);
         if (isset($result['error'])) {
             $errorMessage = $result['error'];
@@ -321,12 +325,12 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
 
                     <div class="form-group">
                         <label>MAC Address</label>
-                        <input type="text" name="macAddress" value="<?= htmlspecialchars($macAddress) ?>" placeholder="00:1A:79:82:F7:D5">
+                        <input type="text" name="macAddress" value="<?= htmlspecialchars($macAddress) ?>" placeholder="e.g. 00:1A:2B:3C:4D:5E">
                     </div>
 
                     <div class="form-group full-width" id="portalUrlGroup">
                         <label>Stalker Portal Base URL</label>
-                        <input type="text" name="portalUrl" value="<?= htmlspecialchars($portalUrl) ?>" placeholder="http://pro.jekol.cfd/c/">
+                        <input type="text" name="portalUrl" value="<?= htmlspecialchars($portalUrl) ?>" placeholder="e.g. http://portal.example.com/c/">
                     </div>
 
                     <div class="form-group full-width" id="jsonInputGroup" style="display: <?= $inputMode === 'json' ? 'flex' : 'none' ?>;">
@@ -336,7 +340,7 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
 
                     <div class="form-group full-width">
                         <label>Custom Stream URL Template</label>
-                        <input type="text" name="streamTemplate" value="<?= htmlspecialchars($streamTemplate) ?>" placeholder="http://line.tvdsz.cc/play/live.php?mac={mac}&stream={stream_id}&extension=m3u8">
+                        <input type="text" name="streamTemplate" value="<?= htmlspecialchars($streamTemplate) ?>" placeholder="e.g. http://your-server.com/play/live.php?mac={mac}&stream={stream_id}&extension=m3u8">
                         <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
                             Placeholders available: <b>{mac}</b> (MAC Address), <b>{stream_id}</b> (Channel Stream ID)
                         </span>
