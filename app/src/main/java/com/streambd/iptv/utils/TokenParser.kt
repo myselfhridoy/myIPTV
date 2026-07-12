@@ -256,19 +256,9 @@ object TokenParser {
                         if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
                         return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers, playRef))
                     }
-
-                    // Try JSDecoder if static function regex didn't match
-                    val decoded = JSDecoder.decode(context, html)
-                    if (decoded != null) {
-                        var finalUrl = decoded.url
-                        if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
-                        return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers, playRef), drm = decoded.drm)
-                    }
                 }
             } catch (e: Exception) { e.printStackTrace() }
-
-            // Fallback to WebViewSniffer if static crichd extraction fails
-            return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+            return@withContext null
         }
 
         // 4. fetchiframe
