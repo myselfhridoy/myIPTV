@@ -54,12 +54,13 @@ fun AppNavigation(
     val loadControl = remember {
         androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15000,
-                /* maxBufferMs = */ 120000,
-                /* bufferForPlaybackMs = */ 1500,
-                /* bufferForPlaybackAfterRebufferMs = */ 3000
+                /* minBufferMs = */ 30000,       // 30s min buffer (was 15s)
+                /* maxBufferMs = */ 300000,       // 5 min max buffer for 4K streams (was 120s)
+                /* bufferForPlaybackMs = */ 2500, // Start playback after 2.5s buffered
+                /* bufferForPlaybackAfterRebufferMs = */ 5000 // After rebuffer, wait 5s
             )
-            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(60000, true) // Keep 60s back-buffer, evict when needed
+            .setPrioritizeTimeOverSizeThresholds(false) // Allow larger buffers for 4K
             .build()
     }
     

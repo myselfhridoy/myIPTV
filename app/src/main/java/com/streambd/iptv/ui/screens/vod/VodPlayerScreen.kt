@@ -172,7 +172,7 @@ fun VodPlayerScreen(
                  stream.url.contains(".m3u8", ignoreCase = true))
             
             if (isPhpHls) {
-                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2200000\n${stream.url}"
+                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n${stream.url}"
                 val dataUri = "data:application/x-mpegURL;base64," + 
                     android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
                 com.streambd.iptv.utils.ResolvedToken(

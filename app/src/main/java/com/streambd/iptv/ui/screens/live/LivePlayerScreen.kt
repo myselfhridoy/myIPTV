@@ -217,7 +217,8 @@ fun LivePlayerScreen(
             
             if (isPhpHls) {
                 // Generate in-memory HLS Master Playlist (identical to GitHub's test.m3u8)
-                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2200000\n${rawSourceUrl}"
+                // Use high bandwidth hint so ExoPlayer allocates enough buffer for 4K streams
+                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n${rawSourceUrl}"
                 val dataUri = "data:application/x-mpegURL;base64," + 
                     android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
                 com.streambd.iptv.utils.ResolvedToken(
@@ -330,9 +331,10 @@ fun LivePlayerScreen(
 
         val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                return if (loadErrorInfo.errorCount <= 5) 1000L else super.getRetryDelayMsFor(loadErrorInfo)
+                // Exponential backoff: 1s, 2s, 4s, 8s... up to 10 retries
+                return if (loadErrorInfo.errorCount <= 10) (1000L * (1 shl (loadErrorInfo.errorCount - 1).coerceAtMost(4))) else super.getRetryDelayMsFor(loadErrorInfo)
             }
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 10
         }
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
