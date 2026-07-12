@@ -40,6 +40,31 @@ object UnsafeOkHttpClient {
             builder.retryOnConnectionFailure(true)
             builder.pingInterval(10, java.util.concurrent.TimeUnit.SECONDS) // Keeps live stream TCP connections alive
 
+            builder.cookieJar(object : okhttp3.CookieJar {
+                private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
+
+                override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                    val host = url.host
+                    val list = cookieStore.getOrPut(host) { java.util.concurrent.CopyOnWriteArrayList() }
+                    cookies.forEach { newCookie ->
+                        list.removeAll { it.name == newCookie.name && it.path == newCookie.path }
+                        list.add(newCookie)
+                    }
+                }
+
+                override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                    val list = cookieStore[url.host] ?: return emptyList()
+                    val validCookies = mutableListOf<okhttp3.Cookie>()
+                    val now = System.currentTimeMillis()
+                    list.forEach { c ->
+                        if (c.expiresAt > now && c.matches(url)) {
+                            validCookies.add(c)
+                        }
+                    }
+                    return validCookies
+                }
+            })
+
             // Automatically inject Whitelisted Media Player User-Agent if not explicitly provided
             builder.addInterceptor { chain ->
                 val originalRequest = chain.request()

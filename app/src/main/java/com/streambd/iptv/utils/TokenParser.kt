@@ -614,7 +614,7 @@ object TokenParser {
             val existingRefererKey = out.keys.firstOrNull { it.lowercase() == "referer" || it.lowercase() == "referrer" }
             if (existingRefererKey == null) {
                 val u = URL(baseUrl)
-                out["Referer"] = "${u.protocol}://${u.host}/"
+                out["Referer"] = "${u.protocol}://${u.host}/c/"
                 out["Origin"] = "${u.protocol}://${u.host}"
             } else if (!out.keys.any { it.lowercase() == "origin" }) {
                 val refVal = out[existingRefererKey]
@@ -625,8 +625,14 @@ object TokenParser {
                     } catch (e: Exception) {}
                 }
             }
+            if (!out.keys.any { it.equals("Cookie", ignoreCase = true) }) {
+                val macMatch = Regex("[?&]mac=([0-9A-Fa-f:]+)", RegexOption.IGNORE_CASE).find(baseUrl)
+                if (macMatch != null) {
+                    out["Cookie"] = "mac=" + macMatch.groupValues[1] + "; st=1; timezone=GMT"
+                }
+            }
             if (!out.keys.any { it.equals("User-Agent", ignoreCase = true) }) {
-                out["User-Agent"] = USER_AGENT
+                out["User-Agent"] = "VLC/3.0.20 LibVLC/3.0.20 (OTT Navigator; TiviMate)"
             }
         } catch (e: Exception) {}
         return out
