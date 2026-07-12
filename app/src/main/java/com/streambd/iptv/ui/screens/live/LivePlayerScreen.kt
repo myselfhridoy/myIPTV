@@ -303,16 +303,18 @@ fun LivePlayerScreen(
         val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
         val finalDrm = resolved?.drm ?: sourceDrm
 
-        // Only wrap complex portal/redirect/tokenized HLS streams (live.php, extension=m3u8, or token-resolved streams like crichd)
-        // Leave direct standard CDN .m3u8 streams untouched to avoid unnecessary recursive playlist wrapping
-        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
-            (finalUrl.contains("live.php", ignoreCase = true) ||
-             finalUrl.contains("extension=m3u8", ignoreCase = true) ||
-             !currentTokenUrl.isNullOrEmpty() ||
-             finalUrl.contains("tokenUrl=", ignoreCase = true))
+        val isCrichd = currentTokenUrl?.equals("crichd", ignoreCase = true) == true ||
+            rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
+            finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
+
+        val isPhpHls = finalUrl.contains("live.php", ignoreCase = true) ||
+            finalUrl.contains("extension=m3u8", ignoreCase = true)
+
+        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || isPhpHls)
 
         if (shouldWrapInMasterPlaylist) {
-            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n$finalUrl"
+            val bandwidth = if (isCrichd) 220000 else 15000000
+            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
             finalUrl = "data:application/x-mpegURL;base64," +
                 android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
         }
