@@ -133,7 +133,23 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
         } else {
             // Auto-detect directly from JSON / Portal
             if (preg_match('/https?:\/\/[^\s\'"]+/i', $cmd, $matches)) {
-                $streamUrl = $matches[0];
+                $rawUrl = $matches[0];
+                // Always convert live.php URLs to clean HLS format (&extension=m3u8) without temporary tokens
+                if (strpos($rawUrl, 'live.php') !== false) {
+                    $parsedHost = parse_url($rawUrl);
+                    $hostBase = ($parsedHost['scheme'] ?? 'http') . '://' . ($parsedHost['host'] ?? '') . (!empty($parsedHost['port']) ? ':' . $parsedHost['port'] : '');
+                    $sId = $streamId;
+                    if (!$sId && preg_match('/[?&]stream=([^&]+)/i', $rawUrl, $sm)) {
+                        $sId = $sm[1];
+                    }
+                    if ($sId) {
+                        $streamUrl = $hostBase . '/play/live.php?mac=' . urlencode($mac) . '&stream=' . urlencode($sId) . '&extension=m3u8';
+                    } else {
+                        $streamUrl = preg_replace('/([?&]extension=)[^&]+/i', '${1}m3u8', preg_replace('/&play_token=[^&]+/i', '', $rawUrl));
+                    }
+                } else {
+                    $streamUrl = $rawUrl;
+                }
             } else {
                 // Extract numeric stream ID if needed
                 if (!$streamId && !empty($cmd)) {
