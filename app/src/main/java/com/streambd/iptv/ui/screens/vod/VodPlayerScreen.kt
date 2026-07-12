@@ -165,71 +165,88 @@ fun VodPlayerScreen(
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            val shouldPreResolve = stream.url.contains(".php", ignoreCase = true) || 
-                (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
-            if (shouldPreResolve) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
-                        val req = okhttp3.Request.Builder().url(stream.url).apply {
-                            initialHeaders.forEach { (k, v) -> header(k, v) }
-                        }.head().build() // Use HEAD first
-                        
-                        var res = client.newCall(req).execute()
-                        val isPlaylistType = res.header("Content-Type")?.lowercase()?.let { 
-                            it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") 
-                        } == true
-                        
-                        if (!res.isSuccessful || isPlaylistType) {
-                            res.close()
-                            val getReq = okhttp3.Request.Builder().url(stream.url).apply {
+            
+            // Wrap Stalker/IPTV live.php HLS URLs in a Master Playlist for ExoPlayer
+            val isPhpHls = stream.url.contains("live.php", ignoreCase = true) &&
+                (stream.url.contains("extension=m3u8", ignoreCase = true) || 
+                 stream.url.contains(".m3u8", ignoreCase = true))
+            
+            if (isPhpHls) {
+                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2200000\n${stream.url}"
+                val dataUri = "data:application/x-mpegURL;base64," + 
+                    android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
+                com.streambd.iptv.utils.ResolvedToken(
+                    url = dataUri,
+                    headers = initialHeaders,
+                    mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                )
+            } else {
+                val shouldPreResolve = stream.url.contains(".php", ignoreCase = true) || 
+                    (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
+                if (shouldPreResolve) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                            val req = okhttp3.Request.Builder().url(stream.url).apply {
                                 initialHeaders.forEach { (k, v) -> header(k, v) }
-                            }.build()
-                            res = client.newCall(getReq).execute()
-                            if (res.isSuccessful && isPlaylistType) {
-                                val bodyStr = res.body?.string() ?: ""
-                                if (bodyStr.contains("#EXTM3U")) {
-                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
-                                    if (parsedChannels.isNotEmpty()) {
-                                        val first = parsedChannels.first()
-                                        val mergedHeaders = initialHeaders.toMutableMap()
-                                        first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
-                                        first.userAgent?.let { mergedHeaders["User-Agent"] = it }
-                                        first.cookie?.let { mergedHeaders["Cookie"] = it }
-                                        first.httpReferer?.let { mergedHeaders["Referer"] = it }
-                                        first.origin?.let { mergedHeaders["Origin"] = it }
-                                        
-                                        val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
-                                        innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-                                        
-                                        return@withContext com.streambd.iptv.utils.ResolvedToken(
-                                            url = innerParsed.cleanUrl,
-                                            headers = mergedHeaders,
-                                            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                        )
+                            }.head().build() // Use HEAD first
+                            
+                            var res = client.newCall(req).execute()
+                            val isPlaylistType = res.header("Content-Type")?.lowercase()?.let { 
+                                it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") 
+                            } == true
+                            
+                            if (!res.isSuccessful || isPlaylistType) {
+                                res.close()
+                                val getReq = okhttp3.Request.Builder().url(stream.url).apply {
+                                    initialHeaders.forEach { (k, v) -> header(k, v) }
+                                }.build()
+                                res = client.newCall(getReq).execute()
+                                if (res.isSuccessful && isPlaylistType) {
+                                    val bodyStr = res.body?.string() ?: ""
+                                    if (bodyStr.contains("#EXTM3U")) {
+                                        val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
+                                        if (parsedChannels.isNotEmpty()) {
+                                            val first = parsedChannels.first()
+                                            val mergedHeaders = initialHeaders.toMutableMap()
+                                            first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
+                                            first.userAgent?.let { mergedHeaders["User-Agent"] = it }
+                                            first.cookie?.let { mergedHeaders["Cookie"] = it }
+                                            first.httpReferer?.let { mergedHeaders["Referer"] = it }
+                                            first.origin?.let { mergedHeaders["Origin"] = it }
+                                            
+                                            val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
+                                            innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
+                                            
+                                            return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                                url = innerParsed.cleanUrl,
+                                                headers = mergedHeaders,
+                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                            )
+                                        }
                                     }
                                 }
                             }
+                            
+                            res.use { response ->
+                                if (response.isSuccessful) {
+                                    val finalUrl = response.request.url.toString()
+                                    val contentType = response.header("Content-Type")?.lowercase()
+                                    var mimeType: String? = null
+                                    if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                    else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
+                                    
+                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
+                                } else null
+                            }
+                        } catch (e: Exception) {
+                            null
                         }
-                        
-                        res.use { response ->
-                            if (response.isSuccessful) {
-                                val finalUrl = response.request.url.toString()
-                                val contentType = response.header("Content-Type")?.lowercase()
-                                var mimeType: String? = null
-                                if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
-                                
-                                com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
-                            } else null
-                        }
-                    } catch (e: Exception) {
-                        null
                     }
+                } else {
+                    null
                 }
-            } else {
-                null
             }
         }
 
