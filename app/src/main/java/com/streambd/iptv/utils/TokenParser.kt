@@ -789,7 +789,12 @@ object TokenParser {
                 }
             }
             if (!out.keys.any { it.equals("User-Agent", ignoreCase = true) }) {
-                out["User-Agent"] = "VLC/3.0.20 LibVLC/3.0.20 (OTT Navigator; TiviMate)"
+                val isStalker = baseUrl.contains("portal.php", ignoreCase = true) || baseUrl.contains("action=create_link", ignoreCase = true)
+                if (isStalker) {
+                    out["User-Agent"] = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
+                } else {
+                    out["User-Agent"] = "VLC/3.0.20 LibVLC/3.0.20 (OTT Navigator; TiviMate)"
+                }
             }
         } catch (e: Exception) {}
         return out

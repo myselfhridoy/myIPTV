@@ -133,6 +133,9 @@ object M3UParser {
                     lowerOpt.startsWith("http-origin=") -> {
                         currentOrigin = opt.substring(opt.indexOf('=') + 1).trim()
                     }
+                    lowerOpt.startsWith("cookie=") || lowerOpt.startsWith("http-cookie=") -> {
+                        currentCookie = opt.substring(opt.indexOf('=') + 1).trim()
+                    }
                 }
             } else if (line.startsWith("#KODIPROP:inputstream.adaptive.license_type=")) {
                 val type = line.substringAfter("=").trim().lowercase()

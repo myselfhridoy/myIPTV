@@ -227,6 +227,10 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
         );
 
         $lines[] = $extInf;
+        if (!empty($mac)) {
+            $lines[] = '#EXTVLCOPT:http-user-agent=Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3';
+            $lines[] = '#EXTVLCOPT:cookie=mac=' . $mac . '; st=1; timezone=GMT';
+        }
         $lines[] = $streamUrl;
         $count++;
     }
