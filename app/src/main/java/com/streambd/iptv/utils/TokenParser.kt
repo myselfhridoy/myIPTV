@@ -588,7 +588,7 @@ object TokenParser {
             val isPortal = baseUrl.contains("portal.php", ignoreCase = true)
             val mergedHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
             
-            fun parseCmd(bodyStr: String): String? {
+            fun parseCmd(bodyStr: String, reqUrl: String): String? {
                 try {
                     val jsonObj = org.json.JSONObject(bodyStr)
                     var cmd = jsonObj.optJSONObject("js")?.optString("cmd")
@@ -625,10 +625,18 @@ object TokenParser {
                     }
 
                     if (cmd.isNotEmpty()) {
-                        val streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
+                        var streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
                         if (streamUrl.startsWith("http://", ignoreCase = true) || 
                             streamUrl.startsWith("https://", ignoreCase = true) || 
                             streamUrl.startsWith("rtmp://", ignoreCase = true)) {
+                            
+                            try {
+                                val baseAuthority = URL(reqUrl).authority
+                                if (!baseAuthority.isNullOrEmpty() && (streamUrl.contains("localhost") || streamUrl.contains("127.0.0.1") || streamUrl.contains("0.0.0.0"))) {
+                                    streamUrl = streamUrl.replace(Regex("://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(?::\\d+)?/"), "://$baseAuthority/")
+                                }
+                            } catch (e: Exception) {}
+                            
                             return streamUrl
                         }
                     }
@@ -638,7 +646,7 @@ object TokenParser {
 
             // 1. If responseBody was provided, try parsing it first
             if (responseBody != null) {
-                val foundUrl = parseCmd(responseBody)
+                val foundUrl = parseCmd(responseBody, baseUrl)
                 if (foundUrl != null) {
                     val drm = extractDrmFromBody(responseBody)
                     val mime = detectMimeType(foundUrl)
@@ -698,7 +706,7 @@ object TokenParser {
             val res = client.newCall(req).execute()
             if (res.isSuccessful) {
                 val finalBody = res.body?.string() ?: ""
-                val foundUrl = parseCmd(finalBody)
+                val foundUrl = parseCmd(finalBody, baseUrl)
                 if (foundUrl != null) {
                     val drm = extractDrmFromBody(finalBody)
                     val mime = detectMimeType(foundUrl)
