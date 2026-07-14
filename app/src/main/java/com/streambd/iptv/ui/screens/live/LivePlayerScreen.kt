@@ -191,8 +191,11 @@ fun LivePlayerScreen(
             }
         }
 
+        val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
+            rawSourceUrl.contains("action=create_link", ignoreCase = true)
+
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
-        val resolved = if (!currentTokenUrl.isNullOrEmpty()) {
+        val resolved = if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
             com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
                 baseUrl = rawSourceUrl,
@@ -240,18 +243,24 @@ fun LivePlayerScreen(
                             
                             var res = client.newCall(req).execute()
                             // If HEAD failed or Content-Type is a playlist or text, we should GET to check the body for EXTHTTP
-                            val isPlaylistType = res.header("Content-Type")?.lowercase()?.let { 
-                                it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") 
+                            val isPlaylistOrJsonType = res.header("Content-Type")?.lowercase()?.let { 
+                                it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                             } == true
                             
-                            if (!res.isSuccessful || isPlaylistType) {
+                            if (!res.isSuccessful || isPlaylistOrJsonType) {
                                 res.close()
                                 val getReq = okhttp3.Request.Builder().url(rawSourceUrl).apply {
                                     initialHeaders.forEach { (k, v) -> header(k, v) }
                                 }.build()
                                 res = client.newCall(getReq).execute()
-                                if (res.isSuccessful && isPlaylistType) {
+                                if (res.isSuccessful && isPlaylistOrJsonType) {
                                     val bodyStr = res.body?.string() ?: ""
+                                    if (bodyStr.trim().startsWith("{")) {
+                                        val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
+                                        if (stalkerResolved != null) {
+                                            return@withContext stalkerResolved
+                                        }
+                                    }
                                     if (bodyStr.contains("#EXTM3U")) {
                                         val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
                                         if (parsedChannels.isNotEmpty()) {

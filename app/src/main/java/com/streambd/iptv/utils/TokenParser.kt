@@ -37,9 +37,26 @@ object TokenParser {
         tokenReplace: String? = null,
         playRef: String? = null
     ): ResolvedToken? = withContext(Dispatchers.IO) {
-        if (tokenUrl.isNullOrEmpty()) return@withContext null
+        val isStalkerOrPortal = baseUrl.contains("portal.php", ignoreCase = true) ||
+            baseUrl.contains("action=create_link", ignoreCase = true)
 
-        val lowerTokenUrl = tokenUrl.lowercase()
+        if (tokenUrl.isNullOrEmpty() && !YouTubeExtractor.isYouTubeUrl(baseUrl) && !isStalkerOrPortal) {
+            return@withContext null
+        }
+
+        val lowerTokenUrl = tokenUrl?.lowercase() ?: ""
+
+        if (lowerTokenUrl == "create_link" || lowerTokenUrl == "stalker" || lowerTokenUrl == "portal" || isStalkerOrPortal) {
+            val resolvedFromJson = resolveStalkerPortalOrJson(baseUrl, headers)
+            if (resolvedFromJson != null) {
+                var finalUrl = resolvedFromJson.url
+                if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
+                return@withContext resolvedFromJson.copy(url = finalUrl)
+            }
+            if (lowerTokenUrl == "create_link" || lowerTokenUrl == "stalker" || lowerTokenUrl == "portal") {
+                return@withContext null
+            }
+        }
 
         // 0. YouTube extractor via NewPipeExtractor
         if (lowerTokenUrl == "youtube" || lowerTokenUrl == "yt" || YouTubeExtractor.isYouTubeUrl(baseUrl)) {
@@ -499,7 +516,7 @@ object TokenParser {
         }
 
         // 8. handlerId logic (omitted complex extraction for brevity, basic fallback)
-        val idMatch = Regex("^[\\\\/]?(\\d+)$").find(tokenUrl)
+        val idMatch = tokenUrl?.let { Regex("^[\\\\/]?(\\d+)$").find(it) }
         if (idMatch != null) {
             // Simplified handler logic
             try {
@@ -559,6 +576,76 @@ object TokenParser {
             } catch (e: Exception) { e.printStackTrace() }
         }
 
+        null
+    }
+
+    suspend fun resolveStalkerPortalOrJson(
+        baseUrl: String,
+        headers: Map<String, String>? = null,
+        responseBody: String? = null
+    ): ResolvedToken? = withContext(Dispatchers.IO) {
+        try {
+            val bodyStr = if (responseBody != null) {
+                responseBody
+            } else {
+                val req = Request.Builder().url(baseUrl).apply {
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> header(k, v) }
+                }.build()
+                val res = client.newCall(req).execute()
+                if (!res.isSuccessful) return@withContext null
+                res.body?.string() ?: ""
+            }
+
+            val jsonObj = org.json.JSONObject(bodyStr)
+            var cmd = jsonObj.optJSONObject("js")?.optString("cmd")
+                ?: jsonObj.optJSONObject("js")?.optString("url")
+                ?: jsonObj.optString("cmd")
+                ?: jsonObj.optString("url")
+                ?: ""
+
+            if (cmd.isEmpty()) {
+                fun findStreamUrl(json: Any?): String? {
+                    when (json) {
+                        is org.json.JSONObject -> {
+                            for (key in json.keys()) {
+                                val result = findStreamUrl(json.opt(key))
+                                if (result != null) return result
+                            }
+                        }
+                        is org.json.JSONArray -> {
+                            for (i in 0 until json.length()) {
+                                val result = findStreamUrl(json.opt(i))
+                                if (result != null) return result
+                            }
+                        }
+                        is String -> {
+                            val trimmed = json.trim()
+                            if (trimmed.startsWith("http") && isStreamUrl(trimmed)) {
+                                return trimmed
+                            }
+                        }
+                    }
+                    return null
+                }
+                cmd = findStreamUrl(jsonObj) ?: ""
+            }
+
+            if (cmd.isNotEmpty()) {
+                var streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
+                if (streamUrl.startsWith("http://", ignoreCase = true) || 
+                    streamUrl.startsWith("https://", ignoreCase = true) || 
+                    streamUrl.startsWith("rtmp://", ignoreCase = true)) {
+                    
+                    val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
+                    val drm = extractDrmFromBody(bodyStr)
+                    val mime = detectMimeType(streamUrl)
+                    return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm, mimeType = mime)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         null
     }
 

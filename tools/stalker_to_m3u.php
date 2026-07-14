@@ -16,6 +16,10 @@ $streamTemplate = $_POST['streamTemplate'] ?? '';
 $inputMode = $_POST['inputMode'] ?? 'fetch'; // 'fetch' or 'json'
 $rawJsonInput = $_POST['rawJsonInput'] ?? '';
 $action = $_POST['action'] ?? '';
+$timeout = (int)($_POST['timeout'] ?? 120);
+if ($timeout < 10 || $timeout > 600) {
+    $timeout = 120;
+}
 
 $outputM3u = '';
 $errorMessage = '';
@@ -32,7 +36,11 @@ function cleanPortalUrl($url) {
     return $url;
 }
 
-function fetchStalkerChannels($portalUrl, $mac) {
+function fetchStalkerChannels($portalUrl, $mac, $timeout = 120) {
+    if (function_exists('set_time_limit')) {
+        @set_time_limit($timeout + 60);
+    }
+
     $baseUrl = cleanPortalUrl($portalUrl);
     $apiUrl = rtrim($baseUrl, '/') . '/portal.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml';
     
@@ -46,16 +54,36 @@ function fetchStalkerChannels($portalUrl, $mac) {
 
     // First do handshake if required
     $handshakeUrl = rtrim($baseUrl, '/') . '/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml';
+    $connectTimeout = max(20, min(60, (int)($timeout / 2)));
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL => $handshakeUrl,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_TIMEOUT => 10,
+        CURLOPT_CONNECTTIMEOUT => $connectTimeout,
+        CURLOPT_TIMEOUT => min(30, $timeout),
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_ENCODING => '',
         CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
+        CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
         CURLOPT_HEADER => true
     ]);
     $handshakeRes = curl_exec($ch);
+    $handshakeErr = curl_error($ch);
+    $handshakeErrNo = curl_errno($ch);
+
+    // If handshake completely failed due to a connection timeout or connection error, return immediately instead of waiting another round
+    if ($handshakeRes === false && ($handshakeErrNo === CURLE_OPERATION_TIMEDOUT || stripos($handshakeErr, 'timed out') !== false || $handshakeErrNo === CURLE_COULDNT_CONNECT)) {
+        $tip = "\n\n💡 Diagnosis: The TCP connection timed out right away ($handshakeErr). This almost always means:\n"
+             . "1. Geo-Blocking / Firewall: The portal server is silently dropping connection attempts from the IP address hosting this script.\n"
+             . "2. HTTP vs HTTPS: Check if the portal requires 'https://' instead of 'http://' (or vice-versa).\n"
+             . "3. Offline Portal: The portal domain/port is offline.\n\n"
+             . "⚡ Solution: Switch 'Input Mode' above to 'Paste Raw Channel JSON' to bypass server IP blocking.";
+        curl_close($ch);
+        return ['error' => "cURL Connection Error: " . $handshakeErr . $tip];
+    }
     
     // Extract any new cookies from handshake
     $cookies = ["mac=" . urlencode($mac), "st=1", "timezone=GMT"];
@@ -68,21 +96,37 @@ function fetchStalkerChannels($portalUrl, $mac) {
     $cookieHeader = "Cookie: " . implode("; ", array_unique($cookies));
     $headers[0] = $cookieHeader;
 
-    // Now fetch get_all_channels
+    // Reset curl handle options cleanly before the second request
+    if (function_exists('curl_reset')) {
+        curl_reset($ch);
+    }
+
+    // Now fetch get_all_channels with full timeout, gzip/deflate decoding, and redirect following
     curl_setopt_array($ch, [
         CURLOPT_URL => $apiUrl,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => $connectTimeout,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_ENCODING => '',
         CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
+        CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
         CURLOPT_HEADER => false
     ]);
     $res = curl_exec($ch);
     $err = curl_error($ch);
+    $errNo = curl_errno($ch);
     curl_close($ch);
 
     if ($err) {
-        return ['error' => "cURL Error: " . $err];
+        $tip = "";
+        if ($errNo === CURLE_OPERATION_TIMEDOUT || stripos($err, 'timed out') !== false || $errNo === CURLE_COULDNT_CONNECT) {
+            $tip = "\n\n💡 Diagnosis: The connection or request timed out after " . $timeout . "s ($err). If your server IP is geo-blocked or throttled by the portal, switch 'Input Mode' above to 'Paste Raw Channel JSON'.";
+        }
+        return ['error' => "cURL Error: " . $err . $tip];
     }
 
     $decoded = json_decode($res, true);
@@ -118,22 +162,31 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
         if (!empty($template)) {
             // User provided an explicit custom template
             if (!$streamId && !empty($cmd)) {
-                if (preg_match('/\/(\d+)(?:\s|$|\?)/', $cmd, $m)) {
+                if (preg_match('/\/(\d+)(?:\s|$|\?|_)/', $cmd, $m)) {
                     $streamId = $m[1];
                 } else {
                     $streamId = basename($cmd);
                 }
             }
             if (empty($streamId)) continue;
+            $encodedCmd = urlencode($cmd);
             $streamUrl = str_replace(
-                ['{mac}', '{MAC}', '{stream_id}', '{id}', '{ID}'],
-                [$mac, $mac, $streamId, $streamId, $streamId],
+                ['{mac}', '{MAC}', '{stream_id}', '{id}', '{ID}', '{cmd}', '{cmd_encoded}', '{portal}'],
+                [$mac, $mac, $streamId, $streamId, $streamId, $cmd, $encodedCmd, $baseUrl],
                 $template
             );
         } else {
             // Auto-detect directly from JSON / Portal
+            // Check if cmd contains a URL, but ignore internal server URLs (localhost/127.0.0.1)
+            $rawUrl = '';
             if (preg_match('/https?:\/\/[^\s\'"]+/i', $cmd, $matches)) {
-                $rawUrl = $matches[0];
+                $parsedHost = parse_url($matches[0], PHP_URL_HOST);
+                if ($parsedHost !== 'localhost' && $parsedHost !== '127.0.0.1' && $parsedHost !== '0.0.0.0') {
+                    $rawUrl = $matches[0];
+                }
+            }
+
+            if (!empty($rawUrl)) {
                 // Always convert live.php URLs to clean HLS format (&extension=m3u8) without temporary tokens
                 if (strpos($rawUrl, 'live.php') !== false) {
                     $parsedHost = parse_url($rawUrl);
@@ -151,9 +204,9 @@ function generateM3uFromChannels($channels, $mac, $template, $portalUrl = '') {
                     $streamUrl = $rawUrl;
                 }
             } else {
-                // Extract numeric stream ID if needed
+                // Extract numeric stream ID if needed from cmd or id field
                 if (!$streamId && !empty($cmd)) {
-                    if (preg_match('/[^\d](\d+)(?:[^\d]|$)/', $cmd, $m)) {
+                    if (preg_match('/[^\d](\d+)(?:[^\d]|$|_)/', $cmd, $m)) {
                         $streamId = $m[1];
                     } elseif (is_numeric($cmd)) {
                         $streamId = $cmd;
@@ -185,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($action)) {
     if ($inputMode === 'fetch' && (empty($portalUrl) || empty($macAddress))) {
         $errorMessage = "Please enter both the Stalker Portal URL and MAC Address.";
     } elseif ($inputMode === 'fetch') {
-        $result = fetchStalkerChannels($portalUrl, $macAddress);
+        $result = fetchStalkerChannels($portalUrl, $macAddress, $timeout);
         if (isset($result['error'])) {
             $errorMessage = $result['error'];
         } else {
@@ -194,14 +247,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($action)) {
             $successCount = $gen['count'];
         }
     } elseif ($inputMode === 'json') {
-        $decoded = json_decode($rawJsonInput, true);
-        $channels = $decoded['js']['data'] ?? $decoded['js'] ?? $decoded['data'] ?? $decoded;
-        if (!is_array($channels)) {
-            $errorMessage = "Invalid JSON input. Must be a valid Stalker channel list JSON or array.";
+        if (empty($macAddress)) {
+            $errorMessage = "Please enter your MAC Address above so we can construct the stream URLs correctly.";
         } else {
-            $gen = generateM3uFromChannels($channels, $macAddress, $streamTemplate, $portalUrl);
-            $outputM3u = $gen['m3u'];
-            $successCount = $gen['count'];
+            $decoded = json_decode($rawJsonInput, true);
+            $channels = $decoded['js']['data'] ?? $decoded['js'] ?? $decoded['data'] ?? $decoded;
+            if (!is_array($channels)) {
+                $errorMessage = "Invalid JSON input. Must be a valid Stalker channel list JSON or array.";
+            } else {
+                $gen = generateM3uFromChannels($channels, $macAddress, $streamTemplate, $portalUrl);
+                $outputM3u = $gen['m3u'];
+                $successCount = $gen['count'];
+            }
         }
     }
 }
@@ -275,7 +332,7 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
         .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
         .form-group.full-width { grid-column: 1 / -1; }
         label { font-weight: 600; font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-        input[type="text"], textarea, select {
+        input[type="text"], input[type="number"], textarea, select {
             background: #0f172a;
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -284,7 +341,7 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
             font-size: 0.95rem;
             transition: border-color 0.2s;
         }
-        input[type="text"]:focus, textarea:focus, select:focus {
+        input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus {
             outline: none;
             border-color: var(--accent);
         }
@@ -367,16 +424,30 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
                         <input type="text" name="portalUrl" value="<?= htmlspecialchars($portalUrl) ?>" placeholder="e.g. http://portal.example.com/c/">
                     </div>
 
+                    <div class="form-group" id="timeoutGroup" style="display: <?= $inputMode === 'fetch' ? 'flex' : 'none' ?>;">
+                        <label>Request Timeout (Seconds)</label>
+                        <input type="number" name="timeout" value="<?= htmlspecialchars((string)$timeout) ?>" min="10" max="600" placeholder="120">
+                    </div>
+
                     <div class="form-group full-width" id="jsonInputGroup" style="display: <?= $inputMode === 'json' ? 'flex' : 'none' ?>;">
                         <label>Stalker Channel List JSON</label>
                         <textarea name="rawJsonInput" rows="5" placeholder='Paste JSON returned by get_all_channels API...'></textarea>
+                        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 1rem; margin-top: 0.5rem; font-size: 0.85rem; color: #93c5fd; line-height: 1.5;">
+                            <b>💡 How to fetch raw JSON if your portal blocks or times out via API:</b><br>
+                            If the portal drops connection attempts from this script's IP, run this command from your local computer terminal where your MAC address is authorized:
+                            <div style="background: #0f172a; padding: 0.75rem; border-radius: 6px; margin-top: 0.5rem; font-family: monospace; font-size: 0.8rem; word-break: break-all; color: #f8fafc; user-select: all; border: 1px solid var(--border);">
+                                curl -H "Cookie: mac=YOUR_MAC_ADDRESS; st=1; timezone=GMT" -H "User-Agent: Mozilla/5.0 (QtEmbedded; U; Linux; C) MAG200 stu/200.01" "YOUR_PORTAL_BASE_URL/portal.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml"
+                            </div>
+                            Copy the entire JSON output returned by that command and paste it into the box above to generate your M3U bufferless playlist immediately!
+                        </div>
                     </div>
 
                     <div class="form-group full-width">
                         <label>Custom Stream URL Template <span style="text-transform: none; font-weight: normal; color: #64748b;">(Optional - auto-detected from JSON / Portal if empty)</span></label>
                         <input type="text" name="streamTemplate" value="<?= htmlspecialchars($streamTemplate) ?>" placeholder="e.g. http://your-server.com/play/live.php?mac={mac}&stream={stream_id}&extension=m3u8">
                         <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-                            Leave empty to auto-generate from Portal & JSON. Or use placeholders: <b>{mac}</b>, <b>{stream_id}</b> to customize.
+                            Leave empty to auto-generate from Portal & JSON. Or use placeholders: <b>{mac}</b>, <b>{stream_id}</b>, <b>{portal}</b>, <b>{cmd_encoded}</b>.<br>
+                            💡 <b>Stalker create_link Example:</b> <code>{portal}/portal.php?type=itv&action=create_link&cmd={cmd_encoded}&JsHttpRequest=1-xml</code>
                         </span>
                     </div>
                 </div>
@@ -407,7 +478,8 @@ if (isset($_POST['download']) && !empty($outputM3u)) {
     <script>
         function toggleInputMode() {
             const mode = document.getElementById('inputMode').value;
-            document.getElementById('portalUrlGroup').style.display = (mode === 'fetch') ? 'flex' : 'none';
+            document.getElementById('portalUrlGroup').style.display = 'flex';
+            document.getElementById('timeoutGroup').style.display = (mode === 'fetch') ? 'flex' : 'none';
             document.getElementById('jsonInputGroup').style.display = (mode === 'json') ? 'flex' : 'none';
         }
         function copyM3u() {
