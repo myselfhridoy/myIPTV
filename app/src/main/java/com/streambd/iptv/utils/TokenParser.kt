@@ -585,62 +585,124 @@ object TokenParser {
         responseBody: String? = null
     ): ResolvedToken? = withContext(Dispatchers.IO) {
         try {
-            val bodyStr = if (responseBody != null) {
-                responseBody
-            } else {
-                val req = Request.Builder().url(baseUrl).apply {
-                    header("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> header(k, v) }
-                }.build()
-                val res = client.newCall(req).execute()
-                if (!res.isSuccessful) return@withContext null
-                res.body?.string() ?: ""
+            val isPortal = baseUrl.contains("portal.php", ignoreCase = true)
+            val mergedHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
+            
+            fun parseCmd(bodyStr: String): String? {
+                try {
+                    val jsonObj = org.json.JSONObject(bodyStr)
+                    var cmd = jsonObj.optJSONObject("js")?.optString("cmd")
+                        ?: jsonObj.optJSONObject("js")?.optString("url")
+                        ?: jsonObj.optString("cmd")
+                        ?: jsonObj.optString("url")
+                        ?: ""
+
+                    if (cmd.isEmpty()) {
+                        fun findStreamUrl(json: Any?): String? {
+                            when (json) {
+                                is org.json.JSONObject -> {
+                                    for (key in json.keys()) {
+                                        val result = findStreamUrl(json.opt(key))
+                                        if (result != null) return result
+                                    }
+                                }
+                                is org.json.JSONArray -> {
+                                    for (i in 0 until json.length()) {
+                                        val result = findStreamUrl(json.opt(i))
+                                        if (result != null) return result
+                                    }
+                                }
+                                is String -> {
+                                    val trimmed = json.trim()
+                                    if (trimmed.startsWith("http") && isStreamUrl(trimmed)) {
+                                        return trimmed
+                                    }
+                                }
+                            }
+                            return null
+                        }
+                        cmd = findStreamUrl(jsonObj) ?: ""
+                    }
+
+                    if (cmd.isNotEmpty()) {
+                        val streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
+                        if (streamUrl.startsWith("http://", ignoreCase = true) || 
+                            streamUrl.startsWith("https://", ignoreCase = true) || 
+                            streamUrl.startsWith("rtmp://", ignoreCase = true)) {
+                            return streamUrl
+                        }
+                    }
+                } catch (e: Exception) {}
+                return null
             }
 
-            val jsonObj = org.json.JSONObject(bodyStr)
-            var cmd = jsonObj.optJSONObject("js")?.optString("cmd")
-                ?: jsonObj.optJSONObject("js")?.optString("url")
-                ?: jsonObj.optString("cmd")
-                ?: jsonObj.optString("url")
-                ?: ""
+            // 1. If responseBody was provided, try parsing it first
+            if (responseBody != null) {
+                val foundUrl = parseCmd(responseBody)
+                if (foundUrl != null) {
+                    val drm = extractDrmFromBody(responseBody)
+                    val mime = detectMimeType(foundUrl)
+                    return@withContext ResolvedToken(url = foundUrl, headers = mergedHeaders, drm = drm, mimeType = mime)
+                }
+            }
 
-            if (cmd.isEmpty()) {
-                fun findStreamUrl(json: Any?): String? {
-                    when (json) {
-                        is org.json.JSONObject -> {
-                            for (key in json.keys()) {
-                                val result = findStreamUrl(json.opt(key))
-                                if (result != null) return result
+            // 2. If it's a Stalker portal URL, perform automatic handshake if needed
+            if (isPortal) {
+                try {
+                    val portalIdx = baseUrl.indexOf("/portal.php", ignoreCase = true)
+                    if (portalIdx != -1) {
+                        val portalBase = baseUrl.substring(0, portalIdx)
+                        val handshakeUrl = "$portalBase/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
+                        
+                        val hsReq = Request.Builder().url(handshakeUrl).apply {
+                            mergedHeaders.forEach { (k, v) -> header(k, v) }
+                        }.build()
+                        val hsRes = client.newCall(hsReq).execute()
+                        if (hsRes.isSuccessful) {
+                            val hsHeaders = hsRes.headers("Set-Cookie")
+                            val hsBody = hsRes.body?.string() ?: ""
+                            
+                            val existingCookies = (mergedHeaders.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value ?: "").split(";").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+                            for (sc in hsHeaders) {
+                                val cNameVal = sc.substringBefore(";").trim()
+                                if (cNameVal.isNotEmpty()) {
+                                    existingCookies.removeIf { it.substringBefore("=") == cNameVal.substringBefore("=") }
+                                    existingCookies.add(cNameVal)
+                                }
                             }
-                        }
-                        is org.json.JSONArray -> {
-                            for (i in 0 until json.length()) {
-                                val result = findStreamUrl(json.opt(i))
-                                if (result != null) return result
-                            }
-                        }
-                        is String -> {
-                            val trimmed = json.trim()
-                            if (trimmed.startsWith("http") && isStreamUrl(trimmed)) {
-                                return trimmed
+                            
+                            try {
+                                val hsJson = org.json.JSONObject(hsBody)
+                                val token = hsJson.optJSONObject("js")?.optString("token") ?: hsJson.optString("token")
+                                if (!token.isNullOrEmpty()) {
+                                    existingCookies.removeIf { it.startsWith("token=") }
+                                    existingCookies.add("token=$token")
+                                    mergedHeaders["Authorization"] = "Bearer $token"
+                                }
+                            } catch (e: Exception) {}
+
+                            if (existingCookies.isNotEmpty()) {
+                                mergedHeaders["Cookie"] = existingCookies.joinToString("; ")
                             }
                         }
                     }
-                    return null
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                cmd = findStreamUrl(jsonObj) ?: ""
             }
 
-            if (cmd.isNotEmpty()) {
-                var streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
-                if (streamUrl.startsWith("http://", ignoreCase = true) || 
-                    streamUrl.startsWith("https://", ignoreCase = true) || 
-                    streamUrl.startsWith("rtmp://", ignoreCase = true)) {
-                    
-                    val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
-                    val drm = extractDrmFromBody(bodyStr)
-                    val mime = detectMimeType(streamUrl)
-                    return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm, mimeType = mime)
+            // 3. Make the request to baseUrl (create_link or portal API) with merged handshake headers and cookies
+            val req = Request.Builder().url(baseUrl).apply {
+                mergedHeaders.forEach { (k, v) -> header(k, v) }
+            }.build()
+            val res = client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val finalBody = res.body?.string() ?: ""
+                val foundUrl = parseCmd(finalBody)
+                if (foundUrl != null) {
+                    val drm = extractDrmFromBody(finalBody)
+                    val mime = detectMimeType(foundUrl)
+                    return@withContext ResolvedToken(url = foundUrl, headers = mergedHeaders, drm = drm, mimeType = mime)
                 }
             }
         } catch (e: Exception) {
