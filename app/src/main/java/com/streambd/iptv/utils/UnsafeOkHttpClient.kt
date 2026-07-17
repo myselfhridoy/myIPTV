@@ -34,9 +34,9 @@ object UnsafeOkHttpClient {
             builder.hostnameVerifier { _, _ -> true }
             builder.followRedirects(true)
             builder.followSslRedirects(true)
-            builder.connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            builder.readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            builder.writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            builder.connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            builder.readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            builder.writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             builder.retryOnConnectionFailure(true)
             builder.pingInterval(10, java.util.concurrent.TimeUnit.SECONDS) // Keeps live stream TCP connections alive
 

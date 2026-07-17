@@ -173,6 +173,9 @@ fun LivePlayerScreen(
         }
         initialHeaders.clear()
         initialHeaders.putAll(deduplicatedHeaders)
+        if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+            initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
+        }
         
         val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
         val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
@@ -284,12 +287,21 @@ fun LivePlayerScreen(
                             
                             res.use { response ->
                                 if (response.isSuccessful) {
-                                    val finalUrl = response.request.url.toString()
+                                    val redirectedUrl = response.request.url.toString()
                                     val contentType = response.header("Content-Type")?.lowercase()
                                     var mimeType: String? = null
-                                    if (contentType?.contains("mpegurl") == true || finalUrl.contains(".m3u8", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                    else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
+                                    if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                    else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
+                                    
+                                    // Universal Rule (Like NSPlayer / OTT Navigator):
+                                    // When a stream URL redirects via Location (or is a master playlist),
+                                    // we keep rawSourceUrl so ExoPlayer's OkHttpDataSource follows Location redirects natively with fresh tokens every time!
+                                    val finalUrl = if (redirectedUrl != rawSourceUrl || isMasterPlaylist) {
+                                        rawSourceUrl
+                                    } else {
+                                        redirectedUrl
+                                    }
                                     
                                     com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null

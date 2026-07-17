@@ -144,6 +144,9 @@ fun VodPlayerScreen(
         isLoading = true
 
         val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
+        if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+            initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
+        }
 
         // Resolve token if present, or pre-resolve generic links
         val currentPlayRef = stream.headers?.entries?.firstOrNull { 
@@ -231,12 +234,21 @@ fun VodPlayerScreen(
                             
                             res.use { response ->
                                 if (response.isSuccessful) {
-                                    val finalUrl = response.request.url.toString()
+                                    val redirectedUrl = response.request.url.toString()
                                     val contentType = response.header("Content-Type")?.lowercase()
                                     var mimeType: String? = null
                                     if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                    else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
+                                    else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
+                                    
+                                    // Universal Rule (Like NSPlayer / OTT Navigator):
+                                    // When a stream URL redirects via Location (or is a master playlist),
+                                    // we keep stream.url so ExoPlayer's OkHttpDataSource follows Location redirects natively with fresh tokens every time!
+                                    val finalUrl = if (redirectedUrl != stream.url || isMasterPlaylist) {
+                                        stream.url
+                                    } else {
+                                        redirectedUrl
+                                    }
                                     
                                     com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null
