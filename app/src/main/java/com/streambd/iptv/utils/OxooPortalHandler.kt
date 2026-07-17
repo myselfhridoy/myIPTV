@@ -147,7 +147,7 @@ object OxooPortalHandler {
         if (auth != null) headers["authorization"] = auth
 
         val ua = uri.getQueryParameter("user-agent") ?: uri.getQueryParameter("user_agent") ?: "okhttp/4.9.0"
-        headers["user-agent"] = ua
+        headers["User-Agent"] = ua
 
         // Real Header support: add any other query parameter that isn't reserved
         val reservedParams = setOf(

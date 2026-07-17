@@ -286,9 +286,7 @@ fun VodPlayerScreen(
                     val originalReq = chain.request()
                     val builder = originalReq.newBuilder()
                     finalHeaders.forEach { (k, v) ->
-                        if (originalReq.header(k) == null && originalReq.header(k.lowercase()) == null) {
-                            builder.header(k, v)
-                        }
+                        builder.header(k, v)
                     }
                     chain.proceed(builder.build())
                 }
