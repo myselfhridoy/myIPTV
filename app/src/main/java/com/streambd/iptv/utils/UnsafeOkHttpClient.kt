@@ -65,8 +65,8 @@ object UnsafeOkHttpClient {
                 }
             })
 
-            // Automatically inject Whitelisted Media Player User-Agent if not explicitly provided
-            builder.addInterceptor { chain ->
+            // Automatically inject Whitelisted Media Player User-Agent across all network requests including redirects
+            builder.addNetworkInterceptor { chain ->
                 val originalRequest = chain.request()
                 val hasUserAgent = originalRequest.header("User-Agent") != null || originalRequest.header("user-agent") != null
                 val newRequest = if (!hasUserAgent) {

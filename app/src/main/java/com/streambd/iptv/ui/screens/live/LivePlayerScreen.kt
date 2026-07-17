@@ -230,13 +230,25 @@ fun LivePlayerScreen(
                     mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
                 )
             } else {
-                val shouldPreResolve = rawSourceUrl.contains(".php", ignoreCase = true) || 
+                val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
+                val shouldPreResolve = dynamicOrRedirectRegex.containsMatchIn(rawSourceUrl) || 
                     (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl))
                 if (shouldPreResolve) {
-                    // Pre-resolve non-standard extensions (like .php) to find actual media URL and Content-Type
+                    // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
+                                addNetworkInterceptor { chain ->
+                                    val originalReq = chain.request()
+                                    val builder = originalReq.newBuilder()
+                                    initialHeaders.forEach { (k, v) ->
+                                        if (originalReq.header(k) == null && originalReq.header(k.lowercase()) == null) {
+                                            builder.header(k, v)
+                                        }
+                                    }
+                                    chain.proceed(builder.build())
+                                }
+                            }.build()
                             val req = okhttp3.Request.Builder().url(rawSourceUrl).apply {
                                 initialHeaders.forEach { (k, v) -> header(k, v) }
                             }.head().build() // Use HEAD first
@@ -290,8 +302,8 @@ fun LivePlayerScreen(
                                     val finalUrl = response.request.url.toString()
                                     val contentType = response.header("Content-Type")?.lowercase()
                                     var mimeType: String? = null
-                                    if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                    else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                    if (contentType?.contains("mpegurl") == true || finalUrl.contains(".m3u8", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                    else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                     else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
                                     
                                     com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
@@ -329,10 +341,13 @@ fun LivePlayerScreen(
         }
 
         val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-            addInterceptor { chain ->
-                val builder = chain.request().newBuilder()
+            addNetworkInterceptor { chain ->
+                val originalReq = chain.request()
+                val builder = originalReq.newBuilder()
                 finalHeaders.forEach { (k, v) ->
-                    builder.header(k, v)
+                    if (originalReq.header(k) == null && originalReq.header(k.lowercase()) == null) {
+                        builder.header(k, v)
+                    }
                 }
                 chain.proceed(builder.build())
             }
