@@ -36,8 +36,13 @@ class LiveRepository {
 
     suspend fun getChannelsForCategory(categoryUrl: String): List<Channel> = withContext(Dispatchers.IO) {
         try {
+            val uri = android.net.Uri.parse(categoryUrl)
+            val portalType = uri.getQueryParameter("portal") ?: uri.getQueryParameter("type")
+            if (portalType?.equals("oxoo", ignoreCase = true) == true) {
+                return@withContext com.streambd.iptv.utils.OxooPortalHandler.fetchChannels(categoryUrl)
+            }
+
             if (categoryUrl.startsWith("myiptv://proxy")) {
-                val uri = android.net.Uri.parse(categoryUrl)
                 val targetUrl = uri.getQueryParameter("url") ?: return@withContext emptyList()
                 val arrayPath = uri.getQueryParameter("array_path") ?: ""
                 val streamField = uri.getQueryParameter("stream_field") ?: "stream_name"

@@ -57,6 +57,24 @@ class MainViewModel : ViewModel() {
 
     fun selectChannel(channel: Channel) {
         _selectedChannel.value = channel
+
+        // Lazy load additional quality/server options for portal channels (like Oxoo)
+        if (channel.tokenId != null && channel.tokenId != -1 && channel.sources.size <= 1 && channel.tokenUrl?.contains("single_details") == true) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val enrichedSources = com.streambd.iptv.utils.OxooPortalHandler.fetchAdditionalSources(channel)
+                    if (enrichedSources.size > channel.sources.size) {
+                        val updatedChannel = channel.copy(sources = enrichedSources)
+                        _selectedChannel.value = updatedChannel
+                        _currentPlaylist = _currentPlaylist.map {
+                            if (it.tokenId == channel.tokenId && it.name == channel.name) updatedChannel else it
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     private var _currentPlaylist = emptyList<Channel>()
