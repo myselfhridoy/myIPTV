@@ -169,24 +169,12 @@ fun VodPlayerScreen(
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
             
-            // Wrap Stalker/IPTV live.php HLS URLs in a Master Playlist for ExoPlayer
-            val isPhpHls = stream.url.contains("live.php", ignoreCase = true) &&
-                (stream.url.contains("extension=m3u8", ignoreCase = true) || 
-                 stream.url.contains(".m3u8", ignoreCase = true))
-            
-            if (isPhpHls) {
-                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n${stream.url}"
-                val dataUri = "data:application/x-mpegURL;base64," + 
-                    android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
-                com.streambd.iptv.utils.ResolvedToken(
-                    url = dataUri,
-                    headers = initialHeaders,
-                    mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                )
-            } else {
-                val shouldPreResolve = stream.url.contains(".php", ignoreCase = true) || 
-                    (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
-                if (shouldPreResolve) {
+            val isPhpHlsUrl = stream.url.contains("live.php", ignoreCase = true) || 
+                stream.url.contains("extension=m3u8", ignoreCase = true)
+            val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
+            val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(stream.url) || 
+                (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
+            if (shouldPreResolve) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
@@ -195,10 +183,11 @@ fun VodPlayerScreen(
                             }.head().build() // Use HEAD first
                             
                             var res = client.newCall(req).execute()
-                            val isPlaylistOrJsonType = res.header("Content-Type")?.lowercase()?.let { 
+                            val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
                                 it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                             } == true
                             
+                            var isMasterPlaylist = false
                             if (!res.isSuccessful || isPlaylistOrJsonType) {
                                 res.close()
                                 val getReq = okhttp3.Request.Builder().url(stream.url).apply {
@@ -207,13 +196,15 @@ fun VodPlayerScreen(
                                 res = client.newCall(getReq).execute()
                                 if (res.isSuccessful && isPlaylistOrJsonType) {
                                     val bodyStr = res.body?.string() ?: ""
+                                    isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
                                     if (bodyStr.trim().startsWith("{")) {
                                         val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(stream.url, initialHeaders, bodyStr)
                                         if (stalkerResolved != null) {
                                             return@withContext stalkerResolved
                                         }
                                     }
-                                    if (bodyStr.contains("#EXTM3U")) {
+                                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
+                                    if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
                                         val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
                                         if (parsedChannels.isNotEmpty()) {
                                             val first = parsedChannels.first()
@@ -230,7 +221,8 @@ fun VodPlayerScreen(
                                             return@withContext com.streambd.iptv.utils.ResolvedToken(
                                                 url = innerParsed.cleanUrl,
                                                 headers = mergedHeaders,
-                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
+                                                isMasterPlaylist = false
                                             )
                                         }
                                     }
@@ -246,7 +238,7 @@ fun VodPlayerScreen(
                                     else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                     else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
                                     
-                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
+                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null
                             }
                         } catch (e: Exception) {
@@ -256,7 +248,6 @@ fun VodPlayerScreen(
                 } else {
                     null
                 }
-            }
         }
 
         var finalUrl = resolved?.url ?: stream.url
@@ -268,8 +259,8 @@ fun VodPlayerScreen(
             stream.url.contains("tokenUrl=crichd", ignoreCase = true) ||
             finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
-        val isPhpHls = finalUrl.contains("live.php", ignoreCase = true) ||
-            finalUrl.contains("extension=m3u8", ignoreCase = true)
+        val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
+            (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
 
         val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || isPhpHls)
 

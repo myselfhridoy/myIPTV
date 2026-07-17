@@ -211,29 +211,12 @@ fun LivePlayerScreen(
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
             
-            // Check if this is a Stalker/IPTV live.php HLS URL — wrap it in a Master Playlist
-            // just like the GitHub test.m3u8 wrapper, so ExoPlayer's HLS engine handles
-            // redirects, cookies, and segment fetching internally for bufferless playback
-            val isPhpHls = rawSourceUrl.contains("live.php", ignoreCase = true) &&
-                (rawSourceUrl.contains("extension=m3u8", ignoreCase = true) || 
-                 rawSourceUrl.contains(".m3u8", ignoreCase = true))
-            
-            if (isPhpHls) {
-                // Generate in-memory HLS Master Playlist (identical to GitHub's test.m3u8)
-                // Use high bandwidth hint so ExoPlayer allocates enough buffer for 4K streams
-                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=15000000\n${rawSourceUrl}"
-                val dataUri = "data:application/x-mpegURL;base64," + 
-                    android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
-                com.streambd.iptv.utils.ResolvedToken(
-                    url = dataUri,
-                    headers = initialHeaders,
-                    mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                )
-            } else {
-                val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
-                val shouldPreResolve = dynamicOrRedirectRegex.containsMatchIn(rawSourceUrl) || 
-                    (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl))
-                if (shouldPreResolve) {
+            val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
+                rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
+            val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
+            val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(rawSourceUrl) || 
+                (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl))
+            if (shouldPreResolve) {
                     // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {
@@ -253,10 +236,11 @@ fun LivePlayerScreen(
                             
                             var res = client.newCall(req).execute()
                             // If HEAD failed or Content-Type is a playlist or text, we should GET to check the body for EXTHTTP
-                            val isPlaylistOrJsonType = res.header("Content-Type")?.lowercase()?.let { 
+                            val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
                                 it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                             } == true
                             
+                            var isMasterPlaylist = false
                             if (!res.isSuccessful || isPlaylistOrJsonType) {
                                 res.close()
                                 val getReq = okhttp3.Request.Builder().url(rawSourceUrl).apply {
@@ -265,13 +249,15 @@ fun LivePlayerScreen(
                                 res = client.newCall(getReq).execute()
                                 if (res.isSuccessful && isPlaylistOrJsonType) {
                                     val bodyStr = res.body?.string() ?: ""
+                                    isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
                                     if (bodyStr.trim().startsWith("{")) {
                                         val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
                                         if (stalkerResolved != null) {
                                             return@withContext stalkerResolved
                                         }
                                     }
-                                    if (bodyStr.contains("#EXTM3U")) {
+                                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
+                                    if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
                                         val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
                                         if (parsedChannels.isNotEmpty()) {
                                             val first = parsedChannels.first()
@@ -288,7 +274,8 @@ fun LivePlayerScreen(
                                             return@withContext com.streambd.iptv.utils.ResolvedToken(
                                                 url = innerParsed.cleanUrl,
                                                 headers = mergedHeaders,
-                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
+                                                isMasterPlaylist = false
                                             )
                                         }
                                     }
@@ -304,7 +291,7 @@ fun LivePlayerScreen(
                                     else if (contentType?.contains("dash") == true || finalUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                     else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl)
                                     
-                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType)
+                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null
                             }
                         } catch (e: Exception) {
@@ -314,7 +301,6 @@ fun LivePlayerScreen(
                 } else {
                     null
                 }
-            }
         }
 
         var finalUrl = resolved?.url ?: rawSourceUrl
@@ -326,8 +312,8 @@ fun LivePlayerScreen(
             rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
             finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
-        val isPhpHls = finalUrl.contains("live.php", ignoreCase = true) ||
-            finalUrl.contains("extension=m3u8", ignoreCase = true)
+        val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
+            (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
 
         val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || isPhpHls)
 
