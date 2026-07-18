@@ -156,8 +156,9 @@ fun VodPlayerScreen(
         val isStalkerOrPortal = stream.url.contains("portal.php", ignoreCase = true) ||
             stream.url.contains("action=create_link", ignoreCase = true)
 
-        val resolved = if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
-            com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
+        var resolved: com.streambd.iptv.utils.ResolvedToken? = null
+        if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
+            resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
                 baseUrl = stream.url,
                 tokenUrl = stream.tokenUrl,
@@ -167,7 +168,8 @@ fun VodPlayerScreen(
                 tokenReplace = stream.tokenReplace,
                 playRef = currentPlayRef
             )
-        } else {
+        }
+        if (resolved == null) {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)

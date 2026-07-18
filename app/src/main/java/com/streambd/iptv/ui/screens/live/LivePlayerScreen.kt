@@ -88,7 +88,7 @@ fun LivePlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
-    var currentSourceUrl by remember(channel) { mutableStateOf(channel.url) }
+    var currentSourceUrl by remember(channel.tokenId ?: channel.name) { mutableStateOf(channel.url) }
 
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
@@ -142,7 +142,7 @@ fun LivePlayerScreen(
     }
 
     // Handle ExoPlayer Media Setup
-    LaunchedEffect(channel, currentSourceUrl) {
+    LaunchedEffect(channel.tokenId ?: channel.name, currentSourceUrl) {
         isLoading = true // Show loading while resolving
         playerError = null
         exoPlayer.stop() // Immediately stop the previous channel
@@ -198,8 +198,9 @@ fun LivePlayerScreen(
             rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
-        val resolved = if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
-            com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
+        var resolved: com.streambd.iptv.utils.ResolvedToken? = null
+        if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
+            resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
                 baseUrl = rawSourceUrl,
                 tokenUrl = currentTokenUrl,
@@ -209,7 +210,8 @@ fun LivePlayerScreen(
                 tokenReplace = currentTokenReplace,
                 playRef = currentPlayRef
             )
-        } else {
+        }
+        if (resolved == null) {
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)

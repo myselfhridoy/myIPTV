@@ -68,6 +68,10 @@ object OxooPortalHandler {
 
                     if (streamUrl.isNotBlank()) {
                         val initialSources = mapOf(streamLabel to streamUrl)
+                        val portalQuery = uri.query ?: ""
+                        val singleDetailsUrl = if (portalQuery.isNotBlank()) "$baseUrl/single_details?type=tv&$portalQuery" else "$baseUrl/single_details?type=tv"
+                        val safeUserAgent = headers["User-Agent"] ?: "okhttp/4.9.0"
+                        val streamHeaders = mapOf("User-Agent" to safeUserAgent)
                         channelsList.add(
                             Channel(
                                 name = tvName,
@@ -75,8 +79,9 @@ object OxooPortalHandler {
                                 logo = logoUrl,
                                 group = categoryTitle,
                                 tokenId = liveTvId,
-                                tokenUrl = "$baseUrl/single_details?type=tv", // Kept as base indicator for lazy additional source fetching
-                                httpHeaders = headers,
+                                tokenUrl = singleDetailsUrl, // Kept as indicator for lazy additional source fetching with portal credentials
+                                userAgent = safeUserAgent,
+                                httpHeaders = streamHeaders,
                                 sources = initialSources
                             )
                         )
@@ -98,14 +103,12 @@ object OxooPortalHandler {
         val baseSingleDetailsUrl = channel.tokenUrl ?: return@withContext currentSources
 
         try {
-            val targetUrl = if (baseSingleDetailsUrl.contains("?")) {
-                "$baseSingleDetailsUrl&id=$channelId"
-            } else {
-                "$baseSingleDetailsUrl?type=tv&id=$channelId"
-            }
+            val portalHeaders = try { extractHeaders(Uri.parse(baseSingleDetailsUrl)) } catch (e: Exception) { emptyMap() }
+            val cleanBase = baseSingleDetailsUrl.substringBefore("?")
+            val targetUrl = "$cleanBase?type=tv&id=$channelId"
 
             val requestBuilder = Request.Builder().url(targetUrl)
-            channel.httpHeaders?.forEach { (k, v) -> requestBuilder.addHeader(k, v) }
+            portalHeaders.forEach { (k, v) -> requestBuilder.header(k, v) }
             val request = requestBuilder.build()
 
             val response = client.newCall(request).execute()
