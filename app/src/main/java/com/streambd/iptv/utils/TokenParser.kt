@@ -46,6 +46,9 @@ object TokenParser {
         }
 
         val lowerTokenUrl = tokenUrl?.lowercase() ?: ""
+        if (lowerTokenUrl.contains("single_details") || lowerTokenUrl.contains("all_tv_channel")) {
+            return@withContext null
+        }
 
         if (lowerTokenUrl == "create_link" || lowerTokenUrl == "stalker" || lowerTokenUrl == "portal" || isStalkerOrPortal) {
             val resolvedFromJson = resolveStalkerPortalOrJson(baseUrl, headers)

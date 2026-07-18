@@ -218,9 +218,9 @@ fun LivePlayerScreen(
             
             val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
                 rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
-            val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
-            val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(rawSourceUrl) || 
-                (!extRegex.containsMatchIn(rawSourceUrl) && !protoRegex.containsMatchIn(rawSourceUrl))
+            val hasKnownExtensionOrProto = extRegex.containsMatchIn(rawSourceUrl) || protoRegex.containsMatchIn(rawSourceUrl)
+            val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
+            val shouldPreResolve = isPhpHlsUrl || redirectShortenerRegex.containsMatchIn(rawSourceUrl) || !hasKnownExtensionOrProto
             if (shouldPreResolve) {
                     // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -841,6 +841,11 @@ fun LivePlayerScreen(
                     onClick = {
                         playerError = null
                         isLoading = true
+                        if (channel.sources.isNotEmpty()) {
+                            currentSourceUrl = channel.sources.values.firstOrNull() ?: channel.url
+                        } else {
+                            currentSourceUrl = channel.url
+                        }
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     },
