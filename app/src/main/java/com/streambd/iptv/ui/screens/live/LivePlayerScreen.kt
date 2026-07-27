@@ -237,54 +237,64 @@ fun LivePlayerScreen(
                             }.build()
                             val req = okhttp3.Request.Builder().url(rawSourceUrl).apply {
                                 initialHeaders.forEach { (k, v) -> header(k, v) }
-                            }.head().build() // Use HEAD first
+                            }.build() // Use GET directly instead of HEAD for scripts/redirects to avoid timeouts
                             
                             var res = client.newCall(req).execute()
-                            // If HEAD failed or Content-Type is a playlist or text, we should GET to check the body for EXTHTTP
+                            
                             val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
                                 it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                             } == true
                             
                             var isMasterPlaylist = false
-                            if (!res.isSuccessful || isPlaylistOrJsonType) {
-                                res.close()
-                                val getReq = okhttp3.Request.Builder().url(rawSourceUrl).apply {
-                                    initialHeaders.forEach { (k, v) -> header(k, v) }
-                                }.build()
-                                res = client.newCall(getReq).execute()
-                                if (res.isSuccessful && isPlaylistOrJsonType) {
-                                    val bodyStr = res.body?.string() ?: ""
-                                    isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
-                                    if (bodyStr.trim().startsWith("{")) {
-                                        val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
-                                        if (stalkerResolved != null) {
-                                            return@withContext stalkerResolved
-                                        }
-                                    }
-                                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
-                                    if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
-                                        val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
-                                        if (parsedChannels.isNotEmpty()) {
-                                            val first = parsedChannels.first()
-                                            val mergedHeaders = initialHeaders.toMutableMap()
-                                            first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
-                                            first.userAgent?.let { mergedHeaders["User-Agent"] = it }
-                                            first.cookie?.let { mergedHeaders["Cookie"] = it }
-                                            first.httpReferer?.let { mergedHeaders["Referer"] = it }
-                                            first.origin?.let { mergedHeaders["Origin"] = it }
-                                            
-                                            val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
-                                            innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-                                            
-                                            return@withContext com.streambd.iptv.utils.ResolvedToken(
-                                                url = innerParsed.cleanUrl,
-                                                headers = mergedHeaders,
-                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
-                                                isMasterPlaylist = false
-                                            )
-                                        }
+                            if (res.isSuccessful && isPlaylistOrJsonType) {
+                                val bodyStr = res.body?.string() ?: ""
+                                isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
+                                if (bodyStr.trim().startsWith("{")) {
+                                    val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
+                                    if (stalkerResolved != null) {
+                                        return@withContext stalkerResolved
                                     }
                                 }
+                                val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
+                                if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
+                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
+                                    if (parsedChannels.isNotEmpty()) {
+                                        val first = parsedChannels.first()
+                                        val mergedHeaders = initialHeaders.toMutableMap()
+                                        first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        first.userAgent?.let { mergedHeaders["User-Agent"] = it }
+                                        first.cookie?.let { mergedHeaders["Cookie"] = it }
+                                        first.httpReferer?.let { mergedHeaders["Referer"] = it }
+                                        first.origin?.let { mergedHeaders["Origin"] = it }
+                                        
+                                        val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
+                                        innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
+                                        
+                                        return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                            url = innerParsed.cleanUrl,
+                                            headers = mergedHeaders,
+                                            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
+                                            isMasterPlaylist = false
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Re-build response from the final URL if body string was consumed (since res is closed)
+                            if (res.isSuccessful && isPlaylistOrJsonType) {
+                                val redirectedUrl = res.request.url.toString()
+                                val contentType = res.header("Content-Type")?.lowercase()
+                                var mimeType: String? = null
+                                if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
+                                
+                                val finalUrl = if (redirectedUrl != rawSourceUrl || isMasterPlaylist) {
+                                    rawSourceUrl
+                                } else {
+                                    redirectedUrl
+                                }
+                                return@withContext com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                             }
                             
                             res.use { response ->
