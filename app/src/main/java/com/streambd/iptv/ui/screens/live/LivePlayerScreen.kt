@@ -100,6 +100,14 @@ fun LivePlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
+    var showChannelInfoOverlay by remember { mutableStateOf(false) }
+
+    LaunchedEffect(channel) {
+        showChannelInfoOverlay = true
+        delay(4000L)
+        showChannelInfoOverlay = false
+    }
+
     // Lock Screen Orientation to Landscape and hide system UI
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
@@ -863,7 +871,41 @@ fun LivePlayerScreen(
                 }
             }
         }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+            modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (channel.logo.isNotEmpty()) {
+                    coil.compose.AsyncImage(
+                        model = channel.logo,
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
+                Column {
+                    Text(text = channel.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    if (channel.group.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = channel.group, color = Color.LightGray, fontSize = 16.sp)
+                    }
+                }
+            }
+        }
     }
+
 
     if (showTrackSelector) {
         TrackSelectionDialog(
