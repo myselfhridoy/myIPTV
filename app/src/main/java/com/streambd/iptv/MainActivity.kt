@@ -41,7 +41,16 @@ class MainActivity : ComponentActivity() {
                             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                             .header("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
                             .build()
-                        chain.proceed(newReq)
+                        var response = chain.proceed(newReq)
+                        if (response.code == 403) {
+                            response.close()
+                            val retryReq = req.newBuilder()
+                                .removeHeader("User-Agent")
+                                .header("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                                .build()
+                            response = chain.proceed(retryReq)
+                        }
+                        response
                     }
                     .build()
             }
