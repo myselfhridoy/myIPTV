@@ -297,11 +297,7 @@ fun LivePlayerScreen(
                                 else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                 else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
                                 
-                                val finalUrl = if (redirectedUrl != rawSourceUrl || isMasterPlaylist) {
-                                    rawSourceUrl
-                                } else {
-                                    redirectedUrl
-                                }
+                                val finalUrl = redirectedUrl
                                 return@withContext com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                             }
                             
