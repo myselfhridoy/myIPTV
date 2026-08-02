@@ -306,14 +306,10 @@ fun LivePlayerScreen(
                                     else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
                                     else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
                                     
-                                    // Universal Rule (Like NSPlayer / OTT Navigator):
-                                    // When a stream URL redirects via Location (or is a master playlist),
-                                    // we keep rawSourceUrl so ExoPlayer's OkHttpDataSource follows Location redirects natively with fresh tokens every time!
-                                    val finalUrl = if (redirectedUrl != rawSourceUrl || isMasterPlaylist) {
-                                        rawSourceUrl
-                                    } else {
-                                        redirectedUrl
-                                    }
+                                    // Always use the redirected URL so that ExoPlayer knows the correct Base URL.
+                                    // This is crucial for HLS playlists that use relative paths for their chunks.
+                                    // ExoPlayer's DefaultDataSource cannot resolve relative chunk URLs if the base URL is wrong.
+                                    val finalUrl = redirectedUrl
                                     
                                     com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null
