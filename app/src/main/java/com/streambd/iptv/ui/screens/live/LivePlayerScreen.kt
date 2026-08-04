@@ -364,11 +364,18 @@ fun LivePlayerScreen(
         
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         
-        val mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
+        var mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
             androidx.media3.common.MimeTypes.APPLICATION_M3U8
         } else {
             com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
         }
+        
+        // Fallback for Live TV: If pre-resolve failed/timed out, and the URL is a PHP script or has no extension,
+        // assume HLS to prevent Extractor errors (ProgressiveMediaSource) on redirecting Live streams.
+        if (mimeType == null && (finalUrl.contains(".php", ignoreCase = true) || !Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)").containsMatchIn(finalUrl))) {
+            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
         // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)

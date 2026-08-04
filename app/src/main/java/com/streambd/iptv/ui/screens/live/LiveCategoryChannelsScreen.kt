@@ -167,7 +167,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 )
             }
             
-            items(groups.take(10)) { group -> // Limit to first 10 for horizontal scroll performance
+            items(groups) { group -> // Remove limit to show all groups
                 FilterChipItem(
                     text = group,
                     icon = if (selectedGroup == group) Icons.Default.Check else null,
