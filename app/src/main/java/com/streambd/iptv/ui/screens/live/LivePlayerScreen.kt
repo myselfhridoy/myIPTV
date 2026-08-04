@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -101,6 +102,22 @@ fun LivePlayerScreen(
     val unlockFocusRequester = remember { FocusRequester() }
 
     var showChannelInfoOverlay by remember { mutableStateOf(false) }
+    var channelNumberInput by remember { mutableStateOf("") }
+    val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
+    val mainFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(channelNumberInput) {
+        if (channelNumberInput.isNotEmpty()) {
+            delay(2000L) // 2s debounce
+            viewModel.tuneToChannelNumber(channelNumberInput)
+            channelNumberInput = ""
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(100)
+        try { mainFocusRequester.requestFocus() } catch (e: Exception) {}
+    }
 
     LaunchedEffect(channel) {
         showChannelInfoOverlay = true
@@ -580,22 +597,22 @@ fun LivePlayerScreen(
                     when (event.nativeKeyEvent.keyCode) {
                         android.view.KeyEvent.KEYCODE_DPAD_UP -> {
                             if (!showOverlay) {
-                                viewModel.selectNextChannel()
+                                viewModel.tuneToNextChannel(isTvModeEnabled)
                                 true
                             } else false
                         }
                         android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
-                            viewModel.selectNextChannel()
+                            viewModel.tuneToNextChannel(isTvModeEnabled)
                             true
                         }
                         android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (!showOverlay) {
-                                viewModel.selectPreviousChannel()
+                                viewModel.tuneToPrevChannel(isTvModeEnabled)
                                 true
                             } else false
                         }
                         android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                            viewModel.selectPreviousChannel()
+                            viewModel.tuneToPrevChannel(isTvModeEnabled)
                             true
                         }
                         android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
@@ -604,10 +621,22 @@ fun LivePlayerScreen(
                                 true
                             } else false
                         }
+                        in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
+                            val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0
+                            channelNumberInput += digit.toString()
+                            true
+                        }
+                        in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
+                            val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0
+                            channelNumberInput += digit.toString()
+                            true
+                        }
                         else -> false
                     }
                 } else false
             }
+            .focusRequester(mainFocusRequester)
+            .focusable()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -753,7 +782,7 @@ fun LivePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TvIconButton(
-                            onClick = { viewModel.selectPreviousChannel() },
+                            onClick = { viewModel.tuneToPrevChannel(isTvModeEnabled) },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Channel", tint = Color.White, modifier = Modifier.size(28.dp))
@@ -774,7 +803,7 @@ fun LivePlayerScreen(
                         }
 
                         TvIconButton(
-                            onClick = { viewModel.selectNextChannel() },
+                            onClick = { viewModel.tuneToNextChannel(isTvModeEnabled) },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Channel", tint = Color.White, modifier = Modifier.size(28.dp))
@@ -905,6 +934,26 @@ fun LivePlayerScreen(
                         Text(text = channel.group, color = Color.LightGray, fontSize = 16.sp)
                     }
                 }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = channelNumberInput.isNotEmpty(),
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(TealAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = channelNumberInput,
+                    color = Color.White,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

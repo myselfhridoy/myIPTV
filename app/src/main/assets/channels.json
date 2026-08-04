@@ -1,0 +1,1332 @@
+[
+  {
+    "id": 1,
+    "name": "BTV",
+    "image": "1674014542-13767906.webp",
+    "channel_no": "111",
+    "resolution": "HD",
+    "keywords": ["btv", "btv national", "bangladesh television"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014542-13767906.webp?v=10.5.10"
+  },
+  {
+    "id": 2,
+    "name": "BTV News",
+    "image": "1735794136-59703299.png",
+    "channel_no": "112",
+    "resolution": "HD",
+    "keywords": ["btv news", "btv news hd", "bangladesh tv news"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1735794136-59703299.png?v=10.5.10"
+  },
+  {
+    "id": 85,
+    "name": "BTV Sangsad",
+    "image": "1674015224-35512988.webp",
+    "channel_no": "113",
+    "resolution": "HD",
+    "keywords": ["btv sangsad", "sangsad tv"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1781166550297.png"
+  },
+  {
+    "id": 129,
+    "name": "BTV Chattogram",
+    "image": "1674014308-78136185.png",
+    "channel_no": "114",
+    "resolution": "SD",
+    "keywords": ["btv chattogram"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014308-78136185.png?v=10.5.10"
+  },
+  {
+    "id": 3,
+    "name": "ATN Bangla",
+    "image": "1674014210-34580829.png",
+    "channel_no": "115",
+    "resolution": "HD",
+    "keywords": ["atn bangla", "atn bangla hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014210-34580829.png?v=10.5.10"
+  },
+  {
+    "id": 4,
+    "name": "Channel I HD",
+    "image": "1740567626692.png",
+    "channel_no": "116",
+    "resolution": "HD",
+    "keywords": ["channel i", "channel i hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1740567626692.png"
+  },
+  {
+    "id": 5,
+    "name": "Ekushey TV",
+    "image": "1649745416-10350598.png",
+    "channel_no": "117",
+    "resolution": "HD",
+    "keywords": ["ekushey tv", "ekushey tv hd", "ekushey"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1649745416-10350598.png?v=10.5.10"
+  },
+  {
+    "id": 6,
+    "name": "NTV",
+    "image": "1735560841094.png",
+    "channel_no": "118",
+    "resolution": "HD",
+    "keywords": ["ntv", "ntv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1735560841094.png"
+  },
+  {
+    "id": 7,
+    "name": "RTV HD",
+    "image": "1674105604-17294778.png",
+    "channel_no": "119",
+    "resolution": "HD",
+    "keywords": ["rtv", "rtv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674105604-17294778.png?v=10.5.10"
+  },
+  {
+    "id": 8,
+    "name": "Boishakhi TV HD",
+    "image": "boishakhitv.png",
+    "channel_no": "120",
+    "resolution": "HD",
+    "keywords": ["boishakhi", "boishakhi tv", "boishakhi tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/boishakhitv.png?v=10.5.10"
+  },
+  {
+    "id": 232,
+    "name": "Channel 1 HD",
+    "image": "1781163068414.png",
+    "channel_no": "121",
+    "resolution": "HD",
+    "keywords": ["channel 1", "channel 1 hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1781163068414.png"
+  },
+  {
+    "id": 9,
+    "name": "Bangla Vision HD",
+    "image": "1735561344354.png",
+    "channel_no": "122",
+    "resolution": "HD",
+    "keywords": ["bangla vision", "bangla vision hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1735561344354.png"
+  },
+  {
+    "id": 227,
+    "name": "Islamic Tv",
+    "image": "1770548266-71405517.png",
+    "channel_no": "124",
+    "resolution": "HD,New",
+    "keywords": ["islamic tv", "islamic tv bangla"],
+    "group-title": "Religious",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1770548266-71405517.png?v=10.5.10"
+  },
+  {
+    "id": 10,
+    "name": "Desh TV",
+    "image": "1782012550123.png",
+    "channel_no": "126",
+    "resolution": "SD",
+    "keywords": ["desh tv", "desh tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1782012550123.png"
+  },
+  {
+    "id": 11,
+    "name": "My TV HD",
+    "image": "mytv.png",
+    "channel_no": "127",
+    "resolution": "HD",
+    "keywords": ["my tv", "my tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/mytv.png?v=10.5.10"
+  },
+  {
+    "id": 87,
+    "name": "ATN News",
+    "image": "1739962961772.png",
+    "channel_no": "128",
+    "resolution": "HD",
+    "keywords": ["atn news"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1739962961772.png"
+  },
+  {
+    "id": 13,
+    "name": "Mohona TV HD",
+    "image": "1770380791303.png",
+    "channel_no": "129",
+    "resolution": "HD",
+    "keywords": ["mohona tv", "mohona tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380791303.png"
+  },
+  {
+    "id": 14,
+    "name": "Bijoy TV",
+    "image": "1770381398090.png",
+    "channel_no": "130",
+    "resolution": "HD",
+    "keywords": ["bijoy tv", "bijoy tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770381398090.png"
+  },
+  {
+    "id": 88,
+    "name": "Somoy TV HD",
+    "image": "somoytv.png",
+    "channel_no": "131",
+    "resolution": "HD",
+    "keywords": ["somoy news", "somoy tv", "somoy tv hd"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/somoytv.png?v=10.5.10"
+  },
+  {
+    "id": 86,
+    "name": "Independent TV",
+    "image": "1778087037971.png",
+    "channel_no": "132",
+    "resolution": "SD",
+    "keywords": ["independent tv", "independent tv hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778087037971.png"
+  },
+  {
+    "id": 12,
+    "name": "Maasranga HD",
+    "image": "1773680325498.png",
+    "channel_no": "133",
+    "resolution": "HD",
+    "keywords": ["maasranga", "maasranga hd", "maasranga tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1773680325498.png"
+  },
+  {
+    "id": 17,
+    "name": "Channel 9 HD",
+    "image": "1770188008067.png",
+    "channel_no": "134",
+    "resolution": "HD",
+    "keywords": ["channel 9", "channel 9 hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770188008067.png"
+  },
+  {
+    "id": 89,
+    "name": "Channel 24",
+    "image": "1735556516924.png",
+    "channel_no": "135",
+    "resolution": "HD",
+    "keywords": ["channel 24", "channel 24 hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1735556516924.png"
+  },
+  {
+    "id": 117,
+    "name": "Gazi TV HD",
+    "image": "1618746762-26959522.png",
+    "channel_no": "136",
+    "resolution": "HD",
+    "keywords": ["gazi tv", "gazi tv hd", "gtv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1618746762-26959522.png?v=10.5.10"
+  },
+  {
+    "id": 90,
+    "name": "Ekattor HD",
+    "image": "1739963327549.png",
+    "channel_no": "137",
+    "resolution": "HD",
+    "keywords": ["ekattor", "ekattor tv", "ekattor hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1739963327549.png"
+  },
+  {
+    "id": 15,
+    "name": "Asian TV HD",
+    "image": "asiantv.png",
+    "channel_no": "138",
+    "resolution": "HD",
+    "keywords": ["asian tv", "asian tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/asiantv.png?v=10.5.10"
+  },
+  {
+    "id": 16,
+    "name": "SA TV HD",
+    "image": "satv.png",
+    "channel_no": "139",
+    "resolution": "HD",
+    "keywords": ["sa tv", "sa tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/satv.png?v=10.5.10"
+  },
+  {
+    "id": 91,
+    "name": "Jamuna TV",
+    "image": "1735560213832.png",
+    "channel_no": "141",
+    "resolution": "SD",
+    "keywords": ["jamuna tv", "jamuna tv hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1735560213832.png"
+  },
+  {
+    "id": 18,
+    "name": "Deepto HD",
+    "image": "1742713000749.png",
+    "channel_no": "142",
+    "resolution": "HD",
+    "keywords": ["deepto tv", "deepto tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1742713000749.png"
+  },
+  {
+    "id": 93,
+    "name": "DBC News HD",
+    "image": "1770186306600.png",
+    "channel_no": "143",
+    "resolution": "HD",
+    "keywords": ["dbc news", "dbc news hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770186306600.png"
+  },
+  {
+    "id": 92,
+    "name": "News24 HD",
+    "image": "1770186895850.png",
+    "channel_no": "144",
+    "resolution": "HD",
+    "keywords": ["news24", "news 24", "news24 hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770186895850.png"
+  },
+  {
+    "id": 20,
+    "name": "Bangla TV",
+    "image": "banglatv.png",
+    "channel_no": "145",
+    "resolution": "HD",
+    "keywords": ["bangla tv", "bangla tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/banglatv.png?v=10.5.10"
+  },
+  {
+    "id": 56,
+    "name": "Duranto TV",
+    "image": "durantotv.png",
+    "channel_no": "146",
+    "resolution": "HD",
+    "keywords": ["duranto", "duranto tv"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/durantotv.png?v=10.5.10"
+  },
+  {
+    "id": 19,
+    "name": "Nagorik TV HD",
+    "image": "1585734668-98223291.png",
+    "channel_no": "147",
+    "resolution": "HD",
+    "keywords": ["nagorik", "nagorik tv", "nagorik tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1585734668-98223291.png?v=10.5.10"
+  },
+  {
+    "id": 21,
+    "name": "Ananda TV",
+    "image": "anandatv.png",
+    "channel_no": "148",
+    "resolution": "SD",
+    "keywords": ["ananda tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/anandatv.png?v=10.5.10"
+  },
+  {
+    "id": 140,
+    "name": "T Sports HD",
+    "image": "1605236851-69176036.jpeg",
+    "channel_no": "149",
+    "resolution": "HD",
+    "keywords": ["t sports", "t sports hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1605236851-69176036.jpeg?v=10.5.10"
+  },
+  {
+    "id": 148,
+    "name": "Nexus TV",
+    "image": "1712555532-95755671.png",
+    "channel_no": "150",
+    "resolution": "HD",
+    "keywords": ["nexus tv"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1712555532-95755671.png?v=10.5.10"
+  },
+  {
+    "id": 154,
+    "name": "Ekhon",
+    "image": "1651985369-10396030.png",
+    "channel_no": "151",
+    "resolution": "HD",
+    "keywords": ["ekhon tv", "ekhon", "ekhon tv hd"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1651985369-10396030.png?v=10.5.10"
+  },
+  {
+    "id": 168,
+    "name": "Global TV HD",
+    "image": "1674015097-89564682.png",
+    "channel_no": "152",
+    "resolution": "HD",
+    "keywords": ["global tv", "global tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674015097-89564682.png?v=10.5.10"
+  },
+  {
+    "id": 177,
+    "name": "Green TV",
+    "image": "1683606878-6994272.png",
+    "channel_no": "153",
+    "resolution": "HD",
+    "keywords": ["green tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1683606878-6994272.png?v=10.5.10"
+  },
+  {
+    "id": 189,
+    "name": "Channel S",
+    "image": "1719375263-56195452.png",
+    "channel_no": "154",
+    "resolution": "HD",
+    "keywords": ["channel s", "channel s hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1719375263-56195452.png?v=10.5.10"
+  },
+  {
+    "id": 199,
+    "name": "Star News HD",
+    "image": "1770189826301.png",
+    "channel_no": "155",
+    "resolution": "HD",
+    "keywords": ["star news", "star news hd"],
+    "group-title": "News",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770189826301.png"
+  },
+  {
+    "id": 26,
+    "name": "SRK TV",
+    "image": "1779607122445.png",
+    "channel_no": "170",
+    "resolution": "HD",
+    "keywords": ["srk tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1779607122445.png"
+  },
+  {
+    "id": 196,
+    "name": "Rajdhani TV",
+    "image": "1751537128-35356560.png",
+    "channel_no": "171",
+    "resolution": "HD",
+    "keywords": ["rajdhani tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1751537128-35356560.png?v=10.5.10"
+  },
+  {
+    "id": 27,
+    "name": "Akash Aath",
+    "image": "1772525646-25907229.png",
+    "channel_no": "176",
+    "resolution": "SD",
+    "keywords": ["akash aath"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1772525646-25907229.png?v=10.5.10"
+  },
+  {
+    "id": 23,
+    "name": "Zee Bangla",
+    "image": "1750067959-21698999.png",
+    "channel_no": "177",
+    "resolution": "SD",
+    "keywords": ["zee bangla", "zee bangla hd", "zee bangla vip"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750067959-21698999.png?v=10.5.10"
+  },
+  {
+    "id": 229,
+    "name": "Enterr10 Bangla",
+    "image": "1770548375-10798890.png",
+    "channel_no": "178",
+    "resolution": "SD,New",
+    "keywords": ["enterr10 bangla"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1770548375-10798890.png?v=10.5.10"
+  },
+  {
+    "id": 25,
+    "name": "SONY AATH",
+    "image": "1666684545-72479469.png",
+    "channel_no": "179",
+    "resolution": "SD",
+    "keywords": ["sony aath", "sony atth", "sony aat vip", "sony aat"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666684545-72479469.png?v=10.5.10"
+  },
+  {
+    "id": 198,
+    "name": "& TV",
+    "image": "1767071137-99764359.png",
+    "channel_no": "180",
+    "resolution": "SD",
+    "keywords": ["and tv", "& tv", "&tv", "&tv hd", "and tv hd", "& tv hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1767071137-99764359.png?v=10.5.10"
+  },
+  {
+    "id": 32,
+    "name": "Zee TV",
+    "image": "1751178180-59832883.png",
+    "channel_no": "183",
+    "resolution": "SD",
+    "keywords": ["zee tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1751178180-59832883.png?v=10.5.10"
+  },
+  {
+    "id": 33,
+    "name": "Sony",
+    "image": "1666685223-20893993.png",
+    "channel_no": "184",
+    "resolution": "HD",
+    "keywords": ["sony", "sony entertainment television","sony entertainment television hd","sony hd","sony entertainment television sd", "sony sd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685223-20893993.png?v=10.5.10"
+  },
+  {
+    "id": 34,
+    "name": "Sony SAB",
+    "image": "1666685288-73017936.png",
+    "channel_no": "185",
+    "resolution": "SD",
+    "keywords": ["sony sab", "sony sab hd"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685288-73017936.png?v=10.5.10"
+  },
+  {
+    "id": 160,
+    "name": "Anmol Tv",
+    "image": "1757479098-95665625.png",
+    "channel_no": "188",
+    "resolution": "SD",
+    "keywords": ["anmol tv", "zee anmol"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1757479098-95665625.png?v=10.5.10"
+  },
+  {
+    "id": 156,
+    "name": "Zee Café",
+    "image": "1751175982-31256153.png",
+    "channel_no": "190",
+    "resolution": "SD",
+    "keywords": ["zee cafe"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1751175982-31256153.png?v=10.5.10"
+  },
+  {
+    "id": 43,
+    "name": "KBS World HD",
+    "image": "kbsworld.png",
+    "channel_no": "191",
+    "resolution": "HD",
+    "keywords": ["kbs world"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/kbsworld.png?v=10.5.10"
+  },
+  {
+    "id": 44,
+    "name": "Arirang",
+    "image": "1674014053-53487991.png",
+    "channel_no": "192",
+    "resolution": "HD",
+    "keywords": ["arirang"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014053-53487991.png?v=10.5.10"
+  },
+  {
+    "id": 45,
+    "name": "TV5 Monde",
+    "image": "1674015078-74173250.png",
+    "channel_no": "193",
+    "resolution": "SD",
+    "keywords": ["tv5 monde"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674015078-74173250.png?v=10.5.10"
+  },
+  {
+    "id": 172,
+    "name": "HUM TV HD",
+    "image": "1681371785-37633308.png",
+    "channel_no": "194",
+    "resolution": "HD",
+    "keywords": ["hum tv"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1681371785-37633308.png?v=10.5.10"
+  },
+  {
+    "id": 179,
+    "name": "Hum Sitarey World",
+    "image": "1686797701-98438974.png",
+    "channel_no": "195",
+    "resolution": "HD",
+    "keywords": ["hum sitarey", "hum sitaray"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1686797701-98438974.png?v=10.5.10"
+  },
+  {
+    "id": 228,
+    "name": "MBC Bollywood",
+    "image": "1770548325-17818949.png",
+    "channel_no": "196",
+    "resolution": "HD,New",
+    "keywords": ["mbc bollywood"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1770548325-17818949.png?v=10.5.10"
+  },
+  {
+    "id": 231,
+    "name": "Green Entertainment",
+    "image": "1771923703-78531297.png",
+    "channel_no": "198",
+    "resolution": "HD",
+    "keywords": ["green entertainment"],
+    "group-title": "Entertainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1771923703-78531297.png?v=10.5.10"
+  },
+  {
+    "id": 100,
+    "name": "BBC News",
+    "image": "1674014267-49733957.png",
+    "channel_no": "201",
+    "resolution": "SD",
+    "keywords": ["bbc news"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014267-49733957.png?v=10.5.10"
+  },
+  {
+    "id": 96,
+    "name": "CNN",
+    "image": "https://assets.ottplus.bd/uploads/wb-news/2325922398374723584_Thumbnail.png",
+    "channel_no": "202",
+    "resolution": "SD",
+    "keywords": ["cnn"],
+    "group-title": "News",
+    "tvg-logo": "https://assets.ottplus.bd/uploads/wb-news/2325922398374723584_Thumbnail.png"
+  },
+  {
+    "id": 97,
+    "name": "Al Jazeera HD",
+    "image": "aljazeera.png",
+    "channel_no": "203",
+    "resolution": "HD",
+    "keywords": ["al jazeera"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/aljazeera.png?v=10.5.10"
+  },
+  {
+    "id": 98,
+    "name": "DW",
+    "image": "dw.png",
+    "channel_no": "204",
+    "resolution": "SD",
+    "keywords": ["dw", "deutsche welle"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/dw.png?v=10.5.10"
+  },
+  {
+    "id": 99,
+    "name": "NHK",
+    "image": "1674015203-73879248.png",
+    "channel_no": "205",
+    "resolution": "SD",
+    "keywords": ["nhk"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674015203-73879248.png?v=10.5.10"
+  },
+  {
+    "id": 101,
+    "name": "Russia Today",
+    "image": "1751273377-83560497.png",
+    "channel_no": "206",
+    "resolution": "HD",
+    "keywords": ["russia today", "rt"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1751273377-83560497.png?v=10.5.10"
+  },
+  {
+    "id": 102,
+    "name": "CGTN",
+    "image": "cgtn.png",
+    "channel_no": "207",
+    "resolution": "SD",
+    "keywords": ["cgtn"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/cgtn.png?v=10.5.10"
+  },
+  {
+    "id": 118,
+    "name": "France 24",
+    "image": "1567507218-95045712.png",
+    "channel_no": "211",
+    "resolution": "SD",
+    "keywords": ["france 24"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1567507218-95045712.png?v=10.5.10"
+  },
+  {
+    "id": 159,
+    "name": "Channel News Asia",
+    "image": "1674014897-89849811.png",
+    "channel_no": "214",
+    "resolution": "SD",
+    "keywords": ["channel news asia", "cna"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014897-89849811.png?v=10.5.10"
+  },
+  {
+    "id": 200,
+    "name": "TRT world HD",
+    "image": "1770005745-29851474.png",
+    "channel_no": "216",
+    "resolution": "HD,New",
+    "keywords": ["trt world"],
+    "group-title": "News",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1770005745-29851474.png?v=10.5.10"
+  },
+  {
+    "id": 170,
+    "name": "Zee Bangla Sonar",
+    "image": "1756967258-78943148.png",
+    "channel_no": "252",
+    "resolution": "SD",
+    "keywords": ["zee bangla cinema", "zee bangla cinema hd"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1756967258-78943148.png?v=10.5.10"
+  },
+  {
+    "id": 42,
+    "name": "Sony Pix HD",
+    "image": "1666685373-43459498.png",
+    "channel_no": "257",
+    "resolution": "SD",
+    "keywords": ["sony pix", "sony pix hd vip"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685373-43459498.png?v=10.5.10"
+  },
+  {
+    "id": 67,
+    "name": "Zee Cinema HD",
+    "image": "1750068080-37341822.png",
+    "channel_no": "259",
+    "resolution": "HD",
+    "keywords": ["zee cinema"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750068080-37341822.png?v=10.5.10"
+  },
+  {
+    "id": 68,
+    "name": "Zee Action",
+    "image": "1750067798-29279221.png",
+    "channel_no": "260",
+    "resolution": "SD",
+    "keywords": ["zee action"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750067798-29279221.png?v=10.5.10"
+  },
+  {
+    "id": 69,
+    "name": "Zee Bollywood",
+    "image": "1750067992-73057007.png",
+    "channel_no": "261",
+    "resolution": "SD",
+    "keywords": ["zee bollywood"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750067992-73057007.png?v=10.5.10"
+  },
+  {
+    "id": 70,
+    "name": "Sony Max",
+    "image": "1666685433-64049424.png",
+    "channel_no": "262",
+    "resolution": "SD",
+    "keywords": ["sony max", "sony max vip"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685433-64049424.png?v=10.5.10"
+  },
+  {
+    "id": 71,
+    "name": "Sony Max HD",
+    "image": "1666685433-64049424.png",
+    "channel_no": "263",
+    "resolution": "HD",
+    "keywords": ["sony max hd", "sony max hd vip"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685433-64049424.png?v=10.5.10"
+  },
+  {
+    "id": 72,
+    "name": "B4U Movies",
+    "image": "b4umoview.png",
+    "channel_no": "264",
+    "resolution": "SD",
+    "keywords": ["b4u movies"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/b4umoview.png?v=10.5.10"
+  },
+  {
+    "id": 157,
+    "name": "&Pictures",
+    "image": "1751176014-91335358.png",
+    "channel_no": "265",
+    "resolution": "SD",
+    "keywords": ["and pictures", "& pictures", "& picture", "and picture"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1751176014-91335358.png?v=10.5.10"
+  },
+  {
+    "id": 131,
+    "name": "Sony Max 2",
+    "image": "1666685480-30093545.png",
+    "channel_no": "266",
+    "resolution": "SD",
+    "keywords": ["sony max 2"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666685480-30093545.png?v=10.5.10"
+  },
+  {
+    "id": 130,
+    "name": "Lotus Macau",
+    "image": "1585632282-99247921.png",
+    "channel_no": "267",
+    "resolution": "SD",
+    "keywords": ["lotus macau"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1585632282-99247921.png?v=10.5.10"
+  },
+  {
+    "id": 185,
+    "name": "Zee Classic",
+    "image": "1750068094-39296493.png",
+    "channel_no": "274",
+    "resolution": "SD",
+    "keywords": ["zee classic"],
+    "group-title": "Movies",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750068094-39296493.png?v=10.5.10"
+  },
+  {
+    "id": 203,
+    "name": "Screem",
+    "image": "1770312098339.png",
+    "channel_no": "275",
+    "resolution": "HD,New",
+    "keywords": ["screem"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770312098339.png"
+  },
+  {
+    "id": 204,
+    "name": "Originals",
+    "image": "1778085327477.png",
+    "channel_no": "276",
+    "resolution": "HD,New",
+    "keywords": ["originals"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778085327477.png"
+  },
+  {
+    "id": 205,
+    "name": "Uniques",
+    "image": "1770347327658.png",
+    "channel_no": "277",
+    "resolution": "HD,New",
+    "keywords": ["uniques"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770347327658.png"
+  },
+  {
+    "id": 206,
+    "name": "Cineedge",
+    "image": "1770347851305.png",
+    "channel_no": "278",
+    "resolution": "HD,New",
+    "keywords": ["cineedge"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770347851305.png"
+  },
+  {
+    "id": 207,
+    "name": "Superrix",
+    "image": "1770348388925.png",
+    "channel_no": "279",
+    "resolution": "HD,New",
+    "keywords": ["superrix"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770348388925.png"
+  },
+  {
+    "id": 218,
+    "name": "CRIMES HD",
+    "image": "1770380126540.png",
+    "channel_no": "281",
+    "resolution": "HD,New",
+    "keywords": ["crimes", "crimes hd"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380126540.png"
+  },
+  {
+    "id": 219,
+    "name": "TRUE STORIES HD",
+    "image": "1770380306806.png",
+    "channel_no": "282",
+    "resolution": "HD,New",
+    "keywords": ["true stories", "true stories hd"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380306806.png"
+  },
+  {
+    "id": 220,
+    "name": "INTELLIGENCE HD",
+    "image": "1770380460488.png",
+    "channel_no": "283",
+    "resolution": "HD,New",
+    "keywords": ["intelligence", "intelligence hd"],
+    "group-title": "Movies",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380460488.png"
+  },
+  {
+    "id": 192,
+    "name": "Ten Cricket",
+    "image": "1745467451-75767508.png",
+    "channel_no": "307",
+    "resolution": "HD",
+    "keywords": ["sony ten cricket", "ten cricket","ten cricket hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1745467451-75767508.png?v=10.5.10"
+  },
+  {
+    "id": 111,
+    "name": "SONY SPORTS TEN 1",
+    "image": "1757579395-1161199.png",
+    "channel_no": "308",
+    "resolution": "HD",
+    "keywords": ["sony sports ten 1 hd", "sony ten 1", "sony ten 1 hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1757579395-1161199.png?v=10.5.10"
+  },
+  {
+    "id": 112,
+    "name": "Sony SPORTS TEN 2",
+    "image": "1762841840-73112647.png",
+    "channel_no": "309",
+    "resolution": "HD",
+    "keywords": ["sony sports ten 2 hd", "sony ten 2", "sony ten 2 hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1762841840-73112647.png?v=10.5.10"
+  },
+  {
+    "id": 193,
+    "name": "SONY SPORTS TEN 5",
+    "image": "1735720129-50187708.png",
+    "channel_no": "312",
+    "resolution": "SD",
+    "keywords": ["sony sports ten 5 hd", "sony ten 3", "sony ten 3 hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1735720129-50187708.png?v=10.5.10"
+  },
+  {
+    "id": 167,
+    "name": "Eurosport HD",
+    "image": "1765263081-69699803.png",
+    "channel_no": "313",
+    "resolution": "HD",
+    "keywords": ["eurosport", "eurosports", "eurosport hd", "eurosports hd", "euro sport hd", "euro sport"],
+    "group-title": "Sports",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1765263081-69699803.png?v=10.5.10"
+  },
+  {
+    "id": 208,
+    "name": "Crazy Ex",
+    "image": "1778085745609.png",
+    "channel_no": "314",
+    "resolution": "HD,New",
+    "keywords": ["crazy ex"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778085745609.png"
+  },
+  {
+    "id": 209,
+    "name": "Sports Legends",
+    "image": "1779609962271.png",
+    "channel_no": "315",
+    "resolution": "HD,New",
+    "keywords": ["sports legends"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1779609962271.png"
+  },
+  {
+    "id": 210,
+    "name": "Flash Guys HD",
+    "image": "1770378074527.png",
+    "channel_no": "316",
+    "resolution": "HD,New",
+    "keywords": ["flash guys hd"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770378074527.png"
+  },
+  {
+    "id": 221,
+    "name": "SPORTS RANGE HD",
+    "image": "1779610478709.png",
+    "channel_no": "317",
+    "resolution": "HD,New",
+    "keywords": ["sports range"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1779610478709.png"
+  },
+  {
+    "id": 222,
+    "name": "THUNDER ER HD",
+    "image": "1770380791303.png",
+    "channel_no": "318",
+    "resolution": "HD,New",
+    "keywords": ["thunder er"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380791303.png"
+  },
+  {
+    "id": 223,
+    "name": "FIGHTERS HD",
+    "image": "1770380942670.png",
+    "channel_no": "319",
+    "resolution": "HD,New",
+    "keywords": ["fighters"],
+    "group-title": "Sports",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770380942670.png"
+  },
+  {
+    "id": 75,
+    "name": "B4U Music",
+    "image": "b4umusic.png",
+    "channel_no": "352",
+    "resolution": "SD",
+    "keywords": ["b4u music"],
+    "group-title": "Music",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/b4umusic.png?v=10.5.10"
+  },
+  {
+    "id": 80,
+    "name": "Zing",
+    "image": "1750068165-50854233.png",
+    "channel_no": "357",
+    "resolution": "SD",
+    "keywords": ["zing"],
+    "group-title": "Music",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1750068165-50854233.png?v=10.5.10"
+  },
+  {
+    "id": 176,
+    "name": "Sangeet Bangla",
+    "image": "1681372059-79623485.png",
+    "channel_no": "358",
+    "resolution": "SD",
+    "keywords": ["sangeet bangla"],
+    "group-title": "Music",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1681372059-79623485.png?v=10.5.10"
+  },
+  {
+    "id": 174,
+    "name": "Music India",
+    "image": "1681371937-13830928.png",
+    "channel_no": "359",
+    "resolution": "SD",
+    "keywords": ["music india"],
+    "group-title": "Music",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1681371937-13830928.png?v=10.5.10"
+  },
+  {
+    "id": 211,
+    "name": "Party Universe",
+    "image": "1778083145889.png",
+    "channel_no": "360",
+    "resolution": "HD,New",
+    "keywords": ["party universe"],
+    "group-title": "Music",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778083145889.png"
+  },
+  {
+    "id": 48,
+    "name": "Discovery",
+    "image": "1565247058-56902119.png",
+    "channel_no": "402",
+    "resolution": "SD",
+    "keywords": ["discovery"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1565247058-56902119.png?v=10.5.10"
+  },
+  {
+    "id": 49,
+    "name": "Discovery Science",
+    "image": "discoveryscience.png",
+    "channel_no": "403",
+    "resolution": "SD",
+    "keywords": ["discovery science"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/discoveryscience.png?v=10.5.10"
+  },
+  {
+    "id": 50,
+    "name": "Discovery Turbo",
+    "image": "discoverturbo.png",
+    "channel_no": "404",
+    "resolution": "SD",
+    "keywords": ["discovery turbo"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/discoverturbo.png?v=10.5.10"
+  },
+  {
+    "id": 51,
+    "name": "Animal Planet",
+    "image": "1570346579-57949444.png",
+    "channel_no": "405",
+    "resolution": "HD",
+    "keywords": ["animal planet"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1570346579-57949444.png?v=10.5.10"
+  },
+  {
+    "id": 53,
+    "name": "TLC HD World",
+    "image": "1570345082-97948930.png",
+    "channel_no": "407",
+    "resolution": "HD",
+    "keywords": ["tlc"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1570345082-97948930.png?v=10.5.10"
+  },
+  {
+    "id": 55,
+    "name": "TravelXP HD",
+    "image": "1674015347-33914326.svg",
+    "channel_no": "409",
+    "resolution": "HD",
+    "keywords": ["travelxp hd"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674015347-33914326.svg?v=10.5.10"
+  },
+  {
+    "id": 134,
+    "name": "Sony BBC Earth HD",
+    "image": "1666687186-46104282.png",
+    "channel_no": "411",
+    "resolution": "SD",
+    "keywords": ["sony bbc earth"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666687186-46104282.png?v=10.5.10"
+  },
+  {
+    "id": 178,
+    "name": "HUM Masala",
+    "image": "1686797494-87757962.png",
+    "channel_no": "414",
+    "resolution": "HD",
+    "keywords": ["hum masala"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1686797494-87757962.png?v=10.5.10"
+  },
+  {
+    "id": 212,
+    "name": "Delicious",
+    "image": "1778086478755.png",
+    "channel_no": "415",
+    "resolution": "HD,New",
+    "keywords": ["delicious"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778086478755.png"
+  },
+  {
+    "id": 213,
+    "name": "Luxel HD",
+    "image": "1770378560772.png",
+    "channel_no": "416",
+    "resolution": "HD,New",
+    "keywords": ["luxell"],
+    "group-title": "Infotainment",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770378560772.png"
+  },
+  {
+    "id": 59,
+    "name": "Cartoon Network HD",
+    "image": "cartoonnetworkhdplus.png",
+    "channel_no": "453",
+    "resolution": "HD",
+    "keywords": ["cartoon network"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/cartoonnetworkhdplus.png?v=10.5.10"
+  },
+  {
+    "id": 125,
+    "name": "Discovery Kids",
+    "image": "1582798283-15927262.png",
+    "channel_no": "455",
+    "resolution": "SD",
+    "keywords": ["discovery kids"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1582798283-15927262.png?v=10.5.10"
+  },
+  {
+    "id": 162,
+    "name": "Sony YAY",
+    "image": "1666687413-84692936.png",
+    "channel_no": "458",
+    "resolution": "SD",
+    "keywords": ["sony yay"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1666687413-84692936.png?v=10.5.10"
+  },
+  {
+    "id": 171,
+    "name": "Cartoon Network",
+    "image": "1681371692-42732674.png",
+    "channel_no": "459",
+    "resolution": "SD",
+    "keywords": ["cartoon network"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1681371692-42732674.png?v=10.5.10"
+  },
+  {
+    "id": 175,
+    "name": "POGO",
+    "image": "1681372010-44267453.png",
+    "channel_no": "460",
+    "resolution": "SD",
+    "keywords": ["pogo"],
+    "group-title": "Kids",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1681372010-44267453.png?v=10.5.10"
+  },
+  {
+    "id": 214,
+    "name": "Nikky",
+    "image": "1778083459294.png",
+    "channel_no": "463",
+    "resolution": "HD,New",
+    "keywords": ["nikki"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778083459294.png"
+  },
+  {
+    "id": 215,
+    "name": "Joy",
+    "image": "1770378874717.png",
+    "channel_no": "464",
+    "resolution": "HD,New",
+    "keywords": ["joy"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770378874717.png"
+  },
+  {
+    "id": 216,
+    "name": "BuddyStar HD",
+    "image": "1770379038530.png",
+    "channel_no": "465",
+    "resolution": "HD,New",
+    "keywords": ["buddystar"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770379038530.png"
+  },
+  {
+    "id": 224,
+    "name": "SMARTY HD",
+    "image": "1770381107924.png",
+    "channel_no": "466",
+    "resolution": "HD,New",
+    "keywords": ["smarty"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770381107924.png"
+  },
+  {
+    "id": 217,
+    "name": "Funny Junior HD",
+    "image": "1770379573329.png",
+    "channel_no": "467",
+    "resolution": "HD,New",
+    "keywords": ["funny junior"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770379573329.png"
+  },
+  {
+    "id": 225,
+    "name": "LUCKY FAMILY HD",
+    "image": "1770381248531.png",
+    "channel_no": "468",
+    "resolution": "HD,New",
+    "keywords": ["lucky family"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770381248531.png"
+  },
+  {
+    "id": 226,
+    "name": "KIDS STARS HD",
+    "image": "1770381398090.png",
+    "channel_no": "469",
+    "resolution": "HD,New",
+    "keywords": ["kids stars"],
+    "group-title": "Kids",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1770381398090.png"
+  },
+  {
+    "id": 105,
+    "name": "Al Quran",
+    "image": "1778086065071.png",
+    "channel_no": "481",
+    "resolution": "SD",
+    "keywords": ["al quran"],
+    "group-title": "Religious",
+    "tvg-logo": "https://tstatic.akash-go.com/cms-ui/images/custom-content/1778086065071.png"
+  },
+  {
+    "id": 136,
+    "name": "As Sunnah",
+    "image": "1674014072-46486251.webp",
+    "channel_no": "482",
+    "resolution": "SD",
+    "keywords": ["as sunnah"],
+    "group-title": "Religious",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1674014072-46486251.webp?v=10.5.10"
+  },
+  {
+    "id": 230,
+    "name": "Iqraa TV Bangla",
+    "image": "1770548420-84091417.jpeg",
+    "channel_no": "483",
+    "resolution": "HD",
+    "keywords": ["iqraa tv bangla"],
+    "group-title": "Religious",
+    "tvg-logo": "https://cdnhost.akashbd.net/assets/uploads/channels_images/1770548420-84091417.jpeg?v=10.5.10"
+  },
+  {
+    "id": 501,
+    "name": "Jalsha Movies",
+    "image": "jalsha-movies-star-jalsha-television-show-star-india-sitarhd.jpg",
+    "channel_no": "1002",
+    "resolution": "HD",
+    "keywords": ["jalsha movies", "jalsha movies hd", "jalsha movies sd", "jalsa movies", "jalsa movies hd", "jalsha movie"],
+    "group-title": "Movies",
+    "tvg-logo": "https://img1.hotstarext.com/image/upload/f_auto/sources/r1/cms/prod/7202/597202-h"
+  }
+]

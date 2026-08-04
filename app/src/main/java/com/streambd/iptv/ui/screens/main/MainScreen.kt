@@ -213,8 +213,13 @@ fun MainScreen(
                 Column(modifier = Modifier.padding(16.dp).width(300.dp)) {
                     Text("More Options", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+                    val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
                     val moreItems = listOf(
+                        Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
+                            showMoreDialog = false
+                            mainViewModel.toggleTvMode(context, !isTvModeEnabled)
+                            android.widget.Toast.makeText(context, "TV Mode ${if (!isTvModeEnabled) "Enabled" else "Disabled"}", android.widget.Toast.LENGTH_SHORT).show()
+                        },
                         Pair("Notice", Icons.Outlined.Notifications) to {
                             showMoreDialog = false
                             showNotice()
@@ -310,7 +315,13 @@ fun MainScreen(
                     }
                     HorizontalDivider(color = Color(0xFF222836))
                     
+                    val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
                     val drawerItems = listOf(
+                        Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
+                            scope.launch { drawerState.close() }
+                            mainViewModel.toggleTvMode(context, !isTvModeEnabled)
+                            android.widget.Toast.makeText(context, "TV Mode ${if (!isTvModeEnabled) "Enabled" else "Disabled"}", android.widget.Toast.LENGTH_SHORT).show()
+                        },
                         Pair("Playlists", Icons.Outlined.Folder) to {
                             scope.launch { drawerState.close() }
                             navController.navigate("playlists")

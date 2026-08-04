@@ -96,10 +96,19 @@ fun AppNavigation(
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(navController = navController, startDestination = Routes.SPLASH) {
             composable(Routes.SPLASH) {
+                val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
+                val selectedChannel by mainViewModel.selectedChannel.collectAsState()
+                
                 com.streambd.iptv.ui.screens.splash.SplashScreen(
                     onTimeout = {
-                        navController.navigate(Routes.MAIN) {
-                            popUpTo(Routes.SPLASH) { inclusive = true }
+                        if (isTvModeEnabled && selectedChannel != null) {
+                            navController.navigate(Routes.LIVE_PLAYER) {
+                                popUpTo(Routes.SPLASH) { inclusive = true }
+                            }
+                        } else {
+                            navController.navigate(Routes.MAIN) {
+                                popUpTo(Routes.SPLASH) { inclusive = true }
+                            }
                         }
                     }
                 )

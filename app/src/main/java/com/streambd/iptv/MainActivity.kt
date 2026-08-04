@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.streambd.iptv.utils.RemoteConfigManager.init()
+        mainViewModel.initTvMode(applicationContext)
         mainViewModel.fetchAddons(applicationContext)
         
         // Configure global Coil ImageLoader with UnsafeOkHttpClient & standard Browser User-Agent to bypass SSL/TLS & CDN blocks on IPTV logo servers
