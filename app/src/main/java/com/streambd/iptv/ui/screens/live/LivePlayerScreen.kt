@@ -98,6 +98,8 @@ fun LivePlayerScreen(
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
+    
+    var backPressedTime by remember { mutableStateOf(0L) }
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
@@ -579,6 +581,16 @@ fun LivePlayerScreen(
     BackHandler {
         if (isLocked) {
             showOverlay = true
+        } else if (isTvModeEnabled) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - backPressedTime < 2000) {
+                val activity = context as? ComponentActivity
+                activity?.finish()
+                Runtime.getRuntime().exit(0)
+            } else {
+                backPressedTime = currentTime
+                android.widget.Toast.makeText(context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT).show()
+            }
         } else {
             val activity = context as? ComponentActivity
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
