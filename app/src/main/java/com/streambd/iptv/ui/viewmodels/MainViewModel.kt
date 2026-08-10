@@ -12,7 +12,6 @@ import android.content.Context
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import com.streambd.iptv.data.models.TvModeChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,7 +58,6 @@ class MainViewModel : ViewModel() {
     private val _tvModePlaylists = MutableStateFlow<Set<String>>(emptySet())
     val tvModePlaylists: StateFlow<Set<String>> = _tvModePlaylists.asStateFlow()
 
-    var tvModeChannels: List<TvModeChannel> = emptyList()
     private var appContext: Context? = null
     
     val jsonFormat = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
@@ -86,8 +84,6 @@ class MainViewModel : ViewModel() {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val allChannels = mutableListOf<Channel>()
-                    val tvChannels = mutableListOf<TvModeChannel>()
-                    var channelIndex = 1
                     
                     // 1. Fetch Selected Playlists
                     val categories = liveRepository.getLiveCategories()
@@ -97,18 +93,6 @@ class MainViewModel : ViewModel() {
                         try {
                             val channels = liveRepository.getChannelsForCategory(category.url)
                             allChannels.addAll(channels)
-                            channels.forEach { ch ->
-                                tvChannels.add(
-                                    TvModeChannel(
-                                        channelNo = channelIndex.toString(),
-                                        name = ch.name,
-                                        keywords = listOf(ch.name),
-                                        tvgLogo = ch.logo,
-                                        groupTitle = ch.group
-                                    )
-                                )
-                                channelIndex++
-                            }
                         } catch (e: Exception) { e.printStackTrace() }
                     }
                     
@@ -158,16 +142,6 @@ class MainViewModel : ViewModel() {
                                         )
                                         
                                         allChannels.add(eventChannel)
-                                        tvChannels.add(
-                                            TvModeChannel(
-                                                channelNo = channelIndex.toString(),
-                                                name = eventChannel.name,
-                                                keywords = listOf(eventChannel.name),
-                                                tvgLogo = eventChannel.logo,
-                                                groupTitle = eventChannel.group
-                                            )
-                                        )
-                                        channelIndex++
                                     }
                                 } catch (e: Exception) { e.printStackTrace() }
                             }
@@ -175,7 +149,6 @@ class MainViewModel : ViewModel() {
                     }
                     
                     _currentPlaylist = allChannels
-                    tvModeChannels = tvChannels
                     
                     // If no channel selected, pick the first one
                     if (_selectedChannel.value == null && allChannels.isNotEmpty()) {
@@ -195,6 +168,7 @@ class MainViewModel : ViewModel() {
             .putBoolean("is_tv_mode_enabled", enabled)
             .putStringSet("tv_mode_playlists", playlists)
             .putBoolean("tv_mode_include_events", includeEvents)
+            .remove("last_channel")
             .commit()
         _isTvModeEnabled.value = enabled
         _tvModePlaylists.value = playlists
@@ -273,71 +247,17 @@ class MainViewModel : ViewModel() {
     }
 
     fun tuneToChannelNumber(number: String) {
-        if (tvModeChannels.isEmpty()) return
-        val matchedTvChannel = tvModeChannels.find { it.channelNo == number } ?: return
-        
-        // Find matching source in loaded playlists
-        val searchKeywords = matchedTvChannel.keywords.map { it.lowercase() } + matchedTvChannel.name.lowercase()
-        
-        // Search in current playlist first, then category channels
-        val allAvailableChannels = _currentPlaylist + _categoryChannels.value.values.flatten()
-        val matchingChannels = allAvailableChannels.distinctBy { it.url }.filter { channel ->
-            val channelNameLower = channel.name.lowercase()
-            searchKeywords.any { kw -> channelNameLower.contains(kw) }
-        }
-
-        if (matchingChannels.isNotEmpty()) {
-            // Combine sources if multiple matching channels found to create fallback
-            val combinedSources = mutableMapOf<String, String>()
-            matchingChannels.forEach { ch ->
-                if (ch.sources.isNotEmpty()) {
-                    combinedSources.putAll(ch.sources)
-                } else if (ch.url.isNotEmpty()) {
-                    val resolution = if (ch.name.contains("HD", true)) "HD" else "Auto"
-                    combinedSources[resolution] = ch.url
-                }
-            }
-            
-            val bestMatch = matchingChannels.first()
-            val finalChannel = bestMatch.copy(
-                name = matchedTvChannel.name,
-                logo = matchedTvChannel.tvgLogo.ifEmpty { bestMatch.logo },
-                sources = if (combinedSources.isNotEmpty()) combinedSources else bestMatch.sources
-            )
-            selectChannel(finalChannel)
+        val index = number.toIntOrNull()?.minus(1) ?: return
+        if (index in _currentPlaylist.indices) {
+            selectChannel(_currentPlaylist[index])
         }
     }
 
     fun tuneToNextChannel(isNumberMapped: Boolean) {
-        val current = _selectedChannel.value ?: return
-        if (isNumberMapped && tvModeChannels.isNotEmpty()) {
-            // Try to find current channel in TV Mode Channels
-            val currentTvIndex = tvModeChannels.indexOfFirst { tvCh -> 
-                tvCh.name.equals(current.name, ignoreCase = true) || 
-                tvCh.keywords.any { it.equals(current.name, ignoreCase = true) } 
-            }
-            if (currentTvIndex != -1) {
-                val nextIndex = if (currentTvIndex < tvModeChannels.size - 1) currentTvIndex + 1 else 0
-                tuneToChannelNumber(tvModeChannels[nextIndex].channelNo)
-                return
-            }
-        }
         selectNextChannel()
     }
 
     fun tuneToPrevChannel(isNumberMapped: Boolean) {
-        val current = _selectedChannel.value ?: return
-        if (isNumberMapped && tvModeChannels.isNotEmpty()) {
-            val currentTvIndex = tvModeChannels.indexOfFirst { tvCh -> 
-                tvCh.name.equals(current.name, ignoreCase = true) || 
-                tvCh.keywords.any { it.equals(current.name, ignoreCase = true) } 
-            }
-            if (currentTvIndex != -1) {
-                val prevIndex = if (currentTvIndex > 0) currentTvIndex - 1 else tvModeChannels.size - 1
-                tuneToChannelNumber(tvModeChannels[prevIndex].channelNo)
-                return
-            }
-        }
         selectPreviousChannel()
     }
 
