@@ -56,6 +56,9 @@ class MainViewModel : ViewModel() {
     private val _isTvModeEnabled = MutableStateFlow(false)
     val isTvModeEnabled: StateFlow<Boolean> = _isTvModeEnabled.asStateFlow()
 
+    private val _tvModePlaylists = MutableStateFlow<Set<String>>(emptySet())
+    val tvModePlaylists: StateFlow<Set<String>> = _tvModePlaylists.asStateFlow()
+
     var tvModeChannels: List<TvModeChannel> = emptyList()
     private var appContext: Context? = null
     
@@ -65,30 +68,136 @@ class MainViewModel : ViewModel() {
         appContext = context.applicationContext
         val prefs = context.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
         _isTvModeEnabled.value = prefs.getBoolean("is_tv_mode_enabled", false)
-        
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val jsonString = context.assets.open("channels.json").bufferedReader().use { it.readText() }
-                tvModeChannels = jsonFormat.decodeFromString(jsonString)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        val savedPlaylists = prefs.getStringSet("tv_mode_playlists", emptySet()) ?: emptySet()
+        _tvModePlaylists.value = savedPlaylists
+        val includeEvents = prefs.getBoolean("tv_mode_include_events", true)
         
         val lastChannelJson = prefs.getString("last_channel", null)
-        val lastPlaylistJson = prefs.getString("last_playlist", null)
         if (lastChannelJson != null) {
             try {
                 val channel = jsonFormat.decodeFromString<Channel>(lastChannelJson)
                 _selectedChannel.value = channel
-                if (lastPlaylistJson != null) {
-                    val playlist = jsonFormat.decodeFromString<List<Channel>>(lastPlaylistJson)
-                    _currentPlaylist = playlist
-                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
+        
+        if (_isTvModeEnabled.value) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val allChannels = mutableListOf<Channel>()
+                    val tvChannels = mutableListOf<TvModeChannel>()
+                    var channelIndex = 1
+                    
+                    // 1. Fetch Selected Playlists
+                    val categories = liveRepository.getLiveCategories()
+                    val selectedCategories = categories.filter { savedPlaylists.contains(it.name) }
+                    
+                    for (category in selectedCategories) {
+                        try {
+                            val channels = liveRepository.getChannelsForCategory(category.url)
+                            allChannels.addAll(channels)
+                            channels.forEach { ch ->
+                                tvChannels.add(
+                                    TvModeChannel(
+                                        channelNo = channelIndex.toString(),
+                                        name = ch.name,
+                                        keywords = listOf(ch.name),
+                                        tvgLogo = ch.logo,
+                                        groupTitle = ch.group
+                                    )
+                                )
+                                channelIndex++
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    
+                    // 2. Fetch Live Events (if included)
+                    if (includeEvents) {
+                        try {
+                            val fullApiUrl = com.streambd.iptv.utils.RemoteConfigManager.getLiveEventsApiUrl()
+                            val baseDirectory = fullApiUrl.substringBeforeLast("/")
+                            val fileName = fullApiUrl.substringAfterLast("/")
+                            
+                            val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEvents(fullApiUrl)
+                            val liveEvents = response.events.filter { it.is_live == 1 }
+                            
+                            for (event in liveEvents) {
+                                try {
+                                    val streamUrl = "$baseDirectory/${event.id}/$fileName"
+                                    val streamRes = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEventStreams(streamUrl)
+                                    if (streamRes.streams.isNotEmpty()) {
+                                        val sourcesMap = mutableMapOf<String, String>()
+                                        streamRes.streams.forEachIndexed { idx, s ->
+                                            var sName = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${idx + 1}"
+                                            if (sourcesMap.containsKey(sName)) sName = "$sName (${idx + 1})"
+                                            var srcUrl = s.stream_url ?: ""
+                                            if (s.drm_key != null && s.drm_kid != null) {
+                                                srcUrl += "|drm-type=clearkey|drm-key=${s.drm_kid}:${s.drm_key}"
+                                            }
+                                            sourcesMap[sName] = srcUrl
+                                        }
+                                        
+                                        val firstStream = streamRes.streams.first()
+                                        var initialUrl = firstStream.stream_url ?: ""
+                                        if (firstStream.drm_key != null && firstStream.drm_kid != null) {
+                                            initialUrl += "|drm-type=clearkey|drm-key=${firstStream.drm_kid}:${firstStream.drm_key}"
+                                        }
+                                        
+                                        val eventChannel = Channel(
+                                            name = event.league ?: "Live Event",
+                                            url = initialUrl,
+                                            group = event.sport ?: "Live",
+                                            logo = event.league_icon ?: "",
+                                            isLiveEvent = true,
+                                            drm = if (firstStream.drm_key != null) com.streambd.iptv.data.models.DrmConfig(
+                                                type = "clearkey",
+                                                rawKeyPair = "${firstStream.drm_kid}:${firstStream.drm_key}"
+                                            ) else null,
+                                            sources = sourcesMap
+                                        )
+                                        
+                                        allChannels.add(eventChannel)
+                                        tvChannels.add(
+                                            TvModeChannel(
+                                                channelNo = channelIndex.toString(),
+                                                name = eventChannel.name,
+                                                keywords = listOf(eventChannel.name),
+                                                tvgLogo = eventChannel.logo,
+                                                groupTitle = eventChannel.group
+                                            )
+                                        )
+                                        channelIndex++
+                                    }
+                                } catch (e: Exception) { e.printStackTrace() }
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    
+                    _currentPlaylist = allChannels
+                    tvModeChannels = tvChannels
+                    
+                    // If no channel selected, pick the first one
+                    if (_selectedChannel.value == null && allChannels.isNotEmpty()) {
+                        _selectedChannel.value = allChannels.first()
+                    }
+                    
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun saveTvModeConfig(context: Context, enabled: Boolean, playlists: Set<String>, includeEvents: Boolean) {
+        val prefs = context.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean("is_tv_mode_enabled", enabled)
+            .putStringSet("tv_mode_playlists", playlists)
+            .putBoolean("tv_mode_include_events", includeEvents)
+            .apply()
+        _isTvModeEnabled.value = enabled
+        _tvModePlaylists.value = playlists
     }
 
     fun toggleTvMode(context: Context, enabled: Boolean) {
@@ -111,7 +220,6 @@ class MainViewModel : ViewModel() {
                     val prefs = context.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
                     prefs.edit()
                         .putString("last_channel", jsonFormat.encodeToString(channel))
-                        .putString("last_playlist", jsonFormat.encodeToString(_currentPlaylist.take(200))) // Limit to 200 channels to save space
                         .apply()
                 } catch (e: Exception) { e.printStackTrace() }
             }

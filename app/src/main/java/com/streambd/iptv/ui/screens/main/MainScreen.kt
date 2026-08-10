@@ -88,6 +88,7 @@ fun MainScreen(
     var showExitDialog by remember { mutableStateOf(false) }
     var showMoreDialog by remember { mutableStateOf(false) }
     var showCopyrightDialog by remember { mutableStateOf(false) }
+    var showTvModeConfigDialog by remember { mutableStateOf(false) }
 
     val tvTabs = listOf(
         TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
@@ -217,8 +218,15 @@ fun MainScreen(
                     val moreItems = listOf(
                         Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
                             showMoreDialog = false
-                            mainViewModel.toggleTvMode(context, !isTvModeEnabled)
-                            android.widget.Toast.makeText(context, "TV Mode ${if (!isTvModeEnabled) "Enabled" else "Disabled"}", android.widget.Toast.LENGTH_SHORT).show()
+                            if (!isTvModeEnabled) {
+                                showTvModeConfigDialog = true
+                            } else {
+                                mainViewModel.toggleTvMode(context, false)
+                                val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                if (intent != null) context.startActivity(intent)
+                                Runtime.getRuntime().exit(0)
+                            }
                         },
                         Pair("Notice", Icons.Outlined.Notifications) to {
                             showMoreDialog = false
@@ -319,8 +327,15 @@ fun MainScreen(
                     val drawerItems = listOf(
                         Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
                             scope.launch { drawerState.close() }
-                            mainViewModel.toggleTvMode(context, !isTvModeEnabled)
-                            android.widget.Toast.makeText(context, "TV Mode ${if (!isTvModeEnabled) "Enabled" else "Disabled"}", android.widget.Toast.LENGTH_SHORT).show()
+                            if (!isTvModeEnabled) {
+                                showTvModeConfigDialog = true
+                            } else {
+                                mainViewModel.toggleTvMode(context, false)
+                                val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                if (intent != null) context.startActivity(intent)
+                                Runtime.getRuntime().exit(0)
+                            }
                         },
                         Pair("Playlists", Icons.Outlined.Folder) to {
                             scope.launch { drawerState.close() }
@@ -498,6 +513,79 @@ fun MainScreen(
                 }
             }
         }
+    }
+
+    if (showTvModeConfigDialog) {
+        val categories by mainViewModel.liveCategories.collectAsState()
+        var selectedCategories by remember { mutableStateOf(setOf<String>()) }
+        var includeEvents by remember { mutableStateOf(true) }
+        
+        AlertDialog(
+            onDismissRequest = { showTvModeConfigDialog = false },
+            title = { Text("TV Mode Configuration", color = Color.White) },
+            text = {
+                Column {
+                    Text("Select playlists to include in TV Mode:", color = Color.LightGray, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier.heightIn(max = 300.dp)
+                    ) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { includeEvents = !includeEvents }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = includeEvents,
+                                    onCheckedChange = { includeEvents = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = TealAccent)
+                                )
+                                Text("Live Events (Default)", color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                        
+                        items(categories.size) { index ->
+                            val category = categories[index]
+                            val isChecked = selectedCategories.contains(category.name)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { 
+                                    selectedCategories = if (isChecked) selectedCategories - category.name else selectedCategories + category.name
+                                }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { 
+                                        selectedCategories = if (it) selectedCategories + category.name else selectedCategories - category.name
+                                    },
+                                    colors = CheckboxDefaults.colors(checkedColor = TealAccent)
+                                )
+                                Text(category.name, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                    }
+                }
+            },
+            containerColor = DarkNavyBackground,
+            confirmButton = {
+                TextButton(onClick = { 
+                    showTvModeConfigDialog = false
+                    mainViewModel.saveTvModeConfig(context, true, selectedCategories, includeEvents)
+                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                    intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    if (intent != null) context.startActivity(intent)
+                    Runtime.getRuntime().exit(0)
+                }) {
+                    Text("Save & Restart", color = TealAccent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTvModeConfigDialog = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
     }
 }
 

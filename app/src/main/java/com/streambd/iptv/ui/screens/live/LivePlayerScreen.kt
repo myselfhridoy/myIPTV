@@ -742,6 +742,17 @@ fun LivePlayerScreen(
 
                         // Top Right Icons
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (isTvModeEnabled) {
+                                TvIconButton(onClick = {
+                                    viewModel.toggleTvMode(context, false)
+                                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                    intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    if (intent != null) context.startActivity(intent)
+                                    Runtime.getRuntime().exit(0)
+                                }) {
+                                    Icon(Icons.Default.PowerSettingsNew, "Turn Off TV Mode", tint = TealAccent)
+                                }
+                            }
                             if (channel.sources.isNotEmpty()) {
                                 TvIconButton(onClick = { showSourceSelector = true }) {
                                     Icon(Icons.Default.Dns, "Sources", tint = Color.White)

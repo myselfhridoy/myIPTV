@@ -49,6 +49,16 @@ class LiveEventsViewModel : ViewModel() {
         }
     }
 
+    suspend fun getLiveEventsDirectly(): List<SportzfyEvent> {
+        return try {
+            val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEvents(fullApiUrl)
+            response.events
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun getStreamsForEvent(eventId: String): List<SportzfyStream> {
         return try {
             val streamUrl = "$baseDirectory/${eventId}/$fileName"
