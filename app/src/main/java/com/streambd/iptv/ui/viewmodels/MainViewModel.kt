@@ -95,6 +95,22 @@ class MainViewModel : ViewModel() {
                             allChannels.addAll(channels)
                         } catch (e: Exception) { e.printStackTrace() }
                     }
+
+                    // 1.5 Fetch Selected User Playlists
+                    try {
+                        val userPlaylists = com.streambd.iptv.data.repository.AppDatabase.getDatabase(appContext!!).playlistDao().getAllPlaylistsSync()
+                        val selectedUserPlaylists = userPlaylists.filter { savedPlaylists.contains(it.title) }
+                        
+                        for (playlist in selectedUserPlaylists) {
+                            try {
+                                val url = playlist.url ?: playlist.filePath ?: ""
+                                if (url.isNotBlank()) {
+                                    val channels = liveRepository.getChannelsForCategory(url)
+                                    allChannels.addAll(channels)
+                                }
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
                     
                     // 2. Fetch Live Events (if included)
                     if (includeEvents) {

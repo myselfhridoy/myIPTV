@@ -517,8 +517,20 @@ fun MainScreen(
 
     if (showTvModeConfigDialog) {
         val categories by mainViewModel.liveCategories.collectAsState()
-        var selectedCategories by remember { mutableStateOf(setOf<String>()) }
-        var includeEvents by remember { mutableStateOf(true) }
+        
+        val playlistViewModel: com.streambd.iptv.ui.viewmodels.PlaylistViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+            factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    return com.streambd.iptv.ui.viewmodels.PlaylistViewModel(context) as T
+                }
+            }
+        )
+        val userPlaylists by playlistViewModel.playlists.collectAsState()
+        
+        var selectedCategories by remember { mutableStateOf(mainViewModel.tvModePlaylists.value) }
+        var includeEvents by remember { 
+            mutableStateOf(context.getSharedPreferences("tv_mode_prefs", android.content.Context.MODE_PRIVATE).getBoolean("tv_mode_include_events", true)) 
+        }
         
         AlertDialog(
             onDismissRequest = { showTvModeConfigDialog = false },
@@ -562,6 +574,31 @@ fun MainScreen(
                                     colors = CheckboxDefaults.colors(checkedColor = TealAccent)
                                 )
                                 Text(category.name, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                            }
+                        }
+                        
+                        if (userPlaylists.isNotEmpty()) {
+                            item {
+                                Text("User Playlists:", color = Color.LightGray, fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+                            }
+                            items(userPlaylists.size) { index ->
+                                val playlist = userPlaylists[index]
+                                val isChecked = selectedCategories.contains(playlist.title)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().clickable { 
+                                        selectedCategories = if (isChecked) selectedCategories - playlist.title else selectedCategories + playlist.title
+                                    }.padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = { 
+                                            selectedCategories = if (it) selectedCategories + playlist.title else selectedCategories - playlist.title
+                                        },
+                                        colors = CheckboxDefaults.colors(checkedColor = TealAccent)
+                                    )
+                                    Text(playlist.title, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                                }
                             }
                         }
                     }
