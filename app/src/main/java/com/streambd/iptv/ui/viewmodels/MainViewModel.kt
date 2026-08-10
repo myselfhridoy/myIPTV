@@ -195,14 +195,14 @@ class MainViewModel : ViewModel() {
             .putBoolean("is_tv_mode_enabled", enabled)
             .putStringSet("tv_mode_playlists", playlists)
             .putBoolean("tv_mode_include_events", includeEvents)
-            .apply()
+            .commit()
         _isTvModeEnabled.value = enabled
         _tvModePlaylists.value = playlists
     }
 
     fun toggleTvMode(context: Context, enabled: Boolean) {
         val prefs = context.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("is_tv_mode_enabled", enabled).apply()
+        prefs.edit().putBoolean("is_tv_mode_enabled", enabled).commit()
         _isTvModeEnabled.value = enabled
     }
 
