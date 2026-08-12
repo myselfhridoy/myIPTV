@@ -47,11 +47,18 @@ object OxooPortalHandler {
             }
 
             val body = response.body?.string() ?: return@withContext emptyList()
-            if (!body.trim().startsWith("[")) {
+            
+            val jsonStartIndex = body.indexOf("[")
+            if (jsonStartIndex == -1) {
+                return@withContext emptyList()
+            }
+            val jsonBody = body.substring(jsonStartIndex)
+            
+            if (!jsonBody.trim().startsWith("[")) {
                 return@withContext emptyList()
             }
 
-            val categoriesArray = JSONArray(body)
+            val categoriesArray = JSONArray(jsonBody)
             for (i in 0 until categoriesArray.length()) {
                 val categoryObj = categoriesArray.optJSONObject(i) ?: continue
                 val categoryTitle = categoryObj.optString("title", "Uncategorized").takeIf { it.isNotBlank() } ?: "Uncategorized"
