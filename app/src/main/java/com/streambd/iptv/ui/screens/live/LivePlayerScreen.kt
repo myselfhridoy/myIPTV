@@ -392,7 +392,9 @@ fun LivePlayerScreen(
         // Fallback for Live TV: If pre-resolve failed/timed out, and the URL is a PHP script or has no extension,
         // assume HLS to prevent Extractor errors (ProgressiveMediaSource) on redirecting Live streams.
         if (mimeType == null && (finalUrl.contains(".php", ignoreCase = true) || !Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)").containsMatchIn(finalUrl))) {
-            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            if (!finalUrl.contains("mpegts", ignoreCase = true) && !finalUrl.contains("type=ts", ignoreCase = true)) {
+                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            }
         }
         
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
