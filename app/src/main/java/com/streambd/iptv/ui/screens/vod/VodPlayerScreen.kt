@@ -178,8 +178,9 @@ fun VodPlayerScreen(
             val isPhpHlsUrl = stream.url.contains("live.php", ignoreCase = true) || 
                 stream.url.contains("extension=m3u8", ignoreCase = true)
             val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
+            val isKnownFileHost = stream.url.contains("googleusercontent.com", ignoreCase = true)
             val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(stream.url) || 
-                (!extRegex.containsMatchIn(decodedUrl) && !protoRegex.containsMatchIn(stream.url))
+                (!isKnownFileHost && !extRegex.containsMatchIn(decodedUrl) && !protoRegex.containsMatchIn(stream.url))
             if (shouldPreResolve) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {

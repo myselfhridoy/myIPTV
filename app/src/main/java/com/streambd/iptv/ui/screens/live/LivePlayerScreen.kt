@@ -248,7 +248,9 @@ fun LivePlayerScreen(
                 rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
             val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl)
             val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
-            val shouldPreResolve = isPhpHlsUrl || redirectShortenerRegex.containsMatchIn(rawSourceUrl) || !hasKnownExtensionOrProto
+            val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
+            val shouldPreResolve = isPhpHlsUrl || redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
+                (!isKnownFileHost && !hasKnownExtensionOrProto)
             if (shouldPreResolve) {
                     // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
