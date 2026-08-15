@@ -342,7 +342,12 @@ fun VodPlayerScreen(
                 }
                 override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
             }
-            val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+            
+            val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+                .setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
+                .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
+                
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
             // DRM Setup
