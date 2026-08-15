@@ -170,7 +170,8 @@ fun VodPlayerScreen(
             )
         }
         if (resolved == null) {
-            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$)", RegexOption.IGNORE_CASE)
+            val decodedUrl = try { java.net.URLDecoder.decode(stream.url, "UTF-8") } catch (e: Exception) { stream.url }
+            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
             
@@ -178,7 +179,7 @@ fun VodPlayerScreen(
                 stream.url.contains("extension=m3u8", ignoreCase = true)
             val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
             val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(stream.url) || 
-                (!extRegex.containsMatchIn(stream.url) && !protoRegex.containsMatchIn(stream.url))
+                (!extRegex.containsMatchIn(decodedUrl) && !protoRegex.containsMatchIn(stream.url))
             if (shouldPreResolve) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {
@@ -199,7 +200,13 @@ fun VodPlayerScreen(
                                     initialHeaders.forEach { (k, v) -> header(k, v) }
                                 }.build()
                                 res = client.newCall(getReq).execute()
-                                if (res.isSuccessful && isPlaylistOrJsonType) {
+                                
+                                val isGetPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
+                                    it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
+                                } == true
+                                val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
+                                
+                                if (res.isSuccessful && isGetPlaylistOrJsonType && contentLength < 10_000_000L) {
                                     val bodyStr = res.body?.string() ?: ""
                                     isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
                                     if (bodyStr.trim().startsWith("{")) {

@@ -20,6 +20,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.streambd.iptv.data.models.Addon
 import com.streambd.iptv.data.models.StreamSource
 import com.streambd.iptv.data.models.Subtitle
@@ -31,9 +32,18 @@ object AddonManager {
 
     private var cachedAddons: List<Addon>? = null
     private val addonScriptsCache = mutableMapOf<String, String>()
+    private val hostUserAgents = mutableMapOf<String, String>()
     
-    private val cookieJar = object : okhttp3.CookieJar {
+    private class MyCookieJar : okhttp3.CookieJar {
         private val cookieStore = mutableMapOf<String, MutableList<okhttp3.Cookie>>()
+
+        fun injectCookies(url: String, cookieString: String) {
+            val httpUrl = url.toHttpUrlOrNull() ?: return
+            val cookies = cookieString.split(";").mapNotNull {
+                okhttp3.Cookie.parse(httpUrl, it.trim())
+            }
+            saveFromResponse(httpUrl, cookies)
+        }
 
         override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
             val host = url.host
@@ -66,6 +76,8 @@ object AddonManager {
             return cookies
         }
     }
+
+    private val cookieJar = MyCookieJar()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -243,6 +255,25 @@ object AddonManager {
                 }
 
                 @JavascriptInterface
+                fun doBypass(reqId: String, url: String) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val result = CloudflareBypasser.bypass(context, url)
+                        if (result != null) {
+                            val host = try { java.net.URI(url).host } catch (e: Exception) { url }
+                            hostUserAgents[host] = result.userAgent
+                            cookieJar.injectCookies(url, result.cookies)
+                            withContext(Dispatchers.Main) {
+                                webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', true);", null)
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', false);", null)
+                            }
+                        }
+                    }
+                }
+
+                @JavascriptInterface
                 fun doFetch(reqId: String, url: String, optionsJson: String?) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
@@ -253,13 +284,25 @@ object AddonManager {
                                 if (options != null) {
                                     val method = (options["method"] as? String)?.uppercase() ?: "GET"
                                     var contentTypeStr = "text/plain"
+                                    val reqHost = try { java.net.URI(url).host } catch(e: Exception) { "" }
+                                    val userAgent = hostUserAgents[reqHost] ?: hostUserAgents.entries.firstOrNull { reqHost.endsWith(it.key) }?.value
+                                    
+                                    var hasUserAgent = false
                                     val headersMap = options["headers"] as? Map<String, Any>
                                     headersMap?.forEach { (k, v) ->
                                         val valStr = v.toString()
                                         if (k.equals("content-type", ignoreCase = true)) {
                                             contentTypeStr = valStr
                                         }
-                                        requestBuilder.addHeader(k, valStr)
+                                        if (k.equals("User-Agent", ignoreCase = true)) {
+                                            hasUserAgent = true
+                                            requestBuilder.addHeader(k, userAgent ?: valStr)
+                                        } else {
+                                            requestBuilder.addHeader(k, valStr)
+                                        }
+                                    }
+                                    if (!hasUserAgent && userAgent != null) {
+                                        requestBuilder.addHeader("User-Agent", userAgent)
                                     }
                                     
                                     val bodyStr = options["body"]?.toString()
@@ -371,6 +414,21 @@ object AddonManager {
                                 window.fetchPromises[reqId] = { resolve: resolve, reject: reject };
                                 var optionsJson = options ? JSON.stringify(options) : "null";
                                 AndroidBridge.doFetch(reqId, url, optionsJson);
+                            });
+                        };
+                        window.bypassPromises = {};
+                        window.onAndroidBypassResponse = function(reqId, success) {
+                            var p = window.bypassPromises[reqId];
+                            if (p) {
+                                p.resolve(success);
+                                delete window.bypassPromises[reqId];
+                            }
+                        };
+                        window.bypassCloudflare = function(url) {
+                            return new Promise(function(resolve, reject) {
+                                var reqId = Math.random().toString(36).substring(7);
+                                window.bypassPromises[reqId] = { resolve: resolve, reject: reject };
+                                AndroidBridge.doBypass(reqId, url);
                             });
                         };
 

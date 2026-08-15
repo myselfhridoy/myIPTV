@@ -807,6 +807,10 @@ object TokenParser {
     fun detectMimeType(url: String, explicitMimeType: String? = null): String? {
         if (explicitMimeType != null) return explicitMimeType
         val lower = url.lowercase()
+        
+        // Also check decoded URL for filename parameter
+        val decoded = try { java.net.URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
+        
         if (lower.contains(".mpd") || lower.contains("extension=mpd") || lower.contains("output=mpd") || lower.contains("format=mpd")) {
             return androidx.media3.common.MimeTypes.APPLICATION_MPD
         }
@@ -819,6 +823,15 @@ object TokenParser {
             lower.contains("hls=true") ||
             lower.contains("m3u8=true")) {
             return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        if (lower.contains(".mkv") || decoded.contains(".mkv")) {
+            return "video/x-matroska"
+        }
+        if (lower.contains(".mp4") || decoded.contains(".mp4")) {
+            return androidx.media3.common.MimeTypes.VIDEO_MP4
+        }
+        if (lower.contains(".ts") || decoded.contains(".ts")) {
+            return androidx.media3.common.MimeTypes.VIDEO_MP2T
         }
         return null
     }
