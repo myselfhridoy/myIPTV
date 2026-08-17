@@ -40,6 +40,7 @@ import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import androidx.activity.compose.BackHandler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -130,6 +131,11 @@ fun LiveEventsScreen(
         if (!isLoading) {
             pullToRefreshState.endRefresh()
         }
+    }
+
+    BackHandler(enabled = isSearchActive) {
+        searchQuery = ""
+        isSearchActive = false
     }
 
     Box(modifier = Modifier.fillMaxSize().nestedScroll(pullToRefreshState.nestedScrollConnection)) {

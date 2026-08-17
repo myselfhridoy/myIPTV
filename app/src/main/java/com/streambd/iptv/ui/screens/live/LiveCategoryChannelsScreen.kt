@@ -49,6 +49,7 @@ import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.PrimaryDark
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,6 +85,11 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     // recomposition of items whose Channel data hasn't changed.
     val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
     
+    BackHandler(enabled = isSearchActive) {
+        searchQuery = ""
+        isSearchActive = false
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()

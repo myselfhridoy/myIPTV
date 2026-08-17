@@ -36,6 +36,7 @@ import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.PlaylistChannelsViewModel
+import androidx.activity.compose.BackHandler
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.components.tvFocusBorder
@@ -77,6 +78,11 @@ fun PlaylistChannelsScreen(
         } else {
             channels.filter { it.name.contains(searchQuery, ignoreCase = true) }
         }
+    }
+
+    BackHandler(enabled = isSearchActive) {
+        searchQuery = ""
+        isSearchActive = false
     }
 
     Column(

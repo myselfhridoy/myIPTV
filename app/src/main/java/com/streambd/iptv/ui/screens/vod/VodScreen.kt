@@ -50,6 +50,7 @@ import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
 @Composable
@@ -70,6 +71,12 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
+        isSearchExpanded = false
+        searchQuery = ""
+        viewModel.search("")
+    }
     
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
