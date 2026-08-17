@@ -56,8 +56,8 @@ fun AppNavigation(
             .setBufferDurationsMs(
                 /* minBufferMs = */ 30000,       // 30s min buffer (was 15s)
                 /* maxBufferMs = */ 300000,       // 5 min max buffer for 4K streams (was 120s)
-                /* bufferForPlaybackMs = */ 2500, // Start playback after 2.5s buffered
-                /* bufferForPlaybackAfterRebufferMs = */ 5000 // After rebuffer, wait 5s
+                /* bufferForPlaybackMs = */ 500, // Fast zapping: start playback after 500ms
+                /* bufferForPlaybackAfterRebufferMs = */ 1000 // After rebuffer, wait 1s
             )
             .setBackBuffer(60000, true) // Keep 60s back-buffer, evict when needed
             .setPrioritizeTimeOverSizeThresholds(false) // Allow larger buffers for 4K

@@ -47,6 +47,9 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.components.SourceSelectionDialog
@@ -54,6 +57,8 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -90,6 +95,7 @@ fun LivePlayerScreen(
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
     var currentSourceUrl by remember(channel.tokenId ?: channel.name) { mutableStateOf(channel.url) }
+    var hasRaced by remember(channel.tokenId ?: channel.name) { mutableStateOf(false) }
 
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
@@ -223,6 +229,51 @@ fun LivePlayerScreen(
 
         val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
             rawSourceUrl.contains("action=create_link", ignoreCase = true)
+
+        // --- Source Racing ---
+        if (channel.sources.size > 1 && !hasRaced && currentSourceUrl == channel.url && !isStalkerOrPortal && currentTokenUrl.isNullOrEmpty()) {
+            hasRaced = true
+            val winner = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val deferreds = channel.sources.values.map { src ->
+                    async {
+                        try {
+                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                            val srcParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(src)
+                            val srcReqHeaders = initialHeaders.toMutableMap()
+                            srcParsed.headers.forEach { (k, v) -> srcReqHeaders[k] = v }
+                            
+                            val req = okhttp3.Request.Builder().url(srcParsed.cleanUrl).apply {
+                                srcReqHeaders.forEach { (k, v) -> header(k, v) }
+                            }.head().build()
+                            
+                            val res = client.newCall(req).execute()
+                            if (res.isSuccessful) src else null
+                        } catch (e: Exception) { null }
+                    }
+                }
+                
+                var fastestUrl: String? = null
+                val channelRace = kotlinx.coroutines.channels.Channel<String?>()
+                val raceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
+                
+                deferreds.forEach { def ->
+                    raceScope.launch {
+                        val res = def.await()
+                        if (res != null) channelRace.trySend(res)
+                    }
+                }
+                
+                fastestUrl = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    channelRace.receive()
+                }
+                fastestUrl
+            }
+            
+            if (winner != null && winner != currentSourceUrl) {
+                currentSourceUrl = winner
+                return@LaunchedEffect
+            }
+        }
 
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
         var resolved: com.streambd.iptv.utils.ResolvedToken? = null
@@ -405,7 +456,7 @@ fun LivePlayerScreen(
 
         // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(20000)
+            .setTargetOffsetMs(10000) // Fast zapping target offset (was 20000)
             .setMinOffsetMs(5000)
             .setMaxOffsetMs(60000)
             .build()
@@ -663,11 +714,29 @@ fun LivePlayerScreen(
             }
             .focusRequester(mainFocusRequester)
             .focusable()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { 
-                showOverlay = !showOverlay 
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { showOverlay = !showOverlay }
+                )
+            }
+            .pointerInput(Unit) {
+                var totalDrag = 0f
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (totalDrag > 150f) {
+                            // Swiped Right -> Previous Channel
+                            viewModel.tuneToPrevChannel(isTvModeEnabled)
+                        } else if (totalDrag < -150f) {
+                            // Swiped Left -> Next Channel
+                            viewModel.tuneToNextChannel(isTvModeEnabled)
+                        }
+                        totalDrag = 0f
+                    },
+                    onDragCancel = { totalDrag = 0f }
+                ) { change, dragAmount ->
+                    change.consume()
+                    totalDrag += dragAmount
+                }
             }
     ) {
         val isCinema = scaleMode == VideoScaleMode.CINEMA
