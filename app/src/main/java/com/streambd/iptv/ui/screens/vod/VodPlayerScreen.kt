@@ -344,8 +344,11 @@ fun VodPlayerScreen(
             }
             
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-                .setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
                 .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
+                
+            if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
+                extractorsFactory.setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
+            }
                 
             val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
                 .setLoadErrorHandlingPolicy(loadErrorPolicy)
