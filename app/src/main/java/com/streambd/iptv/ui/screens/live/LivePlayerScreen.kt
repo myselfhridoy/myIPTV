@@ -511,6 +511,9 @@ fun LivePlayerScreen(
                 }
             }
 
+            if (useLocalClearKey || finalDrm.type.lowercase() == "clearkey") {
+                drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
+            }
             mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
             
             if (useLocalClearKey && clearKeyBytes != null) {
