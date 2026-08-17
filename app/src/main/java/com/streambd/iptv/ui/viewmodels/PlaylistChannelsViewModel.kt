@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.viewmodels
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.repository.LiveRepository
@@ -9,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class PlaylistChannelsViewModel : ViewModel() {
+class PlaylistChannelsViewModel(application: Application) : AndroidViewModel(application) {
     private val liveRepository = LiveRepository()
     private var currentUrl: String? = null
 
@@ -42,7 +43,7 @@ class PlaylistChannelsViewModel : ViewModel() {
             _groups.value = emptyList()
             _selectedGroup.value = "All"
 
-            val channels = liveRepository.getChannelsForCategory(url)
+            val channels = liveRepository.getChannelsForCategory(getApplication<Application>().applicationContext, url)
             _allChannels.value = channels
             
             val uniqueGroups = channels.mapNotNull { it.group }.filter { it.isNotBlank() }.distinct().sorted()

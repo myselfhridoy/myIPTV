@@ -34,7 +34,7 @@ class LiveRepository {
         }
     }
 
-    suspend fun getChannelsForCategory(categoryUrl: String): List<Channel> = withContext(Dispatchers.IO) {
+    suspend fun getChannelsForCategory(context: android.content.Context, categoryUrl: String): List<Channel> = withContext(Dispatchers.IO) {
         try {
             val uri = android.net.Uri.parse(categoryUrl)
             val portalType = uri.getQueryParameter("portal") ?: uri.getQueryParameter("type")
@@ -94,11 +94,22 @@ class LiveRepository {
                 return@withContext channelList
             }
 
-            // Fetch the M3U content directly from the normal URL
-            var m3uContent = URL(categoryUrl).readText()
+            // Fetch the M3U/JS content directly from the normal URL
+            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+            val req = okhttp3.Request.Builder().url(categoryUrl).build()
+            val response = client.newCall(req).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+            var m3uContent = response.body?.string() ?: return@withContext emptyList()
+            
+            // If the URL ends with .js OR the content explicitly starts with '// JS PLAYLIST'
+            if (categoryUrl.endsWith(".js", ignoreCase = true) || m3uContent.trim().startsWith("// JS PLAYLIST", ignoreCase = true)) {
+                val jsResult = com.streambd.iptv.utils.JsPlaylistParser.executeJsPlaylist(context, m3uContent)
+                if (jsResult.isNullOrBlank()) return@withContext emptyList()
+                m3uContent = jsResult
+            }
             
             // Decrypt manually since we are not using Retrofit here
-            if (!m3uContent.trim().startsWith("#EXTM3U")) {
+            if (!m3uContent.trim().startsWith("#EXTM3U") && !m3uContent.trim().startsWith("{") && !m3uContent.trim().startsWith("[")) {
                 m3uContent = com.streambd.iptv.utils.CryptoUtils.decryptJson(m3uContent)
             }
             

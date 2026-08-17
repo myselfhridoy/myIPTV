@@ -57,6 +57,7 @@ import com.streambd.iptv.ui.viewmodels.MainViewModel
 @OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
+    val tvModePlaylists by viewModel.tvModePlaylists.collectAsState()
     val categories by viewModel.liveCategories.collectAsState()
     val isLoading by viewModel.isLoadingLive.collectAsState()
 
@@ -209,7 +210,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             ) {
                 items(displayedCategories) { category ->
                     CategoryCard(category = category) {
-                        viewModel.selectCategory(category)
+                        viewModel.selectCategory(context, category)
                         navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
                             launchSingleTop = true
                         }

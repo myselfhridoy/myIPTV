@@ -91,7 +91,7 @@ class MainViewModel : ViewModel() {
                     
                     for (category in selectedCategories) {
                         try {
-                            val channels = liveRepository.getChannelsForCategory(category.url)
+                            val channels = liveRepository.getChannelsForCategory(appContext!!, category.url)
                             allChannels.addAll(channels)
                         } catch (e: Exception) { e.printStackTrace() }
                     }
@@ -105,7 +105,7 @@ class MainViewModel : ViewModel() {
                             try {
                                 val url = playlist.url ?: playlist.filePath ?: ""
                                 if (url.isNotBlank()) {
-                                    val channels = liveRepository.getChannelsForCategory(url)
+                                    val channels = liveRepository.getChannelsForCategory(appContext!!, url)
                                     allChannels.addAll(channels)
                                 }
                             } catch (e: Exception) { e.printStackTrace() }
@@ -196,9 +196,9 @@ class MainViewModel : ViewModel() {
         _isTvModeEnabled.value = enabled
     }
 
-    fun selectCategory(category: LiveCategory) {
+    fun selectCategory(context: Context, category: LiveCategory) {
         _selectedCategory.value = category
-        fetchChannelsForCategory(category.name, category.url)
+        fetchChannelsForCategory(context, category.name, category.url)
     }
 
     fun selectChannel(channel: Channel) {
@@ -337,11 +337,11 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun fetchChannelsForCategory(categoryName: String, url: String) {
+    fun fetchChannelsForCategory(context: Context, categoryName: String, url: String) {
         if (_categoryChannels.value.containsKey(categoryName)) return
 
         viewModelScope.launch {
-            val channels = liveRepository.getChannelsForCategory(url)
+            val channels = liveRepository.getChannelsForCategory(context, url)
             val currentMap = _categoryChannels.value.toMutableMap()
             currentMap[categoryName] = channels
             _categoryChannels.value = currentMap

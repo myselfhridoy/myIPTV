@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val playlistViewModel = remember { PlaylistViewModel(applicationContext) }
-                    val playlistChannelsViewModel = remember { PlaylistChannelsViewModel() }
+                    val playlistChannelsViewModel = remember { PlaylistChannelsViewModel(application) }
                     
                     AppNavigation(
                         mainViewModel = mainViewModel, 
