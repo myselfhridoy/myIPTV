@@ -72,10 +72,16 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
     var isSearchExpanded by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
 
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
-        isSearchExpanded = false
-        searchQuery = ""
-        viewModel.search("")
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            isSearchExpanded = false
+            searchQuery = ""
+            viewModel.search("")
+        }
     }
     
     val configuration = LocalConfiguration.current
