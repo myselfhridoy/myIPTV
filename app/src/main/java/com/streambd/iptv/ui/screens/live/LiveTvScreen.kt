@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import com.streambd.iptv.ui.components.tvFocusBorder
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -76,7 +77,9 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val displayedCategories = remember(searchQuery, categories) {
         if (searchQuery.isBlank()) categories
@@ -91,8 +94,12 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     }
 
     BackHandler(enabled = isSearchActive) {
-        searchQuery = ""
-        isSearchActive = false
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            searchQuery = ""
+            isSearchActive = false
+        }
     }
 
     Column(
@@ -173,6 +180,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(searchFocusRequester)
+                        .onFocusChanged { isSearchFocused = it.isFocused }
                 )
             }
         }

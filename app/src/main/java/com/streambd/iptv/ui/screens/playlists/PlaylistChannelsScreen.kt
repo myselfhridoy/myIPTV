@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.border
@@ -65,6 +66,8 @@ fun PlaylistChannelsScreen(
     var isGroupsModalExpanded by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val currentPlaylist by rememberUpdatedState(channels)
 
@@ -81,8 +84,12 @@ fun PlaylistChannelsScreen(
     }
 
     BackHandler(enabled = isSearchActive) {
-        searchQuery = ""
-        isSearchActive = false
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            searchQuery = ""
+            isSearchActive = false
+        }
     }
 
     Column(
@@ -126,7 +133,10 @@ fun PlaylistChannelsScreen(
                         unfocusedTextColor = WhiteText,
                         cursorColor = TealAccent
                     ),
-                    modifier = Modifier.weight(1f).height(50.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp)
+                        .onFocusChanged { isSearchFocused = it.isFocused }
                 )
             } else {
                 Text(

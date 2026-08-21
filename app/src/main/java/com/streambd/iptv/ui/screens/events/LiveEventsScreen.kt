@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -82,8 +83,10 @@ fun LiveEventsScreen(
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedStatus by remember { mutableStateOf("Live") } // "Recent", "Live", "Upcoming"
     
-    var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     
     var showStreamSelectionFor by remember { mutableStateOf<List<com.streambd.iptv.data.models.SportzfyStream>?>(null) }
     var selectedEventForStream by remember { mutableStateOf<SportzfyEvent?>(null) }
@@ -134,8 +137,12 @@ fun LiveEventsScreen(
     }
 
     BackHandler(enabled = isSearchActive) {
-        searchQuery = ""
-        isSearchActive = false
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            searchQuery = ""
+            isSearchActive = false
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().nestedScroll(pullToRefreshState.nestedScrollConnection)) {
@@ -170,7 +177,8 @@ fun LiveEventsScreen(
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 8.dp)
-                        .height(50.dp),
+                        .height(50.dp)
+                        .onFocusChanged { isSearchFocused = it.isFocused },
                     placeholder = { Text("Search matches...", color = Color.Gray) },
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.White.copy(alpha = 0.1f),

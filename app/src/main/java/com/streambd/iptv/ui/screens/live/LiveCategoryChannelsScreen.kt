@@ -27,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
@@ -65,6 +66,8 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val groups = remember(allChannels) {
         val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()
@@ -86,8 +89,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
     
     BackHandler(enabled = isSearchActive) {
-        searchQuery = ""
-        isSearchActive = false
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            searchQuery = ""
+            isSearchActive = false
+        }
     }
 
     Column(
@@ -131,7 +138,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         unfocusedTextColor = WhiteText,
                         cursorColor = TealAccent
                     ),
-                    modifier = Modifier.weight(1f).height(50.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp)
+                        .onFocusChanged { isSearchFocused = it.isFocused }
                 )
             } else {
                 Text(
