@@ -75,6 +75,85 @@ To bypass the need for Google Play Store updates, the app includes a self-updati
 - If a new version exists, an `UpdateDialog` is shown, prompting the user to download the APK.
 - The update check runs automatically on app launch and can also be triggered manually via the **Check Update** button in the Mobile Side Drawer.
 
+### 5. Writing JS Playlists (Prompt/Instructions)
+When creating or updating JS Playlists for the app, you can use the following standard instruction block as a prompt for AI or for yourself:
+
+> You are an expert JavaScript developer writing a JSON-to-M3U parser script for an Android IPTV app (StreamBD). The app executes your JavaScript using a WebView, captures the generated M3U string, and passes it to ExoPlayer.
+> 
+> Your task is to write a script that fetches a JSON API and converts it into M3U format, adhering STRICTLY to the following custom rules required by the app's internal `M3UParser.kt`:
+> 
+> #### 1. Basic Structure
+> - Use `fetch()` to get the JSON data.
+> - Start the M3U string with `#EXTM3U\n`.
+> - For each channel, use `#EXTINF:-1 tvg-logo="LOGO_URL" group-title="CATEGORY",CHANNEL_NAME\n`.
+> 
+> #### 2. DRM Handling (Important)
+> If a channel has DRM (like ClearKey), use Kodi properties.
+> - For ClearKey (kid:key pairs):
+>   ```m3u
+>   #KODIPROP:inputstream.adaptive.license_type=clearkey
+>   #KODIPROP:inputstream.adaptive.license_key=YOUR_KID:YOUR_KEY
+>   ```
+> - For Widevine (License URL):
+>   ```m3u
+>   #KODIPROP:inputstream.adaptive.license_type=widevine
+>   #KODIPROP:inputstream.adaptive.license_key=LICENSE_SERVER_URL
+>   ```
+> 
+> #### 3. HTTP Headers (CRITICAL)
+> You must attach HTTP headers to the stream URL using a Pipe `|` delimiter.
+> - Extract `token`, `userAgent`, `referer`, `origin`, and any custom headers from the JSON.
+> - If the token is meant to be a Cookie, prefix it with `Cookie=`.
+> - If the stream is strictly protected by Cloudflare bot detection, you can optionally append standard browser headers to mimic a real browser:
+>   - `Accept=text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7`
+>   - `Accept-Language=en-US,en;q=0.9`
+>   - `Sec-Fetch-Dest=document`
+>   - `Sec-Fetch-Mode=navigate`
+>   - `Sec-Fetch-Site=none`
+> 
+> **Pipe Delimiter Rules:**
+> - DO NOT use `&` to join headers! You MUST join them with `|`.
+> - DO NOT use `encodeURIComponent()` on header values! The app's parser does not decode them, so it expects exact raw strings.
+> - Format: `STREAM_URL|Header1=Value1|Header2=Value2|Header3=Value3`
+> 
+> #### 4. Sending the Payload
+> Send the final M3U string to the Android app using the `streamBD` bridge:
+> ```javascript
+> if (typeof streamBD !== 'undefined') {
+>     streamBD.send(m3u);
+> } else {
+>     console.log(m3u); // Fallback for local testing
+> }
+> ```
+> 
+> #### Example Template
+> ```javascript
+> fetch('API_URL_HERE')
+>   .then(res => res.json())
+>   .then(data => {
+>       let m3u = "#EXTM3U\n";
+>       for (const ch of data) {
+>           m3u += `#EXTINF:-1 tvg-logo="${ch.logo}" group-title="${ch.category}",${ch.name}\n`;
+>           
+>           if (ch.drm) {
+>               // Add DRM KODIPROP logic here
+>           }
+>           
+>           let headers = [];
+>           if (ch.userAgent) headers.push(`User-Agent=${ch.userAgent}`);
+>           if (ch.referer) headers.push(`Referer=${ch.referer}`);
+>           // Only add extra Sec-Fetch headers if Cloudflare bypass is needed
+>           
+>           let finalUrl = ch.url;
+>           if (headers.length > 0) {
+>               finalUrl += "|" + headers.join("|");
+>           }
+>           m3u += `${finalUrl}\n`;
+>       }
+>       if (typeof streamBD !== 'undefined') streamBD.send(m3u);
+>   });
+> ```
+>
 ---
 
 ## 🛠 Troubleshooting

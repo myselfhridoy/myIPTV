@@ -48,8 +48,18 @@
                 
                 // --- 4. Append to M3U8 with Custom Headers ---
                 m3u8 += `#EXTINF:-1 tvg-logo="${logo}" group-title="Jio Server 1",${title}\n`;
-                m3u8 += `#EXTHTTP:{"headers":{"cookie":"${cookie}", "referer":"${referer}", "origin":"${origin}"}}\n`;
-                m3u8 += `${streamUrl}\n`;
+                
+                let headers = [];
+                headers.push(`Cookie=${cookie}`);
+                headers.push(`Referer=${referer}`);
+                headers.push(`Origin=${origin}`);
+                
+                let finalUrl = streamUrl;
+                if (headers.length > 0) {
+                    finalUrl += "|" + headers.join("|");
+                }
+                
+                m3u8 += `${finalUrl}\n`;
             }
         }
         
