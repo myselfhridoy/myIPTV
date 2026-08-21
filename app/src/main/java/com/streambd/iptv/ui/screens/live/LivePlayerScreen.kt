@@ -231,7 +231,7 @@ fun LivePlayerScreen(
 
         // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
         var resolved: com.streambd.iptv.utils.ResolvedToken? = null
-        if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
+        if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal || com.streambd.iptv.utils.YouTubeExtractor.isYouTubeUrl(rawSourceUrl)) {
             resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
                 baseUrl = rawSourceUrl,

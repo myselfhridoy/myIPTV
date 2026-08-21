@@ -157,7 +157,7 @@ fun VodPlayerScreen(
             stream.url.contains("action=create_link", ignoreCase = true)
 
         var resolved: com.streambd.iptv.utils.ResolvedToken? = null
-        if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal) {
+        if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal || com.streambd.iptv.utils.YouTubeExtractor.isYouTubeUrl(stream.url)) {
             resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
                 context = context,
                 baseUrl = stream.url,

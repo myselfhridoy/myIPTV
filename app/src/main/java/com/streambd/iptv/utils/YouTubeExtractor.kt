@@ -59,7 +59,7 @@ object YouTubeExtractor {
 
                     return Response(code, message, respHeaders, bodyStr, response.request.url.toString())
                 }
-            })
+            }, org.schabi.newpipe.extractor.localization.Localization.DEFAULT, org.schabi.newpipe.extractor.localization.ContentCountry.DEFAULT)
             isInitialized = true
         }
     }

@@ -110,5 +110,5 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // NewPipeExtractor for YouTube Live & Video stream extraction
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.4")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
 }
