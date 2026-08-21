@@ -77,6 +77,27 @@ To bypass the need for Google Play Store updates, the app includes a self-updati
 
 ---
 
+## 🛠 Troubleshooting
+
+### YouTube VOD & Live Stream Playback Failures
+YouTube frequently updates its internal API and delivery mechanisms to prevent third-party clients from extracting media streams. If YouTube Live or VOD playback stops working and throws a `403 Forbidden` or `Playback Error`, follow these steps:
+
+1. **Update NewPipeExtractor (Primary Solution):**
+   The app uses `com.github.TeamNewPipe:NewPipeExtractor` to generate PO-Tokens and bypass YouTube's signatures.
+   - Check the [NewPipeExtractor GitHub Releases](https://github.com/TeamNewPipe/NewPipeExtractor/releases) for a newer version.
+   - If a new version exists (e.g., `v0.27.0`), update the dependency version in `app/build.gradle.kts`.
+   - **Important Note:** Do *not* try to manually scrape `hlsManifestUrl` using regex in `YouTubeExtractor.kt`. While it may return a manifest that parses successfully, the internal video chunks will be blocked with `403 Forbidden` because they lack proper deciphering signatures. Rely entirely on `NewPipeExtractor`.
+
+2. **Fallback to Public API Instances:**
+   If `NewPipeExtractor` breaks and a fix is delayed, you can temporarily route requests to public open-source instances:
+   - **Piped API**: `https://pipedapi.kavin.rocks/streams/VIDEO_ID`
+   - **Invidious API**: Extract streams via public Invidious instances.
+
+3. **Fallback to WebViewSniffer:**
+   If strict bot-protection (like Cloudflare) is added by YouTube, utilize the existing `WebViewSniffer` implementation (currently used for `streambd` links) to silently load the YouTube page in the background and hijack the media stream directly from the browser context.
+
+---
+
 ## 🚀 How to build / run
 1. Open the project in **Android Studio**.
 2. Sync Gradle (Make sure you are using JDK 17).
