@@ -1,3 +1,5 @@
+// BASE_URL=https://plusbox.tv/
+
 async function generatePlusBoxPlaylist() {
     try {
         const baseUrl = 'https://plusbox.tv';
@@ -5,15 +7,10 @@ async function generatePlusBoxPlaylist() {
         
         let htmlText = "";
         
-        // Use native bridge if available (bypasses CORS in WebView)
-        if (typeof streamBD !== 'undefined' && typeof streamBD.fetchUrl === 'function') {
-            htmlText = streamBD.fetchUrl(baseUrl, JSON.stringify({ 'User-Agent': userAgent }));
-        } else {
-            // Fallback to standard fetch (for browser testing)
-            const htmlRes = await fetch(baseUrl, { headers: { 'User-Agent': userAgent } });
-            if (!htmlRes.ok) throw new Error(`HTTP Error: ${htmlRes.status}`);
-            htmlText = await htmlRes.text();
-        }
+        // Native fetch ব্যবহার করা হচ্ছে, কারণ JsPlaylistParser এখন BASE_URL দিয়ে CORS বাইপাস করবে!
+        const htmlRes = await fetch(baseUrl, { headers: { 'User-Agent': userAgent } });
+        if (!htmlRes.ok) throw new Error(`HTTP Error: ${htmlRes.status}`);
+        htmlText = await htmlRes.text();
 
         if (!htmlText || htmlText.length < 100) {
             throw new Error("Failed to load HTML from " + baseUrl);
@@ -44,44 +41,47 @@ async function generatePlusBoxPlaylist() {
             throw new Error("No channels found by regex.");
         }
 
-        for (const channel of channelsData) {
-            const { title, dataName, rawImg } = channel;
-            const imgUrl = rawImg.startsWith('http') ? rawImg : `${baseUrl}/${rawImg}`;
+        // Fast concurrent fetching with batched requests (5 at a time to prevent rate limiting)
+        const batchSize = 5;
+        for (let i = 0; i < channelsData.length; i += batchSize) {
+            const batch = channelsData.slice(i, i + batchSize);
             
-            try {
-                let token = "";
-                const headers = {
-                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'User-Agent': userAgent,
-                    'Referer': `${baseUrl}/`,
-                    'Origin': baseUrl
-                };
-                const body = 'ch_name=' + encodeURIComponent(dataName);
+            await Promise.all(batch.map(async (channel) => {
+                const { title, dataName, rawImg } = channel;
+                const imgUrl = rawImg.startsWith('http') ? rawImg : `${baseUrl}/${rawImg}`;
                 
-                if (typeof streamBD !== 'undefined' && typeof streamBD.postUrl === 'function') {
-                    token = streamBD.postUrl(`${baseUrl}/token.php`, JSON.stringify(headers), body);
-                } else {
+                try {
+                    let token = "";
+                    const headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'User-Agent': userAgent,
+                        'Referer': `${baseUrl}/`,
+                        'Origin': baseUrl
+                    };
+                    const body = 'ch_name=' + encodeURIComponent(dataName);
+                    
                     const tokenRes = await fetch(`${baseUrl}/token.php`, {
                         method: 'POST',
                         headers: headers,
                         body: body
                     });
-                    if (!tokenRes.ok) throw new Error(`HTTP_${tokenRes.status}`);
-                    token = await tokenRes.text();
+                    
+                    if (tokenRes.ok) {
+                        token = await tokenRes.text();
+                    }
+                    
+                    const finalToken = token.trim() || 'token_blank';
+                    const streamUrl = `https://backend.plusbox.tv/${dataName}/tracks-v1/index.fmp4.m3u8?token=${finalToken}`;
+                    const embedUrl = `https://backend.plusbox.tv/${dataName}/embed.html?mute=false&autoplay=true&volume=50&token=${finalToken}`;
+                    
+                    const finalUrl = `${streamUrl}|User-Agent=${userAgent}|Referer=${embedUrl}|Origin=${baseUrl}`;
+                    
+                    m3u += `#EXTINF:-1 tvg-logo="${imgUrl}" group-title="Live TV",${title}\n${finalUrl}\n`;
+                } catch (err) {
+                    // Ignore single channel error
                 }
-                
-                const finalToken = token.trim() || 'token_blank';
-                
-                const streamUrl = `https://backend.plusbox.tv/${dataName}/tracks-v1/index.fmp4.m3u8?token=${finalToken}`;
-                const embedUrl = `https://backend.plusbox.tv/${dataName}/embed.html?mute=false&autoplay=true&volume=50&token=${finalToken}`;
-                
-                const finalUrl = `${streamUrl}|User-Agent=${userAgent}|Referer=${embedUrl}|Origin=${baseUrl}`;
-                
-                m3u += `#EXTINF:-1 tvg-logo="${imgUrl}" group-title="Live TV",${title}\n${finalUrl}\n`;
-            } catch (err) {
-                // Ignore single channel error
-            }
+            }));
         }
         
         if (typeof streamBD !== 'undefined') {

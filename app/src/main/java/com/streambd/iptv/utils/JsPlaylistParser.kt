@@ -108,8 +108,13 @@ object JsPlaylistParser {
                     }
                 }
                 
+                // Extract custom BASE_URL from JS comments if provided, to bypass CORS for specific origins
+                val baseUrlRegex = Regex("//\\s*BASE_URL=(https?://[^\\s]+)")
+                val match = baseUrlRegex.find(jsCode)
+                val webViewBaseUrl = match?.groupValues?.get(1) ?: "https://localhost/"
+                
                 // Load a dummy https URL to prevent file:// CORS restrictions on modern Android
-                webView.loadDataWithBaseURL("https://localhost/", "<html><body></body></html>", "text/html", "UTF-8", null)
+                webView.loadDataWithBaseURL(webViewBaseUrl, "<html><body></body></html>", "text/html", "UTF-8", null)
                 
                 continuation.invokeOnCancellation {
                     webView.post { webView.destroy() }
