@@ -10,7 +10,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
-
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 object JsPlaylistParser {
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -51,6 +52,34 @@ object JsPlaylistParser {
                                     obj.keys().forEach { k -> reqBuilder.header(k, obj.getString(k)) }
                                 } catch (e: Exception) {}
                             }
+                            val response = client.newCall(reqBuilder.build()).execute()
+                            response.body?.string() ?: ""
+                        } catch (e: Exception) {
+                            ""
+                        }
+                    }
+
+                    @JavascriptInterface
+                    fun postUrl(url: String, headersJson: String?, bodyString: String?): String {
+                        return try {
+                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                            val reqBuilder = okhttp3.Request.Builder().url(url)
+                            var contentType = "application/x-www-form-urlencoded"
+                            if (!headersJson.isNullOrBlank()) {
+                                try {
+                                    val obj = org.json.JSONObject(headersJson)
+                                    obj.keys().forEach { k ->
+                                        reqBuilder.header(k, obj.getString(k))
+                                        if (k.equals("Content-Type", ignoreCase = true)) {
+                                            contentType = obj.getString(k)
+                                        }
+                                    }
+                                } catch (e: Exception) {}
+                            }
+                            val bodyText = bodyString ?: ""
+                            val mediaType = contentType.toMediaTypeOrNull()
+                            val requestBody = bodyText.toRequestBody(mediaType)
+                            reqBuilder.post(requestBody)
                             val response = client.newCall(reqBuilder.build()).execute()
                             response.body?.string() ?: ""
                         } catch (e: Exception) {
