@@ -291,8 +291,10 @@ fun LivePlayerScreen(
                                         return@withContext stalkerResolved
                                     }
                                 }
-                                val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
-                                if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
+                                val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("EXT-X-STREAM-INF")
+                                
+                                // Parse custom EXTHTTP wrapper or single channel M3U
+                                if (bodyStr.contains("#EXTM3U") && (bodyStr.contains("EXTHTTP:") || !isHlsStream)) {
                                     val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
                                     if (parsedChannels.isNotEmpty()) {
                                         val first = parsedChannels.first()
@@ -313,6 +315,19 @@ fun LivePlayerScreen(
                                             isMasterPlaylist = false
                                         )
                                     }
+                                }
+                                
+                                // Fix malformed HLS playlists that are missing #EXTM3U or have spaces like "# EXT-X-STREAM-INF"
+                                if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
+                                    val fixedPlaylist = "#EXTM3U\n" + bodyStr.replace("# EXT-", "#EXT-")
+                                    val dataUri = "data:application/x-mpegURL;base64," +
+                                        android.util.Base64.encodeToString(fixedPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
+                                    return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                        url = dataUri,
+                                        headers = initialHeaders,
+                                        mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
+                                        isMasterPlaylist = fixedPlaylist.contains("EXT-X-STREAM-INF")
+                                    )
                                 }
                             }
                             

@@ -63,7 +63,12 @@ fun SourceSelectionScreen(
 
     val m = media!!
 
-    // Fetch streams on entry or when media changes
+    // Reset dedup cache when leaving so re-entry always fetches fresh
+    DisposableEffect(Unit) {
+        onDispose { mainViewModel.resetVodStreams() }
+    }
+
+    // Fetch streams on entry or when media/season/episode changes
     LaunchedEffect(m.id, mainViewModel.selectedSeason, mainViewModel.selectedEpisode) {
         val type = if (m.isMovie) "movie" else "tv"
         mainViewModel.fetchVodStreams(

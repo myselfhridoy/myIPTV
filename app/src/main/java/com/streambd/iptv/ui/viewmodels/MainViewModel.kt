@@ -292,9 +292,20 @@ class MainViewModel : ViewModel() {
     var selectedSeason: Int? = null
     var selectedEpisode: Int? = null
 
+    /** Call this when leaving SourceSelectionScreen so the next entry always triggers a fresh fetch. */
+    fun resetVodStreams() {
+        lastFetchedTmdbId = null
+        lastFetchedSeason = null
+        lastFetchedEpisode = null
+        _availableStreams.value = emptyList()
+        _isResolvingStreams.value = false
+    }
+
     fun fetchVodStreams(context: Context, type: String, tmdbId: Int, season: Int? = null, episode: Int? = null) {
-        if (tmdbId == lastFetchedTmdbId && season == lastFetchedSeason && episode == lastFetchedEpisode) {
-            return // Prevent re-fetching identical request
+        // Dedup guard: skip if exact same request is already in-flight or just completed
+        if (tmdbId == lastFetchedTmdbId && season == lastFetchedSeason && episode == lastFetchedEpisode
+            && _isResolvingStreams.value) {
+            return // Same request is already running — don't double-launch
         }
         lastFetchedTmdbId = tmdbId
         lastFetchedSeason = season

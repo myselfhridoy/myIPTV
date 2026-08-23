@@ -255,6 +255,13 @@ object AddonManager {
                 }
 
                 @JavascriptInterface
+                fun getCookie(host: String, name: String): String {
+                    val url = "https://$host".toHttpUrlOrNull() ?: return ""
+                    val cookies = cookieJar.loadForRequest(url)
+                    return cookies.firstOrNull { it.name == name }?.value ?: ""
+                }
+
+                @JavascriptInterface
                 fun doBypass(reqId: String, url: String) {
                     CoroutineScope(Dispatchers.IO).launch {
                         val result = CloudflareBypasser.bypass(context, url)
@@ -461,21 +468,32 @@ object AddonManager {
                             }
                             
                             if (typeof parserFunc === 'function') {
-                                var result = parserFunc("$type", "$tmdbId", $seasonArg, $episodeArg);
+                                var result;
+                                try {
+                                    result = parserFunc("$type", "$tmdbId", $seasonArg, $episodeArg);
+                                } catch(callErr) {
+                                    AndroidBridge.error("[AddonManager] parserFunc call threw: " + callErr.toString());
+                                    AndroidBridge.onError(callErr.toString());
+                                    return;
+                                }
                                 // Handle both Promise and non-Promise returns
                                 if (result && typeof result.then === 'function') {
                                     result.then(function(sources) {
+                                        AndroidBridge.log("[AddonManager] resolved sources count: " + (sources ? sources.length : 0));
                                         AndroidBridge.onResult(JSON.stringify(sources || []));
                                     }).catch(function(err) {
+                                        AndroidBridge.error("[AddonManager] promise rejected: " + err.toString());
                                         AndroidBridge.onError(err.toString());
                                     });
                                 } else {
                                     AndroidBridge.onResult(JSON.stringify(result || []));
                                 }
                             } else {
+                                AndroidBridge.error("[AddonManager] parserFunc is not a function (type=" + typeof parserFunc + ")");
                                 AndroidBridge.onError("Parser is not a function");
                             }
                         } catch(e) {
+                            AndroidBridge.error("[AddonManager] top-level error: " + e.toString());
                             AndroidBridge.onError(e.toString());
                         }
                     </script>
