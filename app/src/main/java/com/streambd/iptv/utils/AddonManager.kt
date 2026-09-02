@@ -245,8 +245,6 @@ object AddonManager {
 
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
-            webView.settings.allowUniversalAccessFromFileURLs = true
-            webView.settings.allowFileAccessFromFileURLs = true
 
             val interfaceName = "AndroidBridge"
             
@@ -290,7 +288,7 @@ object AddonManager {
                         val result = CloudflareBypasser.bypass(context, url)
                         if (isDestroyed.get()) return@launch
                         if (result != null) {
-                            val host = try { java.net.URI(url).host } catch (e: Exception) { url }
+                            val host = try { java.net.URI(url).host ?: url } catch (e: Exception) { url }
                             hostUserAgents[host] = result.userAgent
                             cookieJar.injectCookies(url, result.cookies)
                             withContext(Dispatchers.Main) {
@@ -308,17 +306,21 @@ object AddonManager {
                 fun doFetch(reqId: String, url: String, optionsJson: String?) {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
+                            val reqHost = try { java.net.URI(url).host ?: "" } catch(e: Exception) { "" }
+                            val cachedUa = hostUserAgents[reqHost] ?: hostUserAgents.entries.firstOrNull { reqHost != "" && (reqHost == it.key || reqHost.endsWith(".${it.key}")) }?.value
+                            val defaultUa = "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
+                            val userAgent = cachedUa ?: defaultUa
+
                             val requestBuilder = okhttp3.Request.Builder().url(url)
+                            var hasUserAgent = false
+
                             if (optionsJson != null && optionsJson != "null" && optionsJson != "undefined") {
                                 val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
                                 val options: Map<String, Any>? = gson.fromJson(optionsJson, type)
                                 if (options != null) {
                                     val method = (options["method"] as? String)?.uppercase() ?: "GET"
                                     var contentTypeStr = "text/plain"
-                                    val reqHost = try { java.net.URI(url).host } catch(e: Exception) { "" }
-                                    val userAgent = hostUserAgents[reqHost] ?: hostUserAgents.entries.firstOrNull { reqHost == it.key || reqHost.endsWith(".${it.key}") }?.value
                                     
-                                    var hasUserAgent = false
                                     val headersMap = options["headers"] as? Map<String, Any>
                                     headersMap?.forEach { (k, v) ->
                                         val valStr = v.toString()
@@ -327,13 +329,10 @@ object AddonManager {
                                         }
                                         if (k.equals("User-Agent", ignoreCase = true)) {
                                             hasUserAgent = true
-                                            requestBuilder.addHeader(k, userAgent ?: valStr)
+                                            requestBuilder.addHeader(k, cachedUa ?: valStr)
                                         } else {
                                             requestBuilder.addHeader(k, valStr)
                                         }
-                                    }
-                                    if (!hasUserAgent && userAgent != null) {
-                                        requestBuilder.addHeader("User-Agent", userAgent)
                                     }
                                     
                                     val bodyStr = options["body"]?.toString()
@@ -345,6 +344,10 @@ object AddonManager {
                                         requestBuilder.method(method, null)
                                     }
                                 }
+                            }
+                            
+                            if (!hasUserAgent) {
+                                requestBuilder.addHeader("User-Agent", userAgent)
                             }
                             
                             val response = client.newCall(requestBuilder.build()).execute()
@@ -533,7 +536,7 @@ object AddonManager {
                 </html>
             """.trimIndent()
 
-            webView.loadDataWithBaseURL("file:///android_asset/dummy.html", html, "text/html", "UTF-8", null)
+            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
 
             continuation.invokeOnCancellation {
                 safeDestroy()
