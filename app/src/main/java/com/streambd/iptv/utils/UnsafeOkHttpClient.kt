@@ -48,10 +48,18 @@ object UnsafeOkHttpClient {
 
                 override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
                     val host = url.host
-                    val list = cookieStore.getOrPut(host) { java.util.concurrent.CopyOnWriteArrayList() }
-                    cookies.forEach { newCookie ->
-                        list.removeAll { it.name == newCookie.name && it.path == newCookie.path }
-                        list.add(newCookie)
+                    val list = cookieStore.getOrPut(host) { java.util.Collections.synchronizedList(mutableListOf()) }
+                    synchronized(list) {
+                        cookies.forEach { newCookie ->
+                            val iterator = list.iterator()
+                            while (iterator.hasNext()) {
+                                val it = iterator.next()
+                                if (it.name == newCookie.name && it.path == newCookie.path) {
+                                    iterator.remove()
+                                }
+                            }
+                            list.add(newCookie)
+                        }
                     }
                 }
 
@@ -59,9 +67,11 @@ object UnsafeOkHttpClient {
                     val list = cookieStore[url.host] ?: return emptyList()
                     val validCookies = mutableListOf<okhttp3.Cookie>()
                     val now = System.currentTimeMillis()
-                    list.forEach { c ->
-                        if (c.expiresAt > now && c.matches(url)) {
-                            validCookies.add(c)
+                    synchronized(list) {
+                        list.forEach { c ->
+                            if (c.expiresAt > now && c.matches(url)) {
+                                validCookies.add(c)
+                            }
                         }
                     }
                     return validCookies
