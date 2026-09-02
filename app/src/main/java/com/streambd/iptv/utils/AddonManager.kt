@@ -77,7 +77,7 @@ object AddonManager {
             }
             
             // Add cookies for parent domains (e.g., .domain.com)
-            cookieStore.keys.filter { host == it || host.endsWith(".$it") }.forEach { key ->
+            cookieStore.keys.filter { host.endsWith(".$it") }.forEach { key ->
                 cookieStore[key]?.let { list ->
                     synchronized(list) { cookies.addAll(list) }
                 }
