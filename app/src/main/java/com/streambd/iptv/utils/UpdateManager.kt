@@ -106,7 +106,7 @@ object UpdateManager {
             .setTitle("StreamBD IPTV Update")
             .setDescription("Downloading ${release.name}...")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "StreamBD-IPTV-Update.apk")
+            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "StreamBD-IPTV-Update.apk")
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
             
