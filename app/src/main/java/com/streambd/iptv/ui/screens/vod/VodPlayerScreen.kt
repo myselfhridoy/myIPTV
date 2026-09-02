@@ -170,17 +170,19 @@ fun VodPlayerScreen(
             )
         }
         if (resolved == null) {
+            val rawSourceUrl = stream.url
             val decodedUrl = try { java.net.URLDecoder.decode(stream.url, "UTF-8") } catch (e: Exception) { stream.url }
             val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
             val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
             val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
             
-            val isPhpHlsUrl = stream.url.contains("live.php", ignoreCase = true) || 
-                stream.url.contains("extension=m3u8", ignoreCase = true)
-            val dynamicOrRedirectRegex = Regex("(\\.(php|dev)|worker|redirect|short|proxy|book4u|dongobd|assadikb|is\\.gd|url=)", RegexOption.IGNORE_CASE)
-            val isKnownFileHost = stream.url.contains("googleusercontent.com", ignoreCase = true)
-            val shouldPreResolve = isPhpHlsUrl || dynamicOrRedirectRegex.containsMatchIn(stream.url) || 
-                (!isKnownFileHost && !extRegex.containsMatchIn(decodedUrl) && !protoRegex.containsMatchIn(stream.url))
+            val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
+                rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
+            val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
+            val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
+            val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
+            val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
+                (!isKnownFileHost && !hasKnownExtensionOrProto)
             if (shouldPreResolve) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         try {
@@ -284,7 +286,7 @@ fun VodPlayerScreen(
         val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
             (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
 
-        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || isPhpHls)
+        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
 
         if (shouldWrapInMasterPlaylist) {
             val bandwidth = if (isCrichd) 220000 else 15000000

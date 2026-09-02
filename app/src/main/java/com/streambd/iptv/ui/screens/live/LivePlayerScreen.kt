@@ -251,10 +251,10 @@ fun LivePlayerScreen(
             
             val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
                 rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
-            val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl)
+            val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
             val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
             val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
-            val shouldPreResolve = isPhpHlsUrl || redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
+            val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
                 (!isKnownFileHost && !hasKnownExtensionOrProto)
             if (shouldPreResolve) {
                     // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
@@ -382,7 +382,7 @@ fun LivePlayerScreen(
         val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
             (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
 
-        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || isPhpHls)
+        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
 
         if (shouldWrapInMasterPlaylist) {
             val bandwidth = if (isCrichd) 220000 else 15000000
