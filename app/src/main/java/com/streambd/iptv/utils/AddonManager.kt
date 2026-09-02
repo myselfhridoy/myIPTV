@@ -31,15 +31,20 @@ object AddonManager {
     private const val ADDONS_KEY = "addons_list"
 
     private var cachedAddons: List<Addon>? = null
-    private val addonScriptsCache = mutableMapOf<String, String>()
-    private val hostUserAgents = mutableMapOf<String, String>()
+    private val addonScriptsCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val hostUserAgents = java.util.concurrent.ConcurrentHashMap<String, String>()
     
     private class MyCookieJar : okhttp3.CookieJar {
         private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
 
         fun injectCookies(url: String, cookieString: String) {
             val httpUrl = url.toHttpUrlOrNull() ?: return
-            val cookies = cookieString.split(";").mapNotNull {
+            val rawCookies = if (cookieString.contains("Path=", ignoreCase = true) || cookieString.contains("Domain=", ignoreCase = true)) {
+                listOf(cookieString)
+            } else {
+                cookieString.split(";")
+            }
+            val cookies = rawCookies.mapNotNull {
                 okhttp3.Cookie.parse(httpUrl, it.trim())
             }
             saveFromResponse(httpUrl, cookies)
@@ -72,7 +77,7 @@ object AddonManager {
             }
             
             // Add cookies for parent domains (e.g., .domain.com)
-            cookieStore.keys.filter { host.endsWith(it) && host != it }.forEach { key ->
+            cookieStore.keys.filter { host == it || host.endsWith(".$it") }.forEach { key ->
                 cookieStore[key]?.let { list ->
                     synchronized(list) { cookies.addAll(list) }
                 }
@@ -101,8 +106,12 @@ object AddonManager {
         
         var addons = mutableListOf<Addon>()
         if (savedAddonsJson != null) {
-            val type = object : TypeToken<List<Addon>>() {}.type
-            addons = gson.fromJson(savedAddonsJson, type)
+            try {
+                val type = object : TypeToken<List<Addon>>() {}.type
+                addons = gson.fromJson(savedAddonsJson, type) ?: mutableListOf()
+            } catch (e: Exception) {
+                addons = mutableListOf()
+            }
         }
 
         if (forceSync || addons.isEmpty()) {
@@ -224,11 +233,18 @@ object AddonManager {
     ): String = withContext(Dispatchers.Main) {
         suspendCancellableCoroutine { continuation ->
             val webView = WebView(context)
+            val isDestroyed = java.util.concurrent.atomic.AtomicBoolean(false)
+            
+            fun safeDestroy() {
+                if (!isDestroyed.getAndSet(true)) {
+                    webView.post { 
+                        try { webView.destroy() } catch(e: Exception) {} 
+                    }
+                }
+            }
+
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
-
-            webView.settings.allowUniversalAccessFromFileURLs = true
-            webView.settings.allowFileAccessFromFileURLs = true
 
             val interfaceName = "AndroidBridge"
             
@@ -237,7 +253,7 @@ object AddonManager {
                 fun onResult(result: String) {
                     if (continuation.isActive) {
                         continuation.resume(result)
-                        webView.post { webView.destroy() }
+                        safeDestroy()
                     }
                 }
 
@@ -245,7 +261,7 @@ object AddonManager {
                 fun onError(error: String) {
                     if (continuation.isActive) {
                         continuation.resume("[]")
-                        webView.post { webView.destroy() }
+                        safeDestroy()
                     }
                 }
 
@@ -270,16 +286,17 @@ object AddonManager {
                 fun doBypass(reqId: String, url: String) {
                     CoroutineScope(Dispatchers.IO).launch {
                         val result = CloudflareBypasser.bypass(context, url)
+                        if (isDestroyed.get()) return@launch
                         if (result != null) {
                             val host = try { java.net.URI(url).host } catch (e: Exception) { url }
                             hostUserAgents[host] = result.userAgent
                             cookieJar.injectCookies(url, result.cookies)
                             withContext(Dispatchers.Main) {
-                                webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', true);", null)
+                                if (!isDestroyed.get()) webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', true);", null)
                             }
                         } else {
                             withContext(Dispatchers.Main) {
-                                webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', false);", null)
+                                if (!isDestroyed.get()) webView.evaluateJavascript("javascript:window.onAndroidBypassResponse('" + reqId + "', false);", null)
                             }
                         }
                     }
@@ -297,7 +314,7 @@ object AddonManager {
                                     val method = (options["method"] as? String)?.uppercase() ?: "GET"
                                     var contentTypeStr = "text/plain"
                                     val reqHost = try { java.net.URI(url).host } catch(e: Exception) { "" }
-                                    val userAgent = hostUserAgents[reqHost] ?: hostUserAgents.entries.firstOrNull { reqHost.endsWith(it.key) }?.value
+                                    val userAgent = hostUserAgents[reqHost] ?: hostUserAgents.entries.firstOrNull { reqHost == it.key || reqHost.endsWith(".${it.key}") }?.value
                                     
                                     var hasUserAgent = false
                                     val headersMap = options["headers"] as? Map<String, Any>
@@ -354,13 +371,14 @@ object AddonManager {
                             val headersJsonStr = gson.toJson(responseHeadersMap)
                             
                             withContext(Dispatchers.Main) {
+                                if (isDestroyed.get()) return@withContext
                                 val base64Body = android.util.Base64.encodeToString(bodyBytes, android.util.Base64.NO_WRAP)
                                 val safeHeadersJson = android.util.Base64.encodeToString(headersJsonStr.toByteArray(), android.util.Base64.NO_WRAP)
                                 webView.evaluateJavascript("javascript:window.onAndroidFetchResponse('" + reqId + "', " + status + ", '" + safeHeadersJson + "', '" + base64Body + "');", null)
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                webView.evaluateJavascript("javascript:window.onAndroidFetchError('" + reqId + "', '" + (e.message?.replace("'", "\\'") ?: "Error") + "');", null)
+                                if (!isDestroyed.get()) webView.evaluateJavascript("javascript:window.onAndroidFetchError('" + reqId + "', '" + (e.message?.replace("'", "\\'") ?: "Error") + "');", null)
                             }
                         }
                     }
@@ -454,19 +472,25 @@ object AddonManager {
                             }
                             
                             if (typeof parserFunc !== 'function') {
-                                // Snapshot existing window keys before eval
-                                var keysBefore = {};
-                                for (var k in window) { keysBefore[k] = true; }
-                                
-                                eval(decodedCode);
-                                
-                                // Find newly added functions after eval
-                                if (typeof parserFunc !== 'function') {
-                                    for (var k in window) {
-                                        if (!keysBefore[k] && typeof window[k] === 'function') {
-                                            parserFunc = window[k];
-                                            AndroidBridge.log("Auto-discovered function: " + k);
-                                            break;
+                                if (typeof window.__streamBDResolve === 'function') {
+                                    parserFunc = window.__streamBDResolve;
+                                } else {
+                                    // Snapshot existing window keys before eval
+                                    var keysBefore = {};
+                                    for (var k in window) { keysBefore[k] = true; }
+                                    
+                                    eval(decodedCode);
+                                    
+                                    if (typeof window.__streamBDResolve === 'function') {
+                                        parserFunc = window.__streamBDResolve;
+                                    } else {
+                                        // Find newly added functions after eval
+                                        for (var k in window) {
+                                            if (!keysBefore[k] && typeof window[k] === 'function') {
+                                                parserFunc = window[k];
+                                                AndroidBridge.log("Auto-discovered function: " + k);
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -507,10 +531,10 @@ object AddonManager {
                 </html>
             """.trimIndent()
 
-            webView.loadDataWithBaseURL("file:///android_asset/dummy.html", html, "text/html", "UTF-8", null)
+            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
 
             continuation.invokeOnCancellation {
-                webView.post { webView.destroy() }
+                safeDestroy()
             }
         }
     }
