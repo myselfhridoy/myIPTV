@@ -245,6 +245,8 @@ object AddonManager {
 
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
+            webView.settings.allowUniversalAccessFromFileURLs = true
+            webView.settings.allowFileAccessFromFileURLs = true
 
             val interfaceName = "AndroidBridge"
             
@@ -531,7 +533,7 @@ object AddonManager {
                 </html>
             """.trimIndent()
 
-            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
+            webView.loadDataWithBaseURL("file:///android_asset/dummy.html", html, "text/html", "UTF-8", null)
 
             continuation.invokeOnCancellation {
                 safeDestroy()
