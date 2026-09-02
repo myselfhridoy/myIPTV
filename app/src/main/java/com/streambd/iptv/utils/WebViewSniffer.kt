@@ -39,8 +39,10 @@ object WebViewSniffer {
         "adskeeper", "mgid", "/ads/", "adx", "pyppo", "prebid",
         "googletag", "outbrain", "taboola", "adclick", "clickadu",
         "adcash", "hilltopads", "trafficjunky",
-        "caligaoctrois", ".cyou", "/lp/i/", "bongacams", "chaturbate", "jerkmate"
+        "caligaoctrois", "/lp/i/"
     )
+
+    private val adultKeywords = listOf("bongacams", "chaturbate", "jerkmate", ".cyou")
 
     private val videoPatterns = listOf(
         ".m3u8", ".mpd", ".mp4", ".webm", ".flv", ".mkv",
@@ -58,7 +60,7 @@ object WebViewSniffer {
     }
 
     private fun isAdVideoUrl(url: String) = adVideoKeywords.any { url.lowercase().contains(it) }
-    private fun isAdUrl(url: String) = adKeywords.any { url.lowercase().contains(it) }
+    private fun isAdUrl(url: String) = adKeywords.any { url.lowercase().contains(it) } || adultKeywords.any { url.lowercase().contains(it) }
 
     private fun isSameDomain(h1: String, h2: String): Boolean {
         if (h1 == h2) return true
@@ -70,7 +72,11 @@ object WebViewSniffer {
     private fun getRootDomain(host: String?): String {
         if (host.isNullOrBlank()) return ""
         val parts = host.split(".")
-        return if (parts.size >= 2) parts.takeLast(2).joinToString(".") else host
+        return if (parts.size >= 3 && parts[parts.size - 2] in listOf("com", "co", "net", "org", "gov", "edu")) {
+            parts.takeLast(3).joinToString(".")
+        } else if (parts.size >= 2) {
+            parts.takeLast(2).joinToString(".")
+        } else host
     }
 
     private fun extractOrigin(url: String): String {
@@ -124,12 +130,13 @@ object WebViewSniffer {
         response.setStatusCodeAndReasonPhrase(200, "OK")
         response.responseHeaders = mapOf(
             "Access-Control-Allow-Origin" to "*",
-            "Cache-Control" to "public, max-age=86400"
+            "Cache-Control" to "no-store, no-cache"
         )
         return response
     }
 
     private class SnifferJSInterface(
+        private val secretToken: String,
         private val currentInputUrl: String,
         private val bypassUA: String,
         private val onVideoDetected: (ResolvedToken) -> Unit,
@@ -137,12 +144,14 @@ object WebViewSniffer {
         private val currentPageUrlGetter: () -> String
     ) {
         @JavascriptInterface
-        fun onClearKey(keyJson: String) {
+        fun onClearKey(token: String, keyJson: String) {
+            if (token != secretToken) return
             onKeyFound(keyJson)
         }
 
         @JavascriptInterface
-        fun onVideoFoundWithHeaders(videoUrl: String, headersJson: String) {
+        fun onVideoFoundWithHeaders(token: String, videoUrl: String, headersJson: String) {
+            if (token != secretToken) return
             if (videoUrl.isBlank()) return
             if (!isVideoUrl(videoUrl) || isAdVideoUrl(videoUrl) || isAdUrl(videoUrl)) return
 
@@ -161,7 +170,7 @@ object WebViewSniffer {
                     jsCookie,
                     cm.getCookie(videoUrl),
                     cm.getCookie(referer),
-                    cm.getCookie("https://.$rootDomain"),
+                    cm.getCookie("https://$rootDomain"),
                     cm.getCookie(currentPageUrlGetter()),
                     cm.getCookie(currentInputUrl)
                 )
@@ -228,7 +237,9 @@ object WebViewSniffer {
                             addedToWindow = true
                         }
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                    android.util.Log.e("WebViewSniffer", "Error attaching WebView to Activity", e)
+                }
 
                 if (!addedToWindow) {
                     try {
@@ -246,7 +257,11 @@ object WebViewSniffer {
                             layoutParams.type = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG
                         }
                         windowManager.addView(webView, layoutParams)
-                    } catch (e: Exception) {}
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebViewSniffer", "Error attaching WebView via WindowManager", e)
+                        continuation.resume(null)
+                        return@suspendCancellableCoroutine
+                    }
                 }
 
                 fun cleanup() {
@@ -267,7 +282,10 @@ object WebViewSniffer {
                     cleanup()
                 }
 
+                val secretToken = java.util.UUID.randomUUID().toString()
+                
                 val jsInterface = SnifferJSInterface(
+                    secretToken = secretToken,
                     currentInputUrl = url,
                     bypassUA = bypassUA,
                     onVideoDetected = { resolved ->
@@ -285,14 +303,16 @@ object WebViewSniffer {
                                 } else {
                                     foundMpdUrl = resolved.url
                                     foundMpdHeaders = resolved.headers
-                                    mpdTimeoutRunnable = Runnable {
-                                        if (!isResumed) {
-                                            isResumed = true
-                                            cleanup()
-                                            continuation.resume(ResolvedToken(url = resolved.url, headers = resolved.headers))
+                                    if (mpdTimeoutRunnable == null) {
+                                        mpdTimeoutRunnable = Runnable {
+                                            if (!isResumed) {
+                                                isResumed = true
+                                                cleanup()
+                                                continuation.resume(ResolvedToken(url = resolved.url, headers = resolved.headers))
+                                            }
                                         }
+                                        handler.postDelayed(mpdTimeoutRunnable!!, 3000)
                                     }
-                                    handler.postDelayed(mpdTimeoutRunnable!!, 3000)
                                 }
                             } else {
                                 isResumed = true
@@ -317,7 +337,6 @@ object WebViewSniffer {
                 )
 
                 webView.addJavascriptInterface(jsInterface, "AndroidBridge")
-                webView.addJavascriptInterface(jsInterface, "AndroidSniffer")
 
                 webView.settings.apply {
                     javaScriptEnabled = true
@@ -344,6 +363,7 @@ object WebViewSniffer {
                         if (window.__snifferInstalled) return;
                         window.__snifferInstalled = true;
                         var _b = window.AndroidBridge;
+                        var _token = '$secretToken';
                         var _pageUrl = window.location.href;
 
                         function buildHeadersJson(extraObj) {
@@ -372,7 +392,7 @@ object WebViewSniffer {
                             try {
                                 var full = (url && url.startsWith('http')) ? url : new URL(url, _pageUrl).href;
                                 if (isVideoUrl(full) && _b) {
-                                    _b.onVideoFoundWithHeaders(full, buildHeadersJson(extraHeaders));
+                                    _b.onVideoFoundWithHeaders(_token, full, buildHeadersJson(extraHeaders));
                                 }
                             } catch(e) {}
                         }
@@ -469,7 +489,7 @@ object WebViewSniffer {
                             patterns.forEach(function(pat) {
                                 var m;
                                 while ((m = pat.exec(text)) !== null) {
-                                    if (_b) _b.onVideoFoundWithHeaders(m[0], buildHeadersJson(extraHeaders));
+                                    if (_b) _b.onVideoFoundWithHeaders(_token, m[0], buildHeadersJson(extraHeaders));
                                 }
                             });
                         }
@@ -487,14 +507,14 @@ object WebViewSniffer {
                         };
 
                         XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-                            if (this.headers) this.headers[name] = value;
+                            if (this.__headers) this.__headers[name] = value;
                             return _origSetRH.apply(this, arguments);
                         };
 
                         XMLHttpRequest.prototype.send = function(body) {
                             var self = this;
-                            if (self.url && isVideoUrl(self.url)) {
-                                report(self.url, self.headers);
+                            if (self.__url && isVideoUrl(self.__url)) {
+                                report(self.__url, self.__headers);
                             }
                             this.addEventListener('load', function() {
                                 try { scanTextForStream(this.responseText, self.__headers); } catch(e){}
@@ -546,7 +566,7 @@ object WebViewSniffer {
                                 try {
                                     const text = new TextDecoder().decode(response);
                                     if (text.includes('"kty":"oct"')) {
-                                        _b.onClearKey(text);
+                                        _b.onClearKey(_token, text);
                                     }
                                 } catch(e) {}
                                 return originalUpdate.apply(this, arguments);
@@ -562,7 +582,10 @@ object WebViewSniffer {
                 fun injectDeepSniffer(view: WebView) {
                     val js = """
                         (function() {
+                        if (window.__deepSnifferInstalled) return;
+                        window.__deepSnifferInstalled = true;
                         var _b = window.AndroidBridge;
+                        var _token = '$secretToken';
                         var _pageUrl = window.location.href;
 
                         function buildHeadersJson(extra) {
@@ -592,7 +615,7 @@ object WebViewSniffer {
                             try {
                                 var full = (url && url.startsWith('http')) ? url : new URL(url, _pageUrl).href;
                                 if (isVideoUrl(full) && _b) {
-                                    _b.onVideoFoundWithHeaders(full, buildHeadersJson(extra));
+                                    _b.onVideoFoundWithHeaders(_token, full, buildHeadersJson(extra));
                                 }
                             } catch(e) {}
                         }
@@ -662,7 +685,7 @@ object WebViewSniffer {
                                 Object.defineProperty(HTMLMediaElement.prototype, 'src', {
                                     set: function(val) {
                                         if (val && isVideoUrl(val)) {
-                                            _b && _b.onVideoFoundWithHeaders(val, buildHeadersJson({}));
+                                            _b && _b.onVideoFoundWithHeaders(_token, val, buildHeadersJson({}));
                                         }
                                         _nativeSrcDesc.set.call(this, val);
                                     },
@@ -684,7 +707,7 @@ object WebViewSniffer {
                             patterns.forEach(function(pat) {
                                 var m;
                                 while ((m = pat.exec(text)) !== null) {
-                                    if (_b) _b.onVideoFoundWithHeaders(m[0], buildHeadersJson({}));
+                                    if (_b) _b.onVideoFoundWithHeaders(_token, m[0], buildHeadersJson({}));
                                 }
                             });
                         });
@@ -714,8 +737,13 @@ object WebViewSniffer {
                         handler: android.webkit.SslErrorHandler?,
                         error: android.net.http.SslError?
                     ) {
-                        // Crucial for Android 7.0 TV Box: Let's Encrypt / modern SSL root certs are expired or untrusted on older OS
-                        handler?.proceed()
+                        val requestUrl = error?.url ?: ""
+                        if (!requestUrl.contains("github.io", ignoreCase = true) && !requestUrl.contains("tmdb.org", ignoreCase = true)) {
+                            // Crucial for Android 7.0 TV Box: Let's Encrypt / modern SSL root certs are expired or untrusted on older OS
+                            handler?.proceed()
+                        } else {
+                            handler?.cancel()
+                        }
                     }
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -773,7 +801,7 @@ object WebViewSniffer {
                             .firstOrNull { it.key.equals("Accept", ignoreCase = true) }
                             ?.value?.lowercase() ?: ""
 
-                        if (acceptHeader == "text/html") {
+                        if (acceptHeader.contains("text/html")) {
                             return super.shouldInterceptRequest(view, request)
                         }
 
