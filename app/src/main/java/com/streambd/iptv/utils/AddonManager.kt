@@ -35,7 +35,7 @@ object AddonManager {
     private val hostUserAgents = mutableMapOf<String, String>()
     
     private class MyCookieJar : okhttp3.CookieJar {
-        private val cookieStore = mutableMapOf<String, MutableList<okhttp3.Cookie>>()
+        private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
 
         fun injectCookies(url: String, cookieString: String) {
             val httpUrl = url.toHttpUrlOrNull() ?: return
@@ -47,18 +47,19 @@ object AddonManager {
 
         override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
             val host = url.host
-            val existingCookies = cookieStore[host] ?: mutableListOf()
+            val existingCookies = cookieStore.getOrPut(host) { java.util.Collections.synchronizedList(mutableListOf()) }
             
-            // Overwrite existing cookies or add new ones
-            for (cookie in cookies) {
-                val index = existingCookies.indexOfFirst { it.name == cookie.name }
-                if (index != -1) {
-                    existingCookies[index] = cookie
-                } else {
-                    existingCookies.add(cookie)
+            synchronized(existingCookies) {
+                // Overwrite existing cookies or add new ones
+                for (cookie in cookies) {
+                    val index = existingCookies.indexOfFirst { it.name == cookie.name }
+                    if (index != -1) {
+                        existingCookies[index] = cookie
+                    } else {
+                        existingCookies.add(cookie)
+                    }
                 }
             }
-            cookieStore[host] = existingCookies
         }
 
         override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
@@ -66,11 +67,15 @@ object AddonManager {
             val cookies = mutableListOf<okhttp3.Cookie>()
             
             // Add cookies for exact host
-            cookieStore[host]?.let { cookies.addAll(it) }
+            cookieStore[host]?.let { list ->
+                synchronized(list) { cookies.addAll(list) }
+            }
             
             // Add cookies for parent domains (e.g., .domain.com)
             cookieStore.keys.filter { host.endsWith(it) && host != it }.forEach { key ->
-                cookieStore[key]?.let { cookies.addAll(it) }
+                cookieStore[key]?.let { list ->
+                    synchronized(list) { cookies.addAll(list) }
+                }
             }
             
             return cookies
