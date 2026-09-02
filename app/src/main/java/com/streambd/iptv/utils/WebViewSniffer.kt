@@ -325,6 +325,13 @@ object WebViewSniffer {
                     databaseEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
+                    
+                    // CORS বাইপাস করার জন্য (বিশেষ করে TX3 Mini এবং পুরনো Android ভার্সনের জন্য)
+                    @Suppress("DEPRECATION")
+                    allowFileAccessFromFileURLs = true
+                    @Suppress("DEPRECATION")
+                    allowUniversalAccessFromFileURLs = true
+
                     mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
                     useWideViewPort = true

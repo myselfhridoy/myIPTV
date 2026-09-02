@@ -11,7 +11,10 @@ object UnsafeOkHttpClient {
     // Default Whitelisted Media Player User-Agent (VLC & OTT Navigator hybrid)
     const val DEFAULT_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20 (OTT Navigator; TiviMate)"
 
+    private var instance: OkHttpClient? = null
+
     fun getUnsafeOkHttpClient(): OkHttpClient {
+        if (instance != null) return instance!!
         return try {
             // Create a trust manager that does not validate certificate chains
             val trustAllCerts = arrayOf<TrustManager>(
@@ -79,7 +82,8 @@ object UnsafeOkHttpClient {
                 chain.proceed(newRequest)
             }
 
-            builder.build()
+            instance = builder.build()
+            instance!!
         } catch (e: Exception) {
             throw RuntimeException(e)
         }
