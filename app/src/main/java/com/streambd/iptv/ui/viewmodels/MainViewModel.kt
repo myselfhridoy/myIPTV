@@ -288,28 +288,32 @@ class MainViewModel : ViewModel() {
     var lastFetchedTmdbId: Int? = null
     var lastFetchedSeason: Int? = null
     var lastFetchedEpisode: Int? = null
+    var hasCompletedFetchForCurrent: Boolean = false
 
     var selectedSeason: Int? = null
     var selectedEpisode: Int? = null
 
-    /** Call this when leaving SourceSelectionScreen so the next entry always triggers a fresh fetch. */
+    /** Call this when leaving SourceSelectionScreen or resetting streams so the next entry triggers a fresh fetch. */
     fun resetVodStreams() {
         lastFetchedTmdbId = null
         lastFetchedSeason = null
         lastFetchedEpisode = null
+        hasCompletedFetchForCurrent = false
         _availableStreams.value = emptyList()
         _isResolvingStreams.value = false
     }
 
-    fun fetchVodStreams(context: Context, type: String, tmdbId: Int, season: Int? = null, episode: Int? = null) {
-        // Dedup guard: skip if exact same request is already in-flight or just completed
-        if (tmdbId == lastFetchedTmdbId && season == lastFetchedSeason && episode == lastFetchedEpisode
-            && _isResolvingStreams.value) {
-            return // Same request is already running — don't double-launch
+    fun fetchVodStreams(context: Context, type: String, tmdbId: Int, season: Int? = null, episode: Int? = null, forceRefresh: Boolean = false) {
+        val isSameMedia = (tmdbId == lastFetchedTmdbId && season == lastFetchedSeason && episode == lastFetchedEpisode)
+        if (isSameMedia && !forceRefresh) {
+            if (_isResolvingStreams.value || hasCompletedFetchForCurrent) {
+                return // Same request is already in-flight or already has completed results
+            }
         }
         lastFetchedTmdbId = tmdbId
         lastFetchedSeason = season
         lastFetchedEpisode = episode
+        hasCompletedFetchForCurrent = false
 
         viewModelScope.launch {
             _isResolvingStreams.value = true
@@ -320,6 +324,7 @@ class MainViewModel : ViewModel() {
                 _availableStreams.value = current
             }
             _isResolvingStreams.value = false
+            hasCompletedFetchForCurrent = true
         }
     }
 

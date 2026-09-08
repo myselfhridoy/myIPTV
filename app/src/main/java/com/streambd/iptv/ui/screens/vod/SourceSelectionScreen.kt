@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -62,11 +63,6 @@ fun SourceSelectionScreen(
     }
 
     val m = media!!
-
-    // Reset dedup cache when leaving so re-entry always fetches fresh
-    DisposableEffect(Unit) {
-        onDispose { mainViewModel.resetVodStreams() }
-    }
 
     // Fetch streams on entry or when media/season/episode changes
     LaunchedEffect(m.id, mainViewModel.selectedSeason, mainViewModel.selectedEpisode) {
@@ -118,6 +114,32 @@ fun SourceSelectionScreen(
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    val type = if (m.isMovie) "movie" else "tv"
+                    mainViewModel.fetchVodStreams(
+                        context = context,
+                        type = type,
+                        tmdbId = m.id,
+                        season = mainViewModel.selectedSeason,
+                        episode = mainViewModel.selectedEpisode,
+                        forceRefresh = true
+                    )
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .tvFocusBorder(CircleShape)
+                    .background(Color(0xFF1E2638), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh Sources",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
