@@ -102,10 +102,12 @@ class LiveRepository {
             var m3uContent = response.body?.string() ?: return@withContext emptyList()
             
             // If the URL ends with .js OR the content explicitly starts with '// JS PLAYLIST'
-            if (categoryUrl.endsWith(".js", ignoreCase = true) || m3uContent.trim().startsWith("// JS PLAYLIST", ignoreCase = true)) {
-                val jsResult = com.streambd.iptv.utils.JsPlaylistParser.executeJsPlaylist(context, m3uContent)
-                if (jsResult.isNullOrBlank()) return@withContext emptyList()
-                m3uContent = jsResult
+            if (categoryUrl.endsWith(".js", ignoreCase = true) || m3uContent.trim().startsWith("// JS PLAYLIST", ignoreCase = true) || m3uContent.contains("generatePlaylist()", ignoreCase = true)) {
+                val jsResult = com.streambd.iptv.utils.QuickJsPlaylistParser.executeJsPlaylist(m3uContent)
+                if (jsResult !is com.streambd.iptv.utils.QuickJsPlaylistParser.JsPlaylistResult.Success) {
+                    return@withContext emptyList()
+                }
+                m3uContent = jsResult.m3u
             }
             
             // Decrypt manually since we are not using Retrofit here
