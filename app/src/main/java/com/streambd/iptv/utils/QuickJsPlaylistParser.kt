@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -135,7 +136,7 @@ object QuickJsPlaylistParser {
                         }
 
                         override fun getCookies(url: String): String {
-                            val httpUrl = okhttp3.HttpUrl.parse(url) ?: return ""
+                            val httpUrl = url.toHttpUrlOrNull() ?: return ""
                             return memoryCookieJar.loadForRequest(httpUrl).joinToString("; ") { "${it.name}=${it.value}" }
                         }
 
@@ -203,9 +204,14 @@ object QuickJsPlaylistParser {
                         };
                         var btoa = function(s) { return NativeBridge.btoa(String(s)); };
                         var atob = function(s) { return NativeBridge.atob(String(s)); };
+                        var document = {
+                            _cookieUrl: 'https://toffeelive.com', // Default fallback
+                            get cookie() { return NativeBridge.getCookies(this._cookieUrl); }
+                        };
                         
                         function fetch(url, options) {
                             try {
+                                document._cookieUrl = url; // Update cookie URL context
                                 var resStr = NativeBridge.fetchSync(url, JSON.stringify(options || {}));
                                 var res = JSON.parse(resStr);
                                 if (res.internal_error) {
