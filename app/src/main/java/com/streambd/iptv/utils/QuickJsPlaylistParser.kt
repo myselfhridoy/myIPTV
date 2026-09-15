@@ -93,6 +93,7 @@ object QuickJsPlaylistParser {
             fun btoa(str: String): String
             fun atob(b64: String): String
             fun fetchSync(url: String, optionsJson: String?): String
+            fun getCookies(url: String): String
         }
     
         @Suppress("UNUSED_PARAMETER")
@@ -131,6 +132,11 @@ object QuickJsPlaylistParser {
 
                         override fun atob(b64: String): String {
                             return String(Base64.decode(b64, Base64.DEFAULT))
+                        }
+
+                        override fun getCookies(url: String): String {
+                            val httpUrl = okhttp3.HttpUrl.parse(url) ?: return ""
+                            return memoryCookieJar.loadForRequest(httpUrl).joinToString("; ") { "${it.name}=${it.value}" }
                         }
 
                         override fun fetchSync(url: String, optionsJson: String?): String {
@@ -220,8 +226,12 @@ object QuickJsPlaylistParser {
                         // Expose streamBD just in case for backward compatibility
                         var streamBD = {
                             send: function(res) { NativeBridge.send(res); },
-                            log: function(msg) { NativeBridge.log(msg); }
+                            log: function(msg) { NativeBridge.log(msg); },
+                            getCookies: function(url) { return NativeBridge.getCookies(url); }
                         };
+                        
+                        // NativeBridge helper for ease
+                        NativeBridge.getCookies = function(url) { return NativeBridge.getCookies(url); };
                     """.trimIndent()
 
                     quickJs.evaluate(polyfill)

@@ -66,16 +66,36 @@ fun AdminConverterScreen(navController: NavController) {
         },
         containerColor = Color(0xFF141920)
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = jsonUrl,
+        var selectedTabIndex by remember { mutableStateOf(0) }
+        
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            TabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = Color(0xFF0F131A),
+                contentColor = Color(0xFF00E676)
+            ) {
+                Tab(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    text = { Text("JSON Converter", fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    text = { Text("JS Tester", fontWeight = FontWeight.Bold) }
+                )
+            }
+            
+            if (selectedTabIndex == 0) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = jsonUrl,
                 onValueChange = { jsonUrl = it },
                 label = { Text("JSON API URL", color = Color.Gray) },
                 modifier = Modifier.fillMaxWidth(),
@@ -284,6 +304,79 @@ fun AdminConverterScreen(navController: NavController) {
                     ),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
+                )
+            }
+            } else if (selectedTabIndex == 1) {
+                var jsCode by remember { mutableStateOf("") }
+                var jsOutput by remember { mutableStateOf("") }
+                var isExecuting by remember { mutableStateOf(false) }
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("QuickJS Addon Tester", color = Color.White, fontWeight = FontWeight.Bold)
+                    
+                    OutlinedTextField(
+                        value = jsCode,
+                        onValueChange = { jsCode = it },
+                        label = { Text("Paste JS Code Here", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00E676),
+                            unfocusedBorderColor = Color.DarkGray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    )
+                    
+                    Button(
+                        onClick = {
+                            if (jsCode.isNotBlank()) {
+                                isExecuting = true
+                                scope.launch {
+                                    val result = com.streambd.iptv.utils.QuickJsPlaylistParser.executeJsPlaylist(context, jsCode)
+                                    jsOutput = when (result) {
+                                        is com.streambd.iptv.utils.JsPlaylistResult.Success -> result.m3u
+                                        is com.streambd.iptv.utils.JsPlaylistResult.Error -> "Error: ${result.message}"
+                                        is com.streambd.iptv.utils.JsPlaylistResult.Empty -> "No output generated."
+                                    }
+                                    isExecuting = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isExecuting) {
+                            CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("Run JS", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    if (jsOutput.isNotEmpty()) {
+                        Text("Output:", color = Color.White, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = jsOutput,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth().height(250.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.DarkGray,
+                                unfocusedBorderColor = Color.DarkGray,
+                                focusedTextColor = Color(0xFFAAAAAA),
+                                unfocusedTextColor = Color(0xFFAAAAAA)
+                            ),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        )
+                    }
+                }
             }
         }
     }
