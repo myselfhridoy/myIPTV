@@ -199,25 +199,22 @@ object QuickJsPlaylistParser {
                         var atob = function(s) { return NativeBridge.atob(String(s)); };
                         
                         function fetch(url, options) {
-                            return new Promise(function(resolve, reject) {
-                                try {
-                                    var resStr = NativeBridge.fetchSync(url, JSON.stringify(options || {}));
-                                    var res = JSON.parse(resStr);
-                                    if (res.internal_error) {
-                                        reject(new Error(res.internal_error));
-                                        return;
-                                    }
-                                    resolve({
-                                        ok: res.ok,
-                                        status: res.status,
-                                        headers: res.headers,
-                                        text: function() { return Promise.resolve(res.body || ""); },
-                                        json: function() { return Promise.resolve(JSON.parse(res.body || "{}")); }
-                                    });
-                                } catch (e) {
-                                    reject(e);
+                            try {
+                                var resStr = NativeBridge.fetchSync(url, JSON.stringify(options || {}));
+                                var res = JSON.parse(resStr);
+                                if (res.internal_error) {
+                                    throw new Error(res.internal_error);
                                 }
-                            });
+                                return {
+                                    ok: res.ok,
+                                    status: res.status,
+                                    headers: res.headers,
+                                    text: function() { return res.body || ""; },
+                                    json: function() { return JSON.parse(res.body || "{}"); }
+                                };
+                            } catch (e) {
+                                throw e;
+                            }
                         }
                         
                         // Expose streamBD just in case for backward compatibility
@@ -229,15 +226,22 @@ object QuickJsPlaylistParser {
 
                     quickJs.evaluate(polyfill)
                     
+                    // QuickJS 0.9.2 does not execute microtasks (no event loop).
+                    // We must convert the user's async code to synchronous by stripping async/await keywords.
+                    // Because our fetch polyfill is synchronous, this works perfectly.
+                    val syncJsCode = jsCode
+                        .replace(Regex("\\basync\\s+function\\b"), "function")
+                        .replace(Regex("\\bawait\\b\\s*"), "")
+                    
                     val scriptWrapper = """
                         // Evaluate user's code in global scope
-                        $jsCode
+                        $syncJsCode
                         
                         // Automatically call generatePlaylist if it exists
-                        ;(async function() {
+                        ;(function() {
                             try {
                                 if (typeof generatePlaylist === 'function') {
-                                    var res = await generatePlaylist();
+                                    var res = generatePlaylist();
                                     if (res !== undefined && res !== null) {
                                         NativeBridge.send(String(res));
                                     } else {
@@ -245,8 +249,6 @@ object QuickJsPlaylistParser {
                                     }
                                 } else {
                                     // Fallback for older scripts using streamBD.send directly
-                                    // If streamBD.send was called, scriptResult won't be null
-                                    // But we give it a tiny delay to allow sync code to finish
                                 }
                             } catch (e) {
                                 NativeBridge.error(e.toString());
