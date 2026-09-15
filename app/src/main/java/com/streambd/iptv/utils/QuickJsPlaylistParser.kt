@@ -204,8 +204,9 @@ object QuickJsPlaylistParser {
                         var btoa = function(s) { return NativeBridge.btoa(String(s)); };
                         var atob = function(s) { return NativeBridge.atob(String(s)); };
                         var document = {
-                            _cookieUrl: 'https://toffeelive.com', // Default fallback
-                            get cookie() { return NativeBridge.getCookies(this._cookieUrl); }
+                            _cookieUrl: '', // Default fallback
+                            get cookie() { return NativeBridge.getCookies(this._cookieUrl); },
+                            set cookie(val) { /* Ignored in QuickJS for now */ }
                         };
                         
                         function fetch(url, options) {
