@@ -104,7 +104,7 @@ class LiveRepository {
             // If the URL ends with .js OR the content explicitly starts with '// JS PLAYLIST'
             if (categoryUrl.endsWith(".js", ignoreCase = true) || m3uContent.trim().startsWith("// JS PLAYLIST", ignoreCase = true) || m3uContent.contains("generatePlaylist()", ignoreCase = true)) {
                 val jsResult = com.streambd.iptv.utils.QuickJsPlaylistParser.executeJsPlaylist(context, m3uContent)
-                if (jsResult !is com.streambd.iptv.utils.QuickJsPlaylistParser.JsPlaylistResult.Success) {
+                if (jsResult !is com.streambd.iptv.utils.JsPlaylistResult.Success) {
                     return@withContext emptyList()
                 }
                 m3uContent = jsResult.m3u
