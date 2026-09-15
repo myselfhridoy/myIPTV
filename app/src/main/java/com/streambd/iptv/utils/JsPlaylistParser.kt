@@ -31,8 +31,30 @@ object JsPlaylistParser {
         }
     }
 
+    private val memoryCookieJar = object : okhttp3.CookieJar {
+        private val store = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
+
+        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+            val host = url.host
+            val existing = store.getOrPut(host) { mutableListOf() }
+            synchronized(existing) {
+                cookies.forEach { newCookie ->
+                    existing.removeAll { it.name == newCookie.name && it.path == newCookie.path }
+                    existing.add(newCookie)
+                }
+                existing.removeAll { it.expiresAt < System.currentTimeMillis() }
+            }
+        }
+
+        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+            val host = url.host
+            return store[host]?.filter { it.matches(url) && it.expiresAt >= System.currentTimeMillis() } ?: emptyList()
+        }
+    }
+
     private val fetchClient by lazy {
         com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
+            .cookieJar(memoryCookieJar)
             .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
