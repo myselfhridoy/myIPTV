@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
                             android.widget.Toast.makeText(applicationContext, "Checking for updates...", android.widget.Toast.LENGTH_SHORT).show()
                         }
                         val pInfo = packageManager.getPackageInfo(packageName, 0)
-                        val currentVersion = pInfo.versionName
+                        val currentVersion = pInfo.versionName ?: ""
                         val update = com.streambd.iptv.utils.UpdateManager.checkForUpdate(currentVersion)
                         if (update != null) {
                             updateAvailable = update
