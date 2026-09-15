@@ -458,42 +458,59 @@ object M3UParser {
 
         for (i in 1 until parts.size) {
             val headerPart = parts[i].trim()
-            val colonIndex = headerPart.indexOf(':')
-            val equalsIndex = headerPart.indexOf('=')
             
-            var separatorIndex = -1
-            if (colonIndex != -1 && equalsIndex != -1) {
-                separatorIndex = minOf(colonIndex, equalsIndex)
-            } else if (colonIndex != -1) {
-                separatorIndex = colonIndex
-            } else if (equalsIndex != -1) {
-                separatorIndex = equalsIndex
-            }
+            // Split by '&' to handle multiple params in a single pipe segment
+            // e.g. "drmScheme=clearkey&drmLicense=kid:key"
+            val subParts = headerPart.split("&")
             
-            if (separatorIndex > -1) {
-                val key = headerPart.substring(0, separatorIndex).trim()
-                val value = headerPart.substring(separatorIndex + 1).trim()
+            for (subPart in subParts) {
+                val trimmed = subPart.trim()
+                if (trimmed.isEmpty()) continue
                 
-                val lower = key.lowercase()
+                val colonIndex = trimmed.indexOf(':')
+                val equalsIndex = trimmed.indexOf('=')
+            
+                var separatorIndex = -1
+                if (colonIndex != -1 && equalsIndex != -1) {
+                    separatorIndex = minOf(colonIndex, equalsIndex)
+                } else if (colonIndex != -1) {
+                    separatorIndex = colonIndex
+                } else if (equalsIndex != -1) {
+                    separatorIndex = equalsIndex
+                }
+            
+                if (separatorIndex > -1) {
+                    val key = trimmed.substring(0, separatorIndex).trim()
+                    val value = trimmed.substring(separatorIndex + 1).trim()
+                
+                    val lower = key.lowercase()
 
-                if (lower == "tokenurl" || lower == "token-url" || lower == "tokenid" || lower == "tokenmatch" || lower == "tokenreplace" || lower == "drm-type" || lower == "drm-url" || lower == "drm-key") {
-                    custom[key] = value
-                    custom[lower] = value
-                } else if (lower == "playref" || lower == "play-ref" || lower == "streamref" || lower == "stream-ref" || lower == "stream-referer" || lower == "m3u8-referer" || lower == "cdnref" || lower == "mediaref" || lower == "liveref") {
-                    custom["playref"] = value
-                    custom[key] = value
-                    custom[lower] = value
-                    headers["PlayRef"] = value
-                } else {
-                    headers[key] = value
-                    if (lower == "http-referer" || lower == "http-referrer" || lower == "referrer") {
-                        headers["referer"] = value
-                    } else if (lower == "http-user-agent") {
-                        headers["user-agent"] = value
-                    } else if (lower == "http-origin") {
-                        headers["origin"] = value
+                    // Normalize drmScheme/drmLicense aliases to drm-type/drm-key
+                    val normalizedLower = when (lower) {
+                        "drmscheme" -> "drm-type"
+                        "drmlicense", "drmkey" -> "drm-key"
+                        else -> lower
+                    }
+
+                    if (normalizedLower == "tokenurl" || normalizedLower == "token-url" || normalizedLower == "tokenid" || normalizedLower == "tokenmatch" || normalizedLower == "tokenreplace" || normalizedLower == "drm-type" || normalizedLower == "drm-url" || normalizedLower == "drm-key") {
+                        custom[key] = value
+                        custom[normalizedLower] = value
+                    } else if (normalizedLower == "playref" || normalizedLower == "play-ref" || normalizedLower == "streamref" || normalizedLower == "stream-ref" || normalizedLower == "stream-referer" || normalizedLower == "m3u8-referer" || normalizedLower == "cdnref" || normalizedLower == "mediaref" || normalizedLower == "liveref") {
+                        custom["playref"] = value
+                        custom[key] = value
+                        custom[normalizedLower] = value
+                        headers["PlayRef"] = value
                     } else {
-                        headers[lower] = value
+                        headers[key] = value
+                        if (normalizedLower == "http-referer" || normalizedLower == "http-referrer" || normalizedLower == "referrer") {
+                            headers["referer"] = value
+                        } else if (normalizedLower == "http-user-agent") {
+                            headers["user-agent"] = value
+                        } else if (normalizedLower == "http-origin") {
+                            headers["origin"] = value
+                        } else {
+                            headers[normalizedLower] = value
+                        }
                     }
                 }
             }

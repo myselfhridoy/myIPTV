@@ -17,10 +17,10 @@ function parseCurlOrHeaders($input) {
 
     // 1. Check if input is Kotlin OkHttp Builder code
     if (strpos($input, 'Request.Builder') !== false || strpos($input, '.addHeader') !== false || strpos($input, '.url(') !== false) {
-        if (preg_match('/\.url\(["\']([^"\']+)["\']\)/', $input, $m)) {
+        if (preg_match('/\.url\([\x22\x27]([^\x22\x27]+)[\x22\x27]\)/', $input, $m)) {
             $url = $m[1];
         }
-        if (preg_match_all('/\.(?:addHeader|header)\(["\']([^"\']+)["\'],\s*["\']([^"\']+)["\']\)/', $input, $m, PREG_SET_ORDER)) {
+        if (preg_match_all('/\.(?:addHeader|header)\([\x22\x27]([^\x22\x27]+)[\x22\x27],\s*[\x22\x27]([^\x22\x27]+)[\x22\x27]\)/', $input, $m, PREG_SET_ORDER)) {
             foreach ($m as $match) {
                 $headers[$match[1]] = $match[2];
             }
@@ -32,34 +32,34 @@ function parseCurlOrHeaders($input) {
         $clean = preg_replace('/[\\\\^`]\s*[\r\n]+/', ' ', $input);
 
         // Extract URL: matches after curl command or first http/https URL
-        if (preg_match('/curl(?:\.exe)?\s+(?:-[^\s]+\s+)*(?:["\']([^"\']+)["\']|([^\s"\']+))/i', $clean, $m)) {
+        if (preg_match('/curl(?:\.exe)?\s+(?:-[^\s]+\s+)*(?:[\x22\x27]([^\x22\x27]+)[\x22\x27]|([^\s\x22\x27]+))/i', $clean, $m)) {
             $url = !empty($m[1]) ? $m[1] : (!empty($m[2]) ? $m[2] : "");
         }
         if (empty($url) || !preg_match('/^https?:\/\//i', $url)) {
-            if (preg_match('/(https?:\/\/[^\s"\'<>]+)/i', $clean, $m)) {
+            if (preg_match('/(https?:\/\/[^\s\x22\x27<>]+)/i', $clean, $m)) {
                 $url = $m[1];
             }
         }
 
         // Extract headers: -H "Key: Value" or --header "Key: Value" or -H 'Key: Value'
-        if (preg_match_all('/(?:-H|--header)\s+["\']([^"\':]+)\s*:\s*([^"\']*)["']/i', $clean, $m, PREG_SET_ORDER)) {
+        if (preg_match_all('/(?:-H|--header)\s+[\x22\x27]([^\x22\x27:]+)\s*:\s*([^\x22\x27]*)[\x22\x27]/i', $clean, $m, PREG_SET_ORDER)) {
             foreach ($m as $match) {
                 $headers[trim($match[1])] = trim($match[2]);
             }
         }
 
         // Extract User-Agent: -A "..." or --user-agent "..."
-        if (preg_match('/(?:-A|--user-agent)\s+["\']([^"\']+)["']/i', $clean, $m)) {
+        if (preg_match('/(?:-A|--user-agent)\s+[\x22\x27]([^\x22\x27]+)[\x22\x27]/i', $clean, $m)) {
             $headers["User-Agent"] = trim($m[1]);
         }
 
         // Extract Referer: -e "..." or --referer "..."
-        if (preg_match('/(?:-e|--referer)\s+["\']([^"\']+)["']/i', $clean, $m)) {
+        if (preg_match('/(?:-e|--referer)\s+[\x22\x27]([^\x22\x27]+)[\x22\x27]/i', $clean, $m)) {
             $headers["Referer"] = trim($m[1]);
         }
 
         // Extract Cookie: -b "..." or --cookie "..."
-        if (preg_match('/(?:-b|--cookie)\s+["\']([^"\']+)["']/i', $clean, $m)) {
+        if (preg_match('/(?:-b|--cookie)\s+[\x22\x27]([^\x22\x27]+)[\x22\x27]/i', $clean, $m)) {
             $headers["Cookie"] = trim($m[1]);
         }
 
