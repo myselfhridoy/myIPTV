@@ -304,9 +304,8 @@ fun AdminConverterScreen(navController: NavController) {
                     ),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                 )
-                )
             }
-            } else if (selectedTabIndex == 1) {
+        } else if (selectedTabIndex == 1) {
                 var jsCode by remember { mutableStateOf("") }
                 var jsOutput by remember { mutableStateOf("") }
                 var isExecuting by remember { mutableStateOf(false) }
