@@ -7,7 +7,7 @@ import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.LiveCategory
 import com.streambd.iptv.data.models.StreamSource
 import com.streambd.iptv.data.repository.LiveRepository
-import com.streambd.iptv.utils.AddonManager
+import com.streambd.iptv.utils.QuickJsAddonManager
 import android.content.Context
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -318,7 +318,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             _isResolvingStreams.value = true
             _availableStreams.value = emptyList()
-            AddonManager.resolveFromAddons(context, type, tmdbId, season, episode) { sources ->
+            QuickJsAddonManager.resolveFromAddons(context, type, tmdbId, season, episode) { sources ->
                 val current = _availableStreams.value.toMutableList()
                 current.addAll(sources)
                 _availableStreams.value = current
@@ -346,7 +346,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             if (context != null) {
                 _isLoadingAddons.value = true
-                val fetchedAddons = AddonManager.getAddons(context)
+                val fetchedAddons = QuickJsAddonManager.getAddons(context)
                 _addons.value = fetchedAddons
                 _isLoadingAddons.value = false
             }

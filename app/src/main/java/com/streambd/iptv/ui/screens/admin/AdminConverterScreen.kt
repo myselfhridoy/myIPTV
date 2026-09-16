@@ -339,11 +339,23 @@ fun AdminConverterScreen(navController: NavController) {
                             if (jsCode.isNotBlank()) {
                                 isExecuting = true
                                 scope.launch {
-                                    val result = com.streambd.iptv.utils.QuickJsPlaylistParser.executeJsPlaylist(context, jsCode)
-                                    jsOutput = when (result) {
-                                        is com.streambd.iptv.utils.JsPlaylistResult.Success -> result.m3u
-                                        is com.streambd.iptv.utils.JsPlaylistResult.Error -> "Error: ${result.message}"
-                                        is com.streambd.iptv.utils.JsPlaylistResult.Empty -> "No output generated."
+                                    val result = try {
+                                        com.streambd.iptv.utils.QuickJsAddonManager.testAddon(
+                                            context, 
+                                            jsCode, 
+                                            "movie", 
+                                            12345, 
+                                            null, 
+                                            null
+                                        )
+                                    } catch(e: Exception) {
+                                        emptyList()
+                                    }
+                                    
+                                    jsOutput = if (result.isNotEmpty()) {
+                                        result.joinToString("\n\n") { "Provider: ${it.provider}\nURL: ${it.url}\nQuality: ${it.quality}" }
+                                    } else {
+                                        "No output generated or error occurred."
                                     }
                                     isExecuting = false
                                 }
