@@ -82,7 +82,12 @@ fun AdminConverterScreen(navController: NavController) {
                 Tab(
                     selected = selectedTabIndex == 1,
                     onClick = { selectedTabIndex = 1 },
-                    text = { Text("JS Tester", fontWeight = FontWeight.Bold) }
+                    text = { Text("VOD JS Tester", fontWeight = FontWeight.Bold) }
+                )
+                Tab(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    text = { Text("Live JS Tester", fontWeight = FontWeight.Bold) }
                 )
             }
             
@@ -397,9 +402,9 @@ fun AdminConverterScreen(navController: NavController) {
                                     }
                                     
                                     jsOutput = if (resultList.isNotEmpty()) {
-                                        "LOGS:\n\$executionLogs\n\nSTREAMS:\n" + resultList.joinToString("\n\n") { "Provider: \${it.provider}\nURL: \${it.url}\nQuality: \${it.quality}" }
+                                        "LOGS:\n${executionLogs}\n\nSTREAMS:\n" + resultList.joinToString("\n\n") { "Provider: ${it.provider}\nURL: ${it.url}\nQuality: ${it.quality}" }
                                     } else {
-                                        "LOGS:\n\$executionLogs\n\nNo output generated or error occurred."
+                                        "LOGS:\n${executionLogs}\n\nNo output generated or error occurred."
                                     }
                                     isExecuting = false
                                 }
@@ -420,6 +425,101 @@ fun AdminConverterScreen(navController: NavController) {
                         Text("Output:", color = Color.White, fontWeight = FontWeight.Bold)
                         OutlinedTextField(
                             value = jsOutput,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth().height(250.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.DarkGray,
+                                unfocusedBorderColor = Color.DarkGray,
+                                focusedTextColor = Color(0xFFAAAAAA),
+                                unfocusedTextColor = Color(0xFFAAAAAA)
+                            ),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        )
+                    }
+                }
+            } else if (selectedTabIndex == 2) {
+                var liveJsCode by remember { mutableStateOf("") }
+                var liveUrl by remember { mutableStateOf("https://example.com/live.m3u8") }
+                var liveOptions by remember { mutableStateOf("") }
+                var liveOutput by remember { mutableStateOf("") }
+                var isLiveExecuting by remember { mutableStateOf(false) }
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("QuickJS Playlist Parser Tester", color = Color.White, fontWeight = FontWeight.Bold)
+                    
+                    OutlinedTextField(
+                        value = liveJsCode,
+                        onValueChange = { liveJsCode = it },
+                        label = { Text("Paste JS Parser Code Here", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF00E676),
+                            unfocusedBorderColor = Color.DarkGray,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    )
+                    
+                    OutlinedTextField(
+                        value = liveUrl,
+                        onValueChange = { liveUrl = it },
+                        label = { Text("M3U Playlist URL", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                    
+                    OutlinedTextField(
+                        value = liveOptions,
+                        onValueChange = { liveOptions = it },
+                        label = { Text("Options (JSON string, optional)", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                    
+                    Button(
+                        onClick = {
+                            if (liveJsCode.isNotBlank() && liveUrl.isNotBlank()) {
+                                isLiveExecuting = true
+                                scope.launch {
+                                    val result = try {
+                                        val parsed = com.streambd.iptv.utils.QuickJsPlaylistParser.executeJsPlaylist(context, liveJsCode)
+                                        when (parsed) {
+                                            is com.streambd.iptv.utils.JsPlaylistResult.Success -> parsed.m3u
+                                            is com.streambd.iptv.utils.JsPlaylistResult.Error -> "Error: ${parsed.message}"
+                                            is com.streambd.iptv.utils.JsPlaylistResult.Empty -> "Result was empty"
+                                        }
+                                    } catch(e: Exception) {
+                                        "Exception: \${e.message}"
+                                    }
+                                    
+                                    liveOutput = result
+                                    isLiveExecuting = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isLiveExecuting) {
+                            CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("Run Live JS", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    if (liveOutput.isNotEmpty()) {
+                        Text("Output:", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                        OutlinedTextField(
+                            value = liveOutput,
                             onValueChange = {},
                             readOnly = true,
                             modifier = Modifier.fillMaxWidth().height(250.dp),
