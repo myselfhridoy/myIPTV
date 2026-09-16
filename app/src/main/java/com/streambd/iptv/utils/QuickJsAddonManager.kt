@@ -400,7 +400,7 @@ object QuickJsAddonManager {
                     evaluate<Unit>(addonCode)
                     
                     val scriptWrapper = """
-                        await (async function() {
+                        (async function() {
                             try {
                                 var parserFunc;
                                 // Addon scripts usually set a function as module.exports or define a global
@@ -442,6 +442,7 @@ object QuickJsAddonManager {
                 }
             } catch (e: Exception) {
                 Log.e("QuickJsAddonManager", "Error executing addon JS: ${e.message}", e)
+                logBuilder?.append("NATIVE EXCEPTION: ")?.append(e.message)?.append("\n")
                 if (scriptResult == null) {
                     scriptResult = "[]"
                 }

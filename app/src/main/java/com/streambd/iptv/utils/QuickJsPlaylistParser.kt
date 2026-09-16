@@ -239,7 +239,7 @@ object QuickJsPlaylistParser {
 
                         val scriptWrapper = """
                             // Define wrapper logic in async IIFE
-                            await (async function() {
+                            (async function() {
                                 try {
                                     // Evaluate user's code inside this async scope
                                     // Because evaluate is called directly, we just inject their code
