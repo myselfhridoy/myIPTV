@@ -196,8 +196,12 @@ object QuickJsPlaylistParser {
                         
                         val polyfill = """
                             var console = {
-                                log: function(...msg) { nativeLog(...msg); },
-                                error: function(...msg) { nativeError(...msg); }
+                                log: function(...msg) { 
+                                    nativeLog(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                                },
+                                error: function(...msg) { 
+                                    nativeError(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                                }
                             };
                             var btoa = function(s) { return nativeBtoa(String(s)); };
                             var atob = function(s) { return nativeAtob(String(s)); };

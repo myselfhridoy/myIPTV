@@ -356,9 +356,15 @@ object QuickJsAddonManager {
                     val polyfill = """
                         globalThis.window = globalThis;
                         globalThis.console = {
-                            log: function(...msg) { nativeLog(...msg); },
-                            error: function(...msg) { nativeError(...msg); },
-                            warn: function(...msg) { nativeLog(...msg); }
+                            log: function(...msg) { 
+                                nativeLog(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            },
+                            error: function(...msg) { 
+                                nativeError(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            },
+                            warn: function(...msg) { 
+                                nativeLog(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            }
                         };
                         globalThis.atob = function(s) { return nativeAtob(String(s)); };
                         globalThis.btoa = function(s) { return nativeBtoa(String(s)); };
