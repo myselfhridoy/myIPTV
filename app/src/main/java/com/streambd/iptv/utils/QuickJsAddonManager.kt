@@ -396,14 +396,14 @@ object QuickJsAddonManager {
                         };
                     """.trimIndent()
                     
-                    evaluate<Unit>(polyfill)
-                    evaluate<Unit>(cryptoJsCode)
+                    evaluate<String>("$polyfill\n; 'ok';")
+                    evaluate<String>("$cryptoJsCode\n; 'ok';")
                     
                     val seasonArg = season?.toString() ?: "null"
                     val episodeArg = episode?.toString() ?: "null"
 
-                    evaluate<Unit>("var module = { exports: {} }; var exports = module.exports;")
-                    evaluate<Unit>(addonCode)
+                    evaluate<String>("var module = { exports: {} }; var exports = module.exports;\n; 'ok';")
+                    evaluate<String>("$addonCode\n; 'ok';")
                     
                     val scriptWrapper = """
                         (async function() {
@@ -444,7 +444,7 @@ object QuickJsAddonManager {
                         })();
                     """.trimIndent()
                     
-                    evaluate<Unit>(scriptWrapper)
+                    evaluate<String>("$scriptWrapper\n; 'ok';")
                 }
             } catch (e: Exception) {
                 Log.e("QuickJsAddonManager", "Error executing addon JS: ${e.message}", e)

@@ -239,8 +239,8 @@ object QuickJsPlaylistParser {
                             };
                         """.trimIndent()
                         
-                        evaluate<Unit>(polyfill)
-
+                        evaluate<String>("$polyfill\n; 'ok';")
+                        
                         val scriptWrapper = """
                             // Define wrapper logic in async IIFE
                             (async function() {
@@ -267,7 +267,7 @@ object QuickJsPlaylistParser {
                             })();
                         """.trimIndent()
                         
-                        evaluate<Unit>(scriptWrapper)
+                        evaluate<String>("$scriptWrapper\n; 'ok';")
                     }
                 } catch (e: Exception) {
                     if (scriptResult == null) {

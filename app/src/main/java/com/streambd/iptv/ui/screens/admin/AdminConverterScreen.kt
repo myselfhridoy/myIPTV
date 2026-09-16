@@ -440,8 +440,6 @@ fun AdminConverterScreen(navController: NavController) {
                 }
             } else if (selectedTabIndex == 2) {
                 var liveJsCode by remember { mutableStateOf("") }
-                var liveUrl by remember { mutableStateOf("https://example.com/live.m3u8") }
-                var liveOptions by remember { mutableStateOf("") }
                 var liveOutput by remember { mutableStateOf("") }
                 var isLiveExecuting by remember { mutableStateOf(false) }
                 
@@ -468,25 +466,9 @@ fun AdminConverterScreen(navController: NavController) {
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                     )
                     
-                    OutlinedTextField(
-                        value = liveUrl,
-                        onValueChange = { liveUrl = it },
-                        label = { Text("M3U Playlist URL", color = Color.Gray) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                    )
-                    
-                    OutlinedTextField(
-                        value = liveOptions,
-                        onValueChange = { liveOptions = it },
-                        label = { Text("Options (JSON string, optional)", color = Color.Gray) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                    )
-                    
                     Button(
                         onClick = {
-                            if (liveJsCode.isNotBlank() && liveUrl.isNotBlank()) {
+                            if (liveJsCode.isNotBlank()) {
                                 isLiveExecuting = true
                                 scope.launch {
                                     val result = try {
