@@ -277,16 +277,19 @@ object QuickJsAddonManager {
                         val msg = args.joinToString(" ") { it.toString() }
                         Log.d("AddonManagerJS", msg)
                         logBuilder?.append("LOG: ")?.append(msg)?.append("\n")
+                        null
                     }
                     function("nativeError") { args ->
                         val msg = args.joinToString(" ") { it.toString() }
                         Log.e("AddonManagerJS", msg)
                         logBuilder?.append("ERROR: ")?.append(msg)?.append("\n")
+                        null
                     }
                     function("nativeSend") { args ->
                         if (args.isNotEmpty()) {
                             scriptResult = args[0] as String
                         }
+                        null
                     }
                     function("nativeBtoa") { args ->
                         if (args.isNotEmpty()) {

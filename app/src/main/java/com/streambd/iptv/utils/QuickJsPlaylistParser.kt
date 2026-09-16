@@ -109,10 +109,12 @@ object QuickJsPlaylistParser {
                         
                         // Register simple synchronous functions
                         function("nativeLog") { args -> 
-                            Log.d(TAG, "JS Log: ${args.joinToString(" ")}") 
+                            Log.d(TAG, "JS Log: ${args.joinToString(" ")}")
+                            null
                         }
                         function("nativeError") { args -> 
                             Log.e(TAG, "JS Error: ${args.joinToString(" ")}") 
+                            null
                         }
                         function("nativeBtoa") { args -> 
                             Base64.encodeToString((args[0] as String).toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP) 
@@ -133,6 +135,7 @@ object QuickJsPlaylistParser {
                                     JsPlaylistResult.Success(res)
                                 }
                             }
+                            null
                         }
 
                         // Register async fetch
