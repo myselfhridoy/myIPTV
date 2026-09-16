@@ -24,10 +24,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.InetAddress
 import java.net.UnknownHostException
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
 
 object QuickJsAddonManager {
+    // Limit concurrent executions to prevent native memory exhaustion or JNI crashes
+    private val jsExecutionSemaphore = Semaphore(2)
     private val DEFAULT_REGISTRY_URL get() = com.streambd.iptv.utils.RemoteConfigManager.getAddonRegistryUrl()
     private const val ADDONS_PREF_NAME = "prysm_addons_prefs"
     private const val ADDONS_KEY = "addons_list"
@@ -195,7 +199,9 @@ object QuickJsAddonManager {
 
                     if (jsCode != null) {
                         // 60 seconds timeout for each addon to prevent hanging on complex addons
-                        val sourcesJson = executeAddonInQuickJs(context, cryptoJsCode, jsCode, addon.name, addon.url, null, type, tmdbId, season, episode)
+                        val sourcesJson = jsExecutionSemaphore.withPermit {
+                            executeAddonInQuickJs(context, cryptoJsCode, jsCode, addon.name, addon.url, null, type, tmdbId, season, episode, null)
+                        }
                         
                         if (sourcesJson != null && sourcesJson.isNotEmpty() && sourcesJson != "null" && sourcesJson != "undefined") {
                             try {
@@ -231,18 +237,19 @@ object QuickJsAddonManager {
         tmdbId: Int,
         season: Int?,
         episode: Int?
-    ): List<StreamSource> {
+    ): Pair<List<StreamSource>, String> {
         val cryptoJsCode = try {
             context.assets.open("crypto-js.min.js").bufferedReader().use { it.readText() }
         } catch (e: Exception) {
             ""
         }
-        val resultStr = executeAddonInQuickJs(context, cryptoJsCode, jsCode, "Test Addon", "http://test", null, type, tmdbId, season, episode)
+        val logs = StringBuilder()
+        val resultStr = executeAddonInQuickJs(context, cryptoJsCode, jsCode, "Test Addon", "http://test", null, type, tmdbId, season, episode, logs)
         return try {
             val listType = object : com.google.gson.reflect.TypeToken<List<StreamSource>>() {}.type
-            gson.fromJson(resultStr, listType) ?: emptyList()
+            Pair(gson.fromJson(resultStr, listType) ?: emptyList(), logs.toString())
         } catch (e: Exception) {
-            emptyList()
+            Pair(emptyList(), logs.toString() + "\nException parsing result: \${e.message}")
         }
     }
 
@@ -256,7 +263,8 @@ object QuickJsAddonManager {
         type: String,
         tmdbId: Int,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        logBuilder: StringBuilder? = null
     ): String? = withContext(Dispatchers.IO) {
         withTimeoutOrNull(60000L) {
             var scriptResult: String? = null
@@ -266,10 +274,14 @@ object QuickJsAddonManager {
                     memoryLimit = 10L * 1024L * 1024L // 10MB memory limit
                     
                     function("nativeLog") { args ->
-                        Log.d("AddonManagerJS", args.joinToString(" ") { it.toString() })
+                        val msg = args.joinToString(" ") { it.toString() }
+                        Log.d("AddonManagerJS", msg)
+                        logBuilder?.append("LOG: ")?.append(msg)?.append("\n")
                     }
                     function("nativeError") { args ->
-                        Log.e("AddonManagerJS", args.joinToString(" ") { it.toString() })
+                        val msg = args.joinToString(" ") { it.toString() }
+                        Log.e("AddonManagerJS", msg)
+                        logBuilder?.append("ERROR: ")?.append(msg)?.append("\n")
                     }
                     function("nativeSend") { args ->
                         if (args.isNotEmpty()) {

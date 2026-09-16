@@ -308,6 +308,10 @@ fun AdminConverterScreen(navController: NavController) {
         }
     } else if (selectedTabIndex == 1) {
                 var jsCode by remember { mutableStateOf("") }
+                var testTmdbId by remember { mutableStateOf("293660") }
+                var testType by remember { mutableStateOf("movie") }
+                var testSeason by remember { mutableStateOf("") }
+                var testEpisode by remember { mutableStateOf("") }
                 var jsOutput by remember { mutableStateOf("") }
                 var isExecuting by remember { mutableStateOf(false) }
                 
@@ -334,28 +338,68 @@ fun AdminConverterScreen(navController: NavController) {
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                     )
                     
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = testType,
+                            onValueChange = { testType = it },
+                            label = { Text("Type", color = Color.Gray) },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                        OutlinedTextField(
+                            value = testTmdbId,
+                            onValueChange = { testTmdbId = it },
+                            label = { Text("TMDB ID", color = Color.Gray) },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = testSeason,
+                            onValueChange = { testSeason = it },
+                            label = { Text("Season (TV)", color = Color.Gray) },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                        OutlinedTextField(
+                            value = testEpisode,
+                            onValueChange = { testEpisode = it },
+                            label = { Text("Episode (TV)", color = Color.Gray) },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                    }
+                    
                     Button(
                         onClick = {
                             if (jsCode.isNotBlank()) {
                                 isExecuting = true
                                 scope.launch {
-                                    val result = try {
+                                    val (resultList, executionLogs) = try {
                                         com.streambd.iptv.utils.QuickJsAddonManager.testAddon(
                                             context, 
                                             jsCode, 
-                                            "movie", 
-                                            12345, 
-                                            null, 
-                                            null
+                                            testType, 
+                                            testTmdbId.toIntOrNull() ?: 12345, 
+                                            testSeason.toIntOrNull(), 
+                                            testEpisode.toIntOrNull()
                                         )
                                     } catch(e: Exception) {
-                                        emptyList()
+                                        Pair(emptyList(), "Exception: \${e.message}")
                                     }
                                     
-                                    jsOutput = if (result.isNotEmpty()) {
-                                        result.joinToString("\n\n") { "Provider: ${it.provider}\nURL: ${it.url}\nQuality: ${it.quality}" }
+                                    jsOutput = if (resultList.isNotEmpty()) {
+                                        "LOGS:\n\$executionLogs\n\nSTREAMS:\n" + resultList.joinToString("\n\n") { "Provider: \${it.provider}\nURL: \${it.url}\nQuality: \${it.quality}" }
                                     } else {
-                                        "No output generated or error occurred."
+                                        "LOGS:\n\$executionLogs\n\nNo output generated or error occurred."
                                     }
                                     isExecuting = false
                                 }
