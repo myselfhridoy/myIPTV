@@ -168,7 +168,8 @@ fun PlaylistChannelsScreen(
             }
         } else {
             // Chips Row
-            if (allGroups.isNotEmpty()) {
+            val validGroups = allGroups.filter { it.isNotBlank() }
+            if (validGroups.size > 1) { // > 1 because "All" might be the only one
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -184,7 +185,7 @@ fun PlaylistChannelsScreen(
                         )
                     }
                     
-                    items(allGroups.take(10)) { group ->
+                    items(validGroups.take(10)) { group ->
                         FilterChipItem(
                             text = group,
                             icon = if (selectedGroup == group) Icons.Default.Check else null,
@@ -210,30 +211,64 @@ fun PlaylistChannelsScreen(
                     }
                 }
 
-                androidx.compose.foundation.lazy.LazyColumn(
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    groupedChannels.forEach { (group, groupChannels) ->
-                        item(key = group ?: "Unknown") {
+                if (groupedChannels.size == 1) {
+                    val channelsList = groupedChannels.values.first()
+                    val groupName = groupedChannels.keys.first()
+                    Column {
+                        if (groupName.isNotBlank() && selectedGroup == "All") {
                             Text(
-                                text = (group ?: "Unknown").uppercase(),
+                                text = groupName.uppercase(),
                                 color = Color.Gray,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                             )
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(groupChannels) { channel ->
-                                    Box(modifier = Modifier.width(180.dp)) {
-                                        PlaylistChannelCard(channel) {
-                                            viewModel.selectChannel(channel)
-                                            mainViewModel.setCurrentPlaylist(currentPlaylist)
-                                            mainViewModel.selectChannel(channel)
-                                            navController.navigate("live_player")
+                        }
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 180.dp),
+                            contentPadding = PaddingValues(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(channelsList) { channel ->
+                                PlaylistChannelCard(channel) {
+                                    viewModel.selectChannel(channel)
+                                    mainViewModel.setCurrentPlaylist(currentPlaylist)
+                                    mainViewModel.selectChannel(channel)
+                                    navController.navigate("live_player")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        contentPadding = PaddingValues(bottom = 32.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        groupedChannels.forEach { (group, groupChannels) ->
+                            item(key = group ?: "") {
+                                if (group?.isNotBlank() == true) {
+                                    Text(
+                                        text = group.uppercase(),
+                                        color = Color.Gray,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                    )
+                                }
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(groupChannels) { channel ->
+                                        Box(modifier = Modifier.width(180.dp)) {
+                                            PlaylistChannelCard(channel) {
+                                                viewModel.selectChannel(channel)
+                                                mainViewModel.setCurrentPlaylist(currentPlaylist)
+                                                mainViewModel.selectChannel(channel)
+                                                navController.navigate("live_player")
+                                            }
                                         }
                                     }
                                 }
@@ -268,7 +303,7 @@ fun PlaylistChannelsScreen(
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
                     }
-                    items(allGroups) { group ->
+                    items(allGroups.filter { it.isNotBlank() }) { group ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

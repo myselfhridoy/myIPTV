@@ -58,7 +58,7 @@ object M3UParser {
         
         var currentName = ""
         var currentLogo = ""
-        var currentGroup = "Uncategorized"
+        var currentGroup = ""
         var currentUserAgent: String? = null
         var currentCookie: String? = null
         var currentHttpReferer: String? = null
@@ -73,7 +73,7 @@ object M3UParser {
         fun resetCurrentChannel() {
             currentName = ""
             currentLogo = ""
-            currentGroup = "Uncategorized"
+            currentGroup = ""
             currentUserAgent = null
             currentCookie = null
             currentHttpReferer = null
@@ -96,7 +96,7 @@ object M3UParser {
                 currentLogo = logoMatch?.let { match ->
                     match.groups[1]?.value ?: match.groups[2]?.value ?: match.groups[3]?.value
                 }?.trim() ?: ""
-                currentGroup = groupMatch?.groupValues?.get(1) ?: "Uncategorized"
+                currentGroup = groupMatch?.groupValues?.get(1) ?: ""
 
                 val uaMatch = Regex("""http-user-agent="([^"]+)"""", RegexOption.IGNORE_CASE).find(line)
                 if (uaMatch != null) currentUserAgent = uaMatch.groupValues[1]
@@ -256,7 +256,7 @@ object M3UParser {
         val channels = mutableListOf<Channel>()
         val lines = content.split("\n").map { it.trim() }
         var currentTitle = ""
-        var currentGroup = "Uncategorized"
+        var currentGroup = ""
 
         for (line in lines) {
             val lowerLine = line.lowercase()
@@ -316,7 +316,7 @@ object M3UParser {
             
             if (location != null) {
                 val parsed = parseUrlHeaders(location)
-                var group = creator ?: "Uncategorized"
+                var group = creator ?: ""
                 if (creator == null && annotation != null) {
                     group = annotation
                 }
@@ -418,7 +418,7 @@ object M3UParser {
 
                 val name = obj.optString("name", obj.optString("title", "Unknown Channel"))
                 val logo = extractBestLogo(obj)
-                val group = obj.optString("group-title", obj.optString("group", obj.optString("category", obj.optString("groupTitle", "Uncategorized"))))
+                val group = obj.optString("group-title", obj.optString("group", obj.optString("category", obj.optString("groupTitle", ""))))
                 val isLive = obj.optBoolean("isLive", true)
                 
                 channels.add(Channel(

@@ -17,8 +17,8 @@ android {
         applicationId = "com.streambd.iptv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 6
-        versionName = "3.5"
+        versionCode = 7
+        versionName = "4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -42,6 +42,10 @@ class LiveRepository {
                 return@withContext com.streambd.iptv.utils.OxooPortalHandler.fetchChannels(categoryUrl)
             }
 
+            if (com.streambd.iptv.utils.YouTubeExtractor.isYouTubePlaylistUrl(categoryUrl)) {
+                return@withContext com.streambd.iptv.utils.YouTubeExtractor.extractPlaylistChannels(categoryUrl)
+            }
+
             if (categoryUrl.startsWith("myiptv://proxy")) {
                 val targetUrl = uri.getQueryParameter("url") ?: return@withContext emptyList()
                 val arrayPath = uri.getQueryParameter("array_path") ?: ""
@@ -89,7 +93,7 @@ class LiveRepository {
                 if (rootElement == null) return@withContext emptyList()
                 
                 val channelList = mutableListOf<Channel>()
-                extractChannelsRecursively(rootElement, "Uncategorized", streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
+                extractChannelsRecursively(rootElement, "", streamField, titleField, logoField, categoryField, prefix, suffix, channelList)
                 
                 return@withContext channelList
             }

@@ -10,6 +10,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -136,5 +137,39 @@ object YouTubeExtractor {
     fun isYouTubeUrl(url: String): Boolean {
         val lower = url.lowercase()
         return lower.contains("youtube.com") || lower.contains("youtu.be")
+    }
+
+    suspend fun extractPlaylistChannels(url: String): List<com.streambd.iptv.data.models.Channel> = withContext(Dispatchers.IO) {
+        try {
+            initIfNeeded()
+            val service = ServiceList.YouTube
+            val playlistInfo = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(service, url)
+            
+            val channels = mutableListOf<com.streambd.iptv.data.models.Channel>()
+            playlistInfo.relatedItems.forEach { item ->
+                if (item is StreamInfoItem) {
+                    val streamUrl = item.url
+                    val title = item.name
+                    val thumbnailUrl = item.thumbnails?.firstOrNull()?.url ?: ""
+                    channels.add(
+                        com.streambd.iptv.data.models.Channel(
+                            name = title,
+                            url = streamUrl,
+                            logo = thumbnailUrl,
+                            group = playlistInfo.name ?: "YouTube Playlist"
+                        )
+                    )
+                }
+            }
+            channels
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+    
+    fun isYouTubePlaylistUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return (lower.contains("youtube.com") || lower.contains("youtu.be")) && lower.contains("list=")
     }
 }

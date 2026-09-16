@@ -7,7 +7,7 @@ data class Channel(
     val name: String,
     val url: String,
     val logo: String = "",
-    val group: String = "Uncategorized",
+    val group: String = "",
     val userAgent: String? = null,
     val cookie: String? = null,
     val httpReferer: String? = null,

@@ -568,7 +568,7 @@ private suspend fun fetchAndConvert(
         val sb = java.lang.StringBuilder()
         sb.append("#EXTM3U\n")
         
-        extractChannelsRecursively(rootElement, "Uncategorized", streamField, titleField, logoField, categoryField, prefix, suffix, sb)
+        extractChannelsRecursively(rootElement, "", streamField, titleField, logoField, categoryField, prefix, suffix, sb)
 
         
         // Generate proxy URL

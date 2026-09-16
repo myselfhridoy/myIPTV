@@ -61,7 +61,7 @@ object OxooPortalHandler {
             val categoriesArray = JSONArray(jsonBody)
             for (i in 0 until categoriesArray.length()) {
                 val categoryObj = categoriesArray.optJSONObject(i) ?: continue
-                val categoryTitle = categoryObj.optString("title", "Uncategorized").takeIf { it.isNotBlank() } ?: "Uncategorized"
+                val categoryTitle = categoryObj.optString("title", "").takeIf { it.isNotBlank() } ?: ""
                 val channelsArray = categoryObj.optJSONArray("channels") ?: continue
 
                 for (j in 0 until channelsArray.length()) {
