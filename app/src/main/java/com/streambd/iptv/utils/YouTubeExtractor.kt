@@ -144,23 +144,48 @@ object YouTubeExtractor {
             initIfNeeded()
             val service = ServiceList.YouTube
             val playlistInfo = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(service, url)
+            val playlistName = playlistInfo.name ?: "YouTube Playlist"
             
             val channels = mutableListOf<com.streambd.iptv.data.models.Channel>()
+            
+            // Add first page items
             playlistInfo.relatedItems.forEach { item ->
                 if (item is StreamInfoItem) {
-                    val streamUrl = item.url
-                    val title = item.name
-                    val thumbnailUrl = item.thumbnails?.firstOrNull()?.url ?: ""
                     channels.add(
                         com.streambd.iptv.data.models.Channel(
-                            name = title,
-                            url = streamUrl,
-                            logo = thumbnailUrl,
-                            group = playlistInfo.name ?: "YouTube Playlist"
+                            name = item.name,
+                            url = item.url,
+                            logo = item.thumbnails?.firstOrNull()?.url ?: "",
+                            group = playlistName
                         )
                     )
                 }
             }
+            
+            // Paginate through remaining pages
+            var nextPage = playlistInfo.nextPage
+            while (nextPage != null) {
+                try {
+                    val moreItems = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getMoreItems(service, url, nextPage)
+                    moreItems.items.forEach { item ->
+                        if (item is StreamInfoItem) {
+                            channels.add(
+                                com.streambd.iptv.data.models.Channel(
+                                    name = item.name,
+                                    url = item.url,
+                                    logo = item.thumbnails?.firstOrNull()?.url ?: "",
+                                    group = playlistName
+                                )
+                            )
+                        }
+                    }
+                    nextPage = moreItems.nextPage
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    break
+                }
+            }
+            
             channels
         } catch (e: Exception) {
             e.printStackTrace()
