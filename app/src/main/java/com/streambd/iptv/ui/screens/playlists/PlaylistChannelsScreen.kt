@@ -163,42 +163,22 @@ fun PlaylistChannelsScreen(
         }
 
         if (isLoading) {
-            // Shimmer-like loading skeleton
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
             ) {
-                Spacer(modifier = Modifier.height(32.dp))
-                CircularProgressIndicator(
-                    color = TealAccent,
-                    modifier = Modifier.size(48.dp),
-                    strokeWidth = 4.dp
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Loading channels...",
-                    color = Color.Gray,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-                // Skeleton placeholder grid
-                LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 140.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(12) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1.77f)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(DarkNavySurface)
-                        )
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = TealAccent,
+                        modifier = Modifier.size(40.dp),
+                        strokeWidth = 3.dp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Loading channels...",
+                        color = Color.Gray,
+                        fontSize = 14.sp
+                    )
                 }
             }
         } else {
