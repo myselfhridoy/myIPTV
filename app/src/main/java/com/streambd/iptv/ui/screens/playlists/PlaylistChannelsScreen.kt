@@ -185,7 +185,7 @@ fun PlaylistChannelsScreen(
                 Spacer(modifier = Modifier.height(32.dp))
                 // Skeleton placeholder grid
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 180.dp),
+                            columns = GridCells.Adaptive(minSize = 140.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
@@ -263,7 +263,7 @@ fun PlaylistChannelsScreen(
                             )
                         }
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 180.dp),
+                                    columns = GridCells.Adaptive(minSize = 140.dp),
                             contentPadding = PaddingValues(16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -300,7 +300,7 @@ fun PlaylistChannelsScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     items(groupChannels) { channel ->
-                                        Box(modifier = Modifier.width(180.dp)) {
+                                        Box(modifier = Modifier.width(140.dp)) {
                                             PlaylistChannelCard(channel) {
                                                 viewModel.selectChannel(channel)
                                                 mainViewModel.setCurrentPlaylist(currentPlaylist)

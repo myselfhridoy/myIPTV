@@ -167,37 +167,74 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
         }
 
-        // Chips Row
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            item {
-                FilterChipItem(
-                    text = "Groups",
-                    icon = Icons.AutoMirrored.Filled.List,
-                    isSelected = false,
-                    onClick = { isGroupsModalExpanded = true }
-                )
-            }
-            
-            items(groups) { group -> // Remove limit to show all groups
-                FilterChipItem(
-                    text = group,
-                    icon = if (selectedGroup == group) Icons.Default.Check else null,
-                    isSelected = selectedGroup == group,
-                    onClick = { selectedGroup = group }
-                )
+        // Chips Row - only show when there are multiple valid groups
+        val validGroups = groups.filter { it.isNotBlank() }
+        if (validGroups.size > 2) { // > 2 because "All" + at least 2 real groups
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                item {
+                    FilterChipItem(
+                        text = "Groups",
+                        icon = Icons.AutoMirrored.Filled.List,
+                        isSelected = false,
+                        onClick = { isGroupsModalExpanded = true }
+                    )
+                }
+                
+                items(validGroups.take(10)) { group ->
+                    FilterChipItem(
+                        text = group,
+                        icon = if (selectedGroup == group) Icons.Default.Check else null,
+                        isSelected = selectedGroup == group,
+                        onClick = { selectedGroup = group }
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         if (allChannels == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = TealAccent)
+            // Shimmer-like loading skeleton
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(32.dp))
+                CircularProgressIndicator(
+                    color = TealAccent,
+                    modifier = Modifier.size(48.dp),
+                    strokeWidth = 4.dp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Loading channels...",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(32.dp))
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 140.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    gridItems((1..12).toList()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.77f)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(DarkNavySurface)
+                        )
+                    }
+                }
             }
         } else if (filteredChannels.isNullOrEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -205,7 +242,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
         } else {
             val groupedChannels = remember(filteredChannels) {
-                // If a specific group is selected, just show that group. Otherwise, group by group name.
                 if (selectedGroup != "All") {
                     mapOf(selectedGroup to filteredChannels)
                 } else {
@@ -213,29 +249,65 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 }
             }
 
-            androidx.compose.foundation.lazy.LazyColumn(
-                contentPadding = PaddingValues(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                groupedChannels.forEach { (group, channels) ->
-                    item(key = group) {
+            // Use grid when a specific group is selected OR there's only one group
+            val useGridLayout = selectedGroup != "All" || groupedChannels.size <= 1
+
+            if (useGridLayout) {
+                val channelsList = if (groupedChannels.size == 1) groupedChannels.values.first() else filteredChannels
+                val groupName = if (groupedChannels.size == 1) groupedChannels.keys.first() else selectedGroup
+                Column {
+                    if (!groupName.isNullOrBlank() && selectedGroup == "All") {
                         Text(
-                            text = group.uppercase(),
+                            text = groupName.uppercase(),
                             color = Color.Gray,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
                         )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(channels) { channel ->
-                                Box(modifier = Modifier.width(180.dp)) {
-                                    ChannelCard(channel = channel) {
-                                        viewModel.setCurrentPlaylist(currentPlaylist)
-                                        viewModel.selectChannel(channel)
-                                        navController.navigate(Routes.LIVE_PLAYER)
+                    }
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 140.dp),
+                        contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        gridItems(channelsList!!) { channel ->
+                            ChannelCard(channel = channel) {
+                                viewModel.setCurrentPlaylist(currentPlaylist)
+                                viewModel.selectChannel(channel)
+                                navController.navigate(Routes.LIVE_PLAYER)
+                            }
+                        }
+                    }
+                }
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    contentPadding = PaddingValues(bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    groupedChannels.forEach { (group, channels) ->
+                        item(key = group) {
+                            if (group.isNotBlank()) {
+                                Text(
+                                    text = group.uppercase(),
+                                    color = Color.Gray,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                                )
+                            }
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(channels) { channel ->
+                                    Box(modifier = Modifier.width(140.dp)) {
+                                        ChannelCard(channel = channel) {
+                                            viewModel.setCurrentPlaylist(currentPlaylist)
+                                            viewModel.selectChannel(channel)
+                                            navController.navigate(Routes.LIVE_PLAYER)
+                                        }
                                     }
                                 }
                             }
