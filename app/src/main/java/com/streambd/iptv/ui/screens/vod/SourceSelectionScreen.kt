@@ -57,6 +57,10 @@ fun SourceSelectionScreen(
     val isResolving by mainViewModel.isResolvingStreams.collectAsState()
     val streams by mainViewModel.availableStreams.collectAsState()
 
+    // Collect season/episode as state so LaunchedEffect key reacts to changes
+    val selectedSeason by mainViewModel.selectedSeason.collectAsState()
+    val selectedEpisode by mainViewModel.selectedEpisode.collectAsState()
+
     if (media == null) {
         navController.popBackStack()
         return
@@ -65,14 +69,14 @@ fun SourceSelectionScreen(
     val m = media!!
 
     // Fetch streams on entry or when media/season/episode changes
-    LaunchedEffect(m.id, mainViewModel.selectedSeason, mainViewModel.selectedEpisode) {
+    LaunchedEffect(m.id, selectedSeason, selectedEpisode) {
         val type = if (m.isMovie) "movie" else "tv"
         mainViewModel.fetchVodStreams(
-            context = context, 
-            type = type, 
-            tmdbId = m.id, 
-            season = mainViewModel.selectedSeason, 
-            episode = mainViewModel.selectedEpisode
+            context = context,
+            type = type,
+            tmdbId = m.id,
+            season = selectedSeason,
+            episode = selectedEpisode
         )
     }
 
@@ -124,8 +128,8 @@ fun SourceSelectionScreen(
                         context = context,
                         type = type,
                         tmdbId = m.id,
-                        season = mainViewModel.selectedSeason,
-                        episode = mainViewModel.selectedEpisode,
+                        season = selectedSeason,
+                        episode = selectedEpisode,
                         forceRefresh = true
                     )
                 },
@@ -263,7 +267,7 @@ fun SourceSelectionScreen(
                         }
                     )
                 }
-                
+
                 if (isResolving) {
                     item {
                         Box(
