@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.CopyOnWriteArrayList
 
 object QuickJsAddonManager {
-    // Limit concurrent executions to prevent native memory exhaustion or JNI crashes
     private val jsExecutionSemaphore = Semaphore(2)
     private val DEFAULT_REGISTRY_URL get() = com.streambd.iptv.utils.RemoteConfigManager.getAddonRegistryUrl()
     private const val ADDONS_PREF_NAME = "prysm_addons_prefs"
@@ -38,8 +37,6 @@ object QuickJsAddonManager {
 
     private var cachedAddons: List<Addon>? = null
     private val addonScriptsCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-    
-    // Cookie cache similar to QuickJsPlaylistParser
     private val cookieCache = mutableListOf<okhttp3.Cookie>()
 
     private val safeDns = object : Dns {
@@ -49,25 +46,15 @@ object QuickJsAddonManager {
                 if (addr.isLoopbackAddress || addr.isSiteLocalAddress || addr.isAnyLocalAddress || addr.isLinkLocalAddress) {
                     throw UnknownHostException("SSRF Blocked: Local network access not allowed for $hostname")
                 }
-                
                 val hostAddress = addr.hostAddress ?: ""
                 val isIPv4Mapped = hostAddress.startsWith("::ffff:") || hostAddress.startsWith("0:0:0:0:0:ffff:", ignoreCase = true)
-                val effectiveAddrStr = if (isIPv4Mapped) {
-                    hostAddress.substringAfterLast(":")
-                } else {
-                    hostAddress
-                }
-                
-                if (effectiveAddrStr.startsWith("127.") || effectiveAddrStr.startsWith("10.") ||
-                    effectiveAddrStr.startsWith("192.168.")
-                ) {
+                val effectiveAddrStr = if (isIPv4Mapped) hostAddress.substringAfterLast(":") else hostAddress
+                if (effectiveAddrStr.startsWith("127.") || effectiveAddrStr.startsWith("10.") || effectiveAddrStr.startsWith("192.168.")) {
                     throw UnknownHostException("SSRF Blocked: Local network access not allowed for $hostname")
                 }
-                
                 if (effectiveAddrStr.matches(Regex("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..+"))) {
                     throw UnknownHostException("SSRF Blocked: Local network access not allowed for $hostname")
                 }
-                
                 if (effectiveAddrStr.matches(Regex("^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\..+"))) {
                     throw UnknownHostException("SSRF Blocked: CGNAT access not allowed for $hostname")
                 }
@@ -109,7 +96,7 @@ object QuickJsAddonManager {
         .readTimeout(15, TimeUnit.SECONDS)
         .dns(safeDns)
         .build()
-        
+
     private val gson = Gson()
 
     suspend fun getAddons(context: Context, forceSync: Boolean = false): List<Addon> = withContext(Dispatchers.IO) {
@@ -119,7 +106,7 @@ object QuickJsAddonManager {
 
         val prefs = context.getSharedPreferences(ADDONS_PREF_NAME, Context.MODE_PRIVATE)
         val savedAddonsJson = prefs.getString(ADDONS_KEY, null)
-        
+
         var addons = mutableListOf<Addon>()
         if (savedAddonsJson != null) {
             val type = object : TypeToken<List<Addon>>() {}.type
@@ -135,7 +122,6 @@ object QuickJsAddonManager {
                     if (body != null) {
                         val type = object : TypeToken<List<Addon>>() {}.type
                         val registryAddons: List<Addon> = gson.fromJson(body, type)
-                        
                         var changed = false
                         for (rAddon in registryAddons) {
                             val existingIndex = addons.indexOfFirst { it.id == rAddon.id }
@@ -149,7 +135,6 @@ object QuickJsAddonManager {
                                 changed = true
                             }
                         }
-                        
                         if (changed) {
                             prefs.edit().putString(ADDONS_KEY, gson.toJson(addons)).apply()
                         }
@@ -157,9 +142,7 @@ object QuickJsAddonManager {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                try {
-                    com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e)
-                } catch (ce: Exception) {}
+                try { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(e) } catch (ce: Exception) {}
             }
         }
 
@@ -169,7 +152,7 @@ object QuickJsAddonManager {
 
     suspend fun resolveFromAddons(
         context: Context,
-        type: String, // "movie" or "tv"
+        type: String,
         tmdbId: Int,
         season: Int? = null,
         episode: Int? = null,
@@ -177,8 +160,7 @@ object QuickJsAddonManager {
     ) = withContext(Dispatchers.IO) {
         val addons = getAddons(context)
         val activeAddons = addons.filter { it.enabled }
-        
-        // Load crypto-js from assets
+
         val cryptoJsCode = try {
             context.assets.open("crypto-js.min.js").bufferedReader().use { it.readText() }
         } catch (e: Exception) {
@@ -202,12 +184,14 @@ object QuickJsAddonManager {
                     }
 
                     if (jsCode != null) {
-                        // 60 seconds timeout for each addon to prevent hanging on complex addons
                         val sourcesJson = jsExecutionSemaphore.withPermit {
-                            executeAddonInQuickJs(context, cryptoJsCode, jsCode, addon.name, addon.url, null, type, tmdbId, season, episode, null)
+                            executeAddonInQuickJs(
+                                context, cryptoJsCode, jsCode, addon.name, addon.url,
+                                null, type, tmdbId, season, episode, null
+                            )
                         }
-                        
-                        if (sourcesJson != null && sourcesJson.isNotEmpty() && sourcesJson != "null" && sourcesJson != "undefined") {
+
+                        if (!sourcesJson.isNullOrEmpty() && sourcesJson != "null" && sourcesJson != "undefined" && sourcesJson != "[]") {
                             try {
                                 val sourceType = object : TypeToken<List<StreamSource>>() {}.type
                                 val parsedSources: List<StreamSource> = gson.fromJson(sourcesJson, sourceType)
@@ -225,12 +209,11 @@ object QuickJsAddonManager {
                         }
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.e("QuickJsAddonManager", "Addon ${addon.name} failed: ${e.message}", e)
                 }
             }
         }
-        
-        // Wait for all addons to finish (or timeout)
+
         deferredResults.awaitAll()
     }
 
@@ -244,16 +227,14 @@ object QuickJsAddonManager {
     ): Pair<List<StreamSource>, String> {
         val cryptoJsCode = try {
             context.assets.open("crypto-js.min.js").bufferedReader().use { it.readText() }
-        } catch (e: Exception) {
-            ""
-        }
+        } catch (e: Exception) { "" }
         val logs = StringBuilder()
         val resultStr = executeAddonInQuickJs(context, cryptoJsCode, jsCode, "Test Addon", "http://test", null, type, tmdbId, season, episode, logs)
         return try {
-            val listType = object : com.google.gson.reflect.TypeToken<List<StreamSource>>() {}.type
+            val listType = object : TypeToken<List<StreamSource>>() {}.type
             Pair(gson.fromJson(resultStr, listType) ?: emptyList(), logs.toString())
         } catch (e: Exception) {
-            Pair(emptyList(), logs.toString() + "\nException parsing result: \${e.message}")
+            Pair(emptyList(), logs.toString() + "\nException parsing result: ${e.message}")
         }
     }
 
@@ -272,49 +253,42 @@ object QuickJsAddonManager {
     ): String? = withContext(Dispatchers.IO) {
         withTimeoutOrNull(60000L) {
             var scriptResult: String? = null
-            
+
             try {
                 quickJs {
-                    memoryLimit = 10L * 1024L * 1024L // 10MB memory limit
-                    
+                    memoryLimit = 10L * 1024L * 1024L
+
                     function("nativeLog") { args ->
                         val msg = args.joinToString(" ") { it.toString() }
-                        Log.d("AddonManagerJS", msg)
+                        Log.d("AddonManagerJS[$addonName]", msg)
                         logBuilder?.append("LOG: ")?.append(msg)?.append("\n")
                         null
                     }
                     function("nativeError") { args ->
                         val msg = args.joinToString(" ") { it.toString() }
-                        Log.e("AddonManagerJS", msg)
+                        Log.e("AddonManagerJS[$addonName]", msg)
                         logBuilder?.append("ERROR: ")?.append(msg)?.append("\n")
                         null
                     }
                     function("nativeSend") { args ->
                         if (args.isNotEmpty()) {
-                            scriptResult = args[0] as String
+                            scriptResult = args[0] as? String
+                            Log.d("AddonManagerJS[$addonName]", "nativeSend received ${scriptResult?.length ?: 0} chars")
                         }
                         null
                     }
                     function("nativeBtoa") { args ->
-                        if (args.isNotEmpty()) {
-                            Base64.encodeToString((args[0] as String).toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP)
-                        } else ""
+                        if (args.isNotEmpty()) Base64.encodeToString((args[0] as String).toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP) else ""
                     }
                     function("nativeAtob") { args ->
-                        if (args.isNotEmpty()) {
-                            String(Base64.decode((args[0] as String), Base64.DEFAULT), Charsets.ISO_8859_1)
-                        } else ""
+                        if (args.isNotEmpty()) String(Base64.decode((args[0] as String), Base64.DEFAULT), Charsets.ISO_8859_1) else ""
                     }
-                    
-                    asyncFunction("nativeBypass") { _ ->
-                        // Dummy bypass for now, resolves to false
-                        false
-                    }
+                    asyncFunction("nativeBypass") { _ -> false }
 
                     asyncFunction("nativeFetchStr") { args ->
                         val url = args[0] as String
                         val optionsJson = if (args.size > 1) args[1] as String else ""
-                        
+
                         val reqBuilder = Request.Builder().url(url)
                         var method = "GET"
                         var bodyString: String? = null
@@ -329,17 +303,14 @@ object QuickJsAddonManager {
                                 headersObj.keys().forEach { k ->
                                     val v = headersObj.getString(k)
                                     reqBuilder.header(k, v)
-                                    if (k.equals("Content-Type", ignoreCase = true)) {
-                                        contentType = v
-                                    }
+                                    if (k.equals("Content-Type", ignoreCase = true)) contentType = v
                                 }
                             }
                         }
 
                         if (method == "POST" || method == "PUT" || method == "PATCH") {
                             val mediaType = contentType.toMediaTypeOrNull()
-                            val requestBody = (bodyString ?: "").toRequestBody(mediaType)
-                            reqBuilder.method(method, requestBody)
+                            reqBuilder.method(method, (bodyString ?: "").toRequestBody(mediaType))
                         } else {
                             reqBuilder.method(method, null)
                         }
@@ -349,13 +320,11 @@ object QuickJsAddonManager {
                             response.headers.names().forEach { name ->
                                 resHeaders.put(name, response.headers.values(name).joinToString(", "))
                             }
-                            
                             val result = JSONObject()
                             result.put("status", response.code)
                             result.put("ok", response.isSuccessful)
                             result.put("headers", resHeaders)
                             result.put("body", response.body?.string() ?: "")
-                            
                             result.toString()
                         }
                     }
@@ -363,35 +332,33 @@ object QuickJsAddonManager {
                     val polyfill = """
                         globalThis.window = globalThis;
                         globalThis.console = {
-                            log: function(...msg) { 
-                                nativeLog(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            log: function() {
+                                var args = Array.prototype.slice.call(arguments);
+                                nativeLog(args.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' '));
                             },
-                            error: function(...msg) { 
-                                nativeError(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            error: function() {
+                                var args = Array.prototype.slice.call(arguments);
+                                nativeError(args.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' '));
                             },
-                            warn: function(...msg) { 
-                                nativeLog(msg.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' ')); 
+                            warn: function() {
+                                var args = Array.prototype.slice.call(arguments);
+                                nativeLog(args.map(function(m) { return (typeof m === 'object' && m !== null) ? JSON.stringify(m) : String(m); }).join(' '));
                             }
                         };
                         globalThis.atob = function(s) { return nativeAtob(String(s)); };
                         globalThis.btoa = function(s) { return nativeBtoa(String(s)); };
-                        
-                        globalThis.bypassCloudflare = async function(url) {
-                            return await nativeBypass(url);
-                        };
-                        
+                        globalThis.bypassCloudflare = async function(url) { return await nativeBypass(url); };
                         globalThis.fetch = async function(url, options) {
                             var resStr = await nativeFetchStr(url, options ? JSON.stringify(options) : "null");
                             var res = JSON.parse(resStr);
-                            
                             var headersObj = res.headers || {};
-                            var responseObj = {
+                            return {
                                 ok: res.ok,
                                 status: res.status,
                                 headers: {
                                     get: function(name) {
-                                        var key = Object.keys(headersObj).find(function(k) { 
-                                            return k.toLowerCase() === name.toLowerCase(); 
+                                        var key = Object.keys(headersObj).find(function(k) {
+                                            return k.toLowerCase() === name.toLowerCase();
                                         });
                                         return key ? headersObj[key] : null;
                                     }
@@ -399,68 +366,99 @@ object QuickJsAddonManager {
                                 text: async function() { return res.body; },
                                 json: async function() { return JSON.parse(res.body); }
                             };
-                            return responseObj;
                         };
                     """.trimIndent()
-                    
-                    evaluate<String>(polyfill)
-                    evaluate<String>(cryptoJsCode)
-                    
+
+                    // Reserved global names to skip during function discovery
+                    val reservedGlobals = setOf(
+                        "console", "atob", "btoa", "fetch", "bypassCloudflare",
+                        "CryptoJS", "window", "globalThis", "module", "exports",
+                        "nativeLog", "nativeError", "nativeSend", "nativeBtoa",
+                        "nativeAtob", "nativeBypass", "nativeFetchStr",
+                        "Object", "Array", "String", "Number", "Boolean",
+                        "Promise", "Error", "Math", "JSON", "Date", "RegExp",
+                        "undefined", "null", "Infinity", "NaN", "isNaN", "isFinite",
+                        "parseInt", "parseFloat", "encodeURIComponent", "decodeURIComponent",
+                        "encodeURI", "decodeURI", "eval", "Function", "Symbol",
+                        "Map", "Set", "WeakMap", "WeakSet", "Proxy", "Reflect",
+                        "setTimeout", "clearTimeout", "setInterval", "clearInterval"
+                    )
+                    val reservedGlobalsJson = reservedGlobals.joinToString(
+                        prefix = "[\"", separator = "\",\"", postfix = "\"]"
+                    )
+
                     val seasonArg = season?.toString() ?: "null"
                     val episodeArg = episode?.toString() ?: "null"
 
-                    evaluate<String>("var module = { exports: {} }; var exports = module.exports;")
-                    evaluate<String>(addonCode)
-                    
+                    evaluate<Any?>(polyfill)
+                    if (cryptoJsCode.isNotBlank()) evaluate<Any?>(cryptoJsCode)
+                    evaluate<Any?>("var module = { exports: {} }; var exports = module.exports;")
+                    evaluate<Any?>(addonCode)
+
+                    // ── CRITICAL FIX: evaluate<Any?> without '; 'ok';' suffix ──
+                    // Previously '; 'ok';' caused the block to return synchronously,
+                    // abandoning the async IIFE's Promise before nativeSend was ever called.
+                    // Now dokar/quickjs suspends the coroutine until the Promise settles.
                     val scriptWrapper = """
                         (async function() {
                             try {
-                                var parserFunc;
-                                // Addon scripts usually set a function as module.exports or define a global
+                                var reserved = $reservedGlobalsJson;
+                                var parserFunc = null;
+                                
+                                // Priority 1: module.exports is a function
                                 if (typeof module.exports === 'function') {
                                     parserFunc = module.exports;
-                                } else {
-                                    // Snapshot existing window keys to find newly added functions
-                                    // if it was added globally instead of module.exports
-                                    for (var k in globalThis) {
-                                        if (typeof globalThis[k] === 'function' && k !== 'console' && k !== 'atob' && k !== 'btoa' && k !== 'fetch' && k !== 'bypassCloudflare' && k !== 'CryptoJS' && k !== 'window' && k !== 'globalThis' && k !== 'module' && k !== 'exports' && k !== 'nativeLog' && k !== 'nativeError' && k !== 'nativeSend' && k !== 'nativeBtoa' && k !== 'nativeAtob' && k !== 'nativeBypass' && k !== 'nativeFetchStr') {
+                                }
+                                
+                                // Priority 2: well-known addon entry point names
+                                if (!parserFunc) {
+                                    var knownNames = ['resolveFromAddon', 'getStreams', 'resolve', 'getLinks', 'getSources', 'main'];
+                                    for (var i = 0; i < knownNames.length; i++) {
+                                        if (typeof globalThis[knownNames[i]] === 'function') {
+                                            parserFunc = globalThis[knownNames[i]];
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                // Priority 3: scan globals, skip reserved names
+                                if (!parserFunc) {
+                                    var keys = Object.keys(globalThis);
+                                    for (var j = 0; j < keys.length; j++) {
+                                        var k = keys[j];
+                                        if (reserved.indexOf(k) === -1 && typeof globalThis[k] === 'function') {
                                             parserFunc = globalThis[k];
                                             break;
                                         }
                                     }
                                 }
                                 
-                                if (typeof parserFunc !== 'function' && typeof resolveFromAddon === 'function') {
-                                    parserFunc = resolveFromAddon;
-                                }
-                                
                                 if (typeof parserFunc === 'function') {
                                     var result = parserFunc("$type", "$tmdbId", $seasonArg, $episodeArg);
-                                    if (result instanceof Promise) {
+                                    if (result && typeof result.then === 'function') {
                                         result = await result;
                                     }
                                     nativeSend(JSON.stringify(result || []));
                                 } else {
-                                    nativeError("Parser is not a function");
+                                    nativeError("No parser function found in addon");
                                     nativeSend("[]");
                                 }
                             } catch (e) {
-                                nativeError(e.toString());
+                                nativeError("Addon runtime error: " + e.toString());
                                 nativeSend("[]");
                             }
                         })();
                     """.trimIndent()
-                    
-                    evaluate<String>("$scriptWrapper\n; 'ok';")
+
+                    // evaluate<Any?> — lets dokar/quickjs await the returned Promise
+                    evaluate<Any?>(scriptWrapper)
                 }
             } catch (e: Exception) {
-                Log.e("QuickJsAddonManager", "Error executing addon JS: ${e.message}", e)
+                Log.e("QuickJsAddonManager", "[$addonName] Native exception: ${e.message}", e)
                 logBuilder?.append("NATIVE EXCEPTION: ")?.append(e.message)?.append("\n")
-                if (scriptResult == null) {
-                    scriptResult = "[]"
-                }
+                if (scriptResult == null) scriptResult = "[]"
             }
-            
+
             scriptResult
         }
     }
