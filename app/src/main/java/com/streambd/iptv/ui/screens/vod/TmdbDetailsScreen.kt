@@ -336,8 +336,8 @@ fun TmdbDetailsScreen(
                         // Watch Now Button
                         androidx.tv.material3.Button(
                             onClick = {
-                                mainViewModel.selectedSeason = localSeason
-                                mainViewModel.selectedEpisode = localEpisode
+                                mainViewModel.setSelectedSeason(localSeason)
+                                mainViewModel.setSelectedEpisode(localEpisode)
                                 navController.navigate(Routes.SOURCE_SELECTION)
                             },
                             modifier = Modifier
@@ -346,8 +346,8 @@ fun TmdbDetailsScreen(
                                     up = backButtonFocusRequester
                                 }
                                 .tvTouchClick {
-                                    mainViewModel.selectedSeason = localSeason
-                                    mainViewModel.selectedEpisode = localEpisode
+                                    mainViewModel.setSelectedSeason(localSeason)
+                                    mainViewModel.setSelectedEpisode(localEpisode)
                                     navController.navigate(Routes.SOURCE_SELECTION)
                                 },
                             colors = androidx.tv.material3.ButtonDefaults.colors(
