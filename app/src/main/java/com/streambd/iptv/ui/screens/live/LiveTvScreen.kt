@@ -218,7 +218,7 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             ) {
                 items(displayedCategories) { category ->
                     CategoryCard(category = category) {
-                        viewModel.selectCategory(context, category)
+                        viewModel.selectCategory(category)
                         navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
                             launchSingleTop = true
                         }

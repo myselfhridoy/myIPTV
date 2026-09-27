@@ -64,15 +64,18 @@ fun SourceSelectionScreen(
 
     val m = media!!
 
+    val selectedSeason by mainViewModel.selectedSeason.collectAsState()
+    val selectedEpisode by mainViewModel.selectedEpisode.collectAsState()
+
     // Fetch streams on entry or when media/season/episode changes
-    LaunchedEffect(m.id, mainViewModel.selectedSeason, mainViewModel.selectedEpisode) {
+    LaunchedEffect(m.id, selectedSeason, selectedEpisode) {
         val type = if (m.isMovie) "movie" else "tv"
         mainViewModel.fetchVodStreams(
             context = context, 
             type = type, 
             tmdbId = m.id, 
-            season = mainViewModel.selectedSeason, 
-            episode = mainViewModel.selectedEpisode
+            season = selectedSeason, 
+            episode = selectedEpisode
         )
     }
 
@@ -124,8 +127,8 @@ fun SourceSelectionScreen(
                         context = context,
                         type = type,
                         tmdbId = m.id,
-                        season = mainViewModel.selectedSeason,
-                        episode = mainViewModel.selectedEpisode,
+                        season = selectedSeason,
+                        episode = selectedEpisode,
                         forceRefresh = true
                     )
                 },

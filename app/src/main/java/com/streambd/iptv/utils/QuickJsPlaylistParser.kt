@@ -71,18 +71,22 @@ object QuickJsPlaylistParser {
     }
     
     private val memoryCookieJar = object : okhttp3.CookieJar {
-        private val store = CopyOnWriteArrayList<okhttp3.Cookie>()
+        private val store = mutableListOf<okhttp3.Cookie>()
 
         override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            cookies.forEach { newCookie ->
-                store.removeAll { it.name == newCookie.name && it.domain == newCookie.domain && it.path == newCookie.path }
-                store.add(newCookie)
+            synchronized(store) {
+                cookies.forEach { newCookie ->
+                    store.removeAll { it.name == newCookie.name && it.domain == newCookie.domain && it.path == newCookie.path }
+                    store.add(newCookie)
+                }
+                store.removeAll { it.expiresAt < System.currentTimeMillis() }
             }
-            store.removeAll { it.expiresAt < System.currentTimeMillis() }
         }
 
         override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            return store.filter { it.matches(url) && it.expiresAt >= System.currentTimeMillis() }
+            synchronized(store) {
+                return store.filter { it.matches(url) && it.expiresAt >= System.currentTimeMillis() }
+            }
         }
     }
 
@@ -98,14 +102,14 @@ object QuickJsPlaylistParser {
 
     suspend fun executeJsPlaylist(context: Context, jsCode: String): JsPlaylistResult = withContext(Dispatchers.IO) {
         jsExecutionSemaphore.withPermit {
-            // Overall timeout for execution (45s). Because quickJs block is suspendable, this natively interrupts JS!
-            val result = withTimeoutOrNull(45000L) {
+            // Overall timeout for execution (5 minutes). Because quickJs block is suspendable, this natively interrupts JS!
+            val result = withTimeoutOrNull(300000L) {
                 var scriptResult: JsPlaylistResult? = null
                 
                 try {
                     quickJs {
-                        // 10MB memory limit to prevent OOM
-                        memoryLimit = 10L * 1024L * 1024L
+                        // 32MB memory limit to prevent OOM but allow 1500+ items array processing
+                        memoryLimit = 32L * 1024L * 1024L
                         
                         // Register simple synchronous functions
                         function("nativeLog") { args -> 
@@ -181,7 +185,7 @@ object QuickJsPlaylistParser {
                                     resHeaders.put(name, response.headers[name])
                                 }
                                 
-                                val responseBody = response.peekBody(10 * 1024 * 1024).string()
+                                val responseBody = response.body?.string() ?: ""
                                 
                                 val resultObj = JSONObject().apply {
                                     put("ok", response.isSuccessful)

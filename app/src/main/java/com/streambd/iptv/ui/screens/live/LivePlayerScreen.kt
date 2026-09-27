@@ -59,6 +59,8 @@ import com.streambd.iptv.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -71,6 +73,7 @@ enum class VideoScaleMode(val title: String) {
 @Composable
 fun LivePlayerScreen(
     viewModel: MainViewModel, 
+    playerViewModel: com.streambd.iptv.ui.viewmodels.LivePlayerViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     navController: NavController,
     exoPlayer: ExoPlayer,
     trackSelector: DefaultTrackSelector,
@@ -88,7 +91,7 @@ fun LivePlayerScreen(
 
     val channel = selectedChannel!!
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
@@ -100,6 +103,10 @@ fun LivePlayerScreen(
     var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
+    
+    val currentMediaSource by playerViewModel.currentMediaSource.collectAsState()
+    val isResolving by playerViewModel.isLoading.collectAsState()
+    val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
@@ -113,12 +120,14 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(channelNumberInput) {
-        if (channelNumberInput.isNotEmpty()) {
-            delay(2000L) // 2s debounce
-            viewModel.tuneToChannelNumber(channelNumberInput)
-            channelNumberInput = ""
-        }
+    LaunchedEffect(Unit) {
+        snapshotFlow { channelNumberInput }
+            .filter { it.isNotEmpty() }
+            .debounce(2000L)
+            .collect { input ->
+                viewModel.tuneToChannelNumber(input)
+                channelNumberInput = ""
+            }
     }
 
     LaunchedEffect(Unit) {
@@ -163,7 +172,7 @@ fun LivePlayerScreen(
             if (originalOrientation != null) {
                 activity?.requestedOrientation = originalOrientation
             } else {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
             if (window != null) {
                 val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
@@ -175,385 +184,33 @@ fun LivePlayerScreen(
 
     // Handle ExoPlayer Media Setup
     LaunchedEffect(channel.tokenId ?: channel.name, currentSourceUrl) {
-        isLoading = true // Show loading while resolving
         playerError = null
         exoPlayer.stop() // Immediately stop the previous channel
         exoPlayer.clearMediaItems() // Clear previous media state
+        playerViewModel.resolveChannel(channel, currentSourceUrl)
+    }
 
-        
-        val parsedSource = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(currentSourceUrl)
-        val rawSourceUrl = parsedSource.cleanUrl
-
-        // Build initial headers from channel
-        val initialHeaders = mutableMapOf<String, String>()
-        channel.userAgent?.let { initialHeaders["User-Agent"] = it }
-        channel.cookie?.let { initialHeaders["Cookie"] = it }
-        channel.httpReferer?.let { initialHeaders["Referer"] = it }
-        channel.origin?.let { initialHeaders["Origin"] = it }
-        channel.httpHeaders?.forEach { (k, v) -> initialHeaders[k] = v }
-        parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
-        
-        // Deduplicate all headers case-insensitively to prevent OkHttp/ExoPlayer from sending duplicates
-        val deduplicatedHeaders = mutableMapOf<String, String>()
-        initialHeaders.forEach { (k, v) -> 
-            val lowerKey = k.lowercase()
-            val existingKey = deduplicatedHeaders.keys.firstOrNull { it.lowercase() == lowerKey }
-            if (existingKey != null) {
-                deduplicatedHeaders.remove(existingKey)
-            }
-            deduplicatedHeaders[k] = v 
-        }
-        initialHeaders.clear()
-        initialHeaders.putAll(deduplicatedHeaders)
-        if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
-            initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
-        }
-        
-        val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
-        val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
-        val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
-        val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
-        val currentPlayRef = parsedSource.custom["playref"]
-        
-        var sourceDrm = channel.drm
-        if (parsedSource.custom.containsKey("drm-type")) {
-            val drmType = parsedSource.custom["drm-type"]
-            val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
-            if (drmKey != null && Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$").matches(drmKey)) {
-                sourceDrm = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", rawKeyPair = drmKey)
-            } else {
-                sourceDrm = com.streambd.iptv.data.models.DrmConfig(type = drmType, licenseServer = drmKey)
-            }
-        }
-
-        val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
-            rawSourceUrl.contains("action=create_link", ignoreCase = true)
-
-        // Resolve token if present, or pre-resolve generic links (like .php) to find actual media URL and MimeType
-        var resolved: com.streambd.iptv.utils.ResolvedToken? = null
-        if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal || com.streambd.iptv.utils.YouTubeExtractor.isYouTubeUrl(rawSourceUrl)) {
-            resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
-                context = context,
-                baseUrl = rawSourceUrl,
-                tokenUrl = currentTokenUrl,
-                tokenId = currentTokenId?.toString(),
-                headers = initialHeaders,
-                tokenMatch = currentTokenMatch,
-                tokenReplace = currentTokenReplace,
-                playRef = currentPlayRef
-            )
-        }
-        if (resolved == null) {
-            val decodedUrl = try { java.net.URLDecoder.decode(rawSourceUrl, "UTF-8") } catch (e: Exception) { rawSourceUrl }
-            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
-            val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
-            val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            
-            val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
-                rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
-            val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
-            val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
-            val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
-            val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
-                (!isKnownFileHost && !hasKnownExtensionOrProto)
-            if (shouldPreResolve) {
-                    // Pre-resolve non-standard extensions and redirects to find actual media URL and Content-Type
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-                                addNetworkInterceptor { chain ->
-                                    val originalReq = chain.request()
-                                    val builder = originalReq.newBuilder()
-                                    initialHeaders.forEach { (k, v) ->
-                                        builder.header(k, v)
-                                    }
-                                    chain.proceed(builder.build())
-                                }
-                            }.build()
-                            val req = okhttp3.Request.Builder().url(rawSourceUrl).apply {
-                                initialHeaders.forEach { (k, v) -> header(k, v) }
-                            }.build() // Use GET directly instead of HEAD for scripts/redirects to avoid timeouts
-                            
-                            var res = client.newCall(req).execute()
-                            
-                            val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
-                                it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
-                            } == true
-                            val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
-                            
-                            var isMasterPlaylist = false
-                            if (res.isSuccessful && isPlaylistOrJsonType && contentLength < 10_000_000L) {
-                                val bodyStr = res.body?.string() ?: ""
-                                isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
-                                if (bodyStr.trim().startsWith("{")) {
-                                    val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
-                                    if (stalkerResolved != null) {
-                                        return@withContext stalkerResolved
-                                    }
-                                }
-                                val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("EXT-X-STREAM-INF")
-                                
-                                // Parse custom EXTHTTP wrapper or single channel M3U
-                                if (bodyStr.contains("#EXTM3U") && (bodyStr.contains("EXTHTTP:") || !isHlsStream)) {
-                                    val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
-                                    if (parsedChannels.isNotEmpty()) {
-                                        val first = parsedChannels.first()
-                                        val mergedHeaders = initialHeaders.toMutableMap()
-                                        first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
-                                        first.userAgent?.let { mergedHeaders["User-Agent"] = it }
-                                        first.cookie?.let { mergedHeaders["Cookie"] = it }
-                                        first.httpReferer?.let { mergedHeaders["Referer"] = it }
-                                        first.origin?.let { mergedHeaders["Origin"] = it }
-                                        
-                                        val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
-                                        innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-                                        
-                                        return@withContext com.streambd.iptv.utils.ResolvedToken(
-                                            url = innerParsed.cleanUrl,
-                                            headers = mergedHeaders,
-                                            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
-                                            isMasterPlaylist = false
-                                        )
-                                    }
-                                }
-                                
-                                // Fix malformed HLS playlists that are missing #EXTM3U or have spaces like "# EXT-X-STREAM-INF"
-                                if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
-                                    val fixedPlaylist = "#EXTM3U\n" + bodyStr.replace("# EXT-", "#EXT-")
-                                    val dataUri = "data:application/x-mpegURL;base64," +
-                                        android.util.Base64.encodeToString(fixedPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
-                                    return@withContext com.streambd.iptv.utils.ResolvedToken(
-                                        url = dataUri,
-                                        headers = initialHeaders,
-                                        mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
-                                        isMasterPlaylist = fixedPlaylist.contains("EXT-X-STREAM-INF")
-                                    )
-                                }
-                            }
-                            
-                            // Re-build response from the final URL if body string was consumed (since res is closed)
-                            if (res.isSuccessful && isPlaylistOrJsonType) {
-                                val redirectedUrl = res.request.url.toString()
-                                val contentType = res.header("Content-Type")?.lowercase()
-                                var mimeType: String? = null
-                                if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
-                                
-                                val finalUrl = redirectedUrl
-                                return@withContext com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
-                            }
-                            
-                            res.use { response ->
-                                if (response.isSuccessful) {
-                                    val redirectedUrl = response.request.url.toString()
-                                    val contentType = response.header("Content-Type")?.lowercase()
-                                    var mimeType: String? = null
-                                    if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                    else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
-                                    
-                                    // Always use the redirected URL so that ExoPlayer knows the correct Base URL.
-                                    // This is crucial for HLS playlists that use relative paths for their chunks.
-                                    // ExoPlayer's DefaultDataSource cannot resolve relative chunk URLs if the base URL is wrong.
-                                    val finalUrl = redirectedUrl
-                                    
-                                    com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
-                                } else null
-                            }
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-                } else {
-                    null
-                }
-        }
-
-        var finalUrl = resolved?.url ?: rawSourceUrl
-        val rawFinalHeaders = resolved?.headers ?: initialHeaders
-        val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
-        val finalDrm = resolved?.drm ?: sourceDrm
-
-        val isCrichd = currentTokenUrl?.equals("crichd", ignoreCase = true) == true ||
-            rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
-            finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
-
-        val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
-            (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
-
-        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
-
-        if (shouldWrapInMasterPlaylist) {
-            val bandwidth = if (isCrichd) 220000 else 15000000
-            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
-            finalUrl = "data:application/x-mpegURL;base64," +
-                android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
-        }
-
-        val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-            addNetworkInterceptor { chain ->
-                val originalReq = chain.request()
-                val builder = originalReq.newBuilder()
-                finalHeaders.forEach { (k, v) ->
-                    builder.header(k, v)
-                }
-                chain.proceed(builder.build())
-            }
-        }.build()
-
-        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
-        
-        val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
-        
-        var mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
-            androidx.media3.common.MimeTypes.APPLICATION_M3U8
-        } else {
-            com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
-        }
-        
-        // Fallback for Live TV: If pre-resolve failed/timed out, and the URL is a PHP script or has no extension,
-        // assume HLS to prevent Extractor errors (ProgressiveMediaSource) on redirecting Live streams.
-        if (mimeType == null && (finalUrl.contains(".php", ignoreCase = true) || !Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)").containsMatchIn(finalUrl))) {
-            if (!finalUrl.contains("mpegts", ignoreCase = true) && !finalUrl.contains("type=ts", ignoreCase = true)) {
-                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-            }
-        }
-        
-        mimeType?.let { mediaItemBuilder.setMimeType(it) }
-
-        // Live stream buffer and offset configuration optimized for HLS CDN streams (like Toffee / Cloudflare)
-        val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10000) // Fast zapping target offset (was 20000)
-            .setMinOffsetMs(5000)
-            .setMaxOffsetMs(60000)
-            .build()
-        mediaItemBuilder.setLiveConfiguration(liveConfig)
-
-        val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
-            override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                // Exponential backoff: 1s, 2s, 4s, 8s... up to 10 retries
-                return if (loadErrorInfo.errorCount <= 10) (1000L * (1 shl (loadErrorInfo.errorCount - 1).coerceAtMost(4))) else super.getRetryDelayMsFor(loadErrorInfo)
-            }
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 10
-        }
-        
-        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-            .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
-            
-        if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
-            extractorsFactory.setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
-        }
-            
-        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-            .setLoadErrorHandlingPolicy(loadErrorPolicy)
-
-        // DRM Setup
-        if (finalDrm != null && finalDrm.type != null) {
-            val drmScheme = when (finalDrm.type.lowercase()) {
-                "widevine" -> androidx.media3.common.C.WIDEVINE_UUID
-                "playready" -> androidx.media3.common.C.PLAYREADY_UUID
-                "clearkey" -> androidx.media3.common.C.CLEARKEY_UUID
-                else -> androidx.media3.common.C.WIDEVINE_UUID
-            }
-
-            val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
-
-            var useLocalClearKey = false
-            var clearKeyBytes: ByteArray? = null
-
-            if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
-                // Handle Raw ClearKey (kid:key) pair format natively for ExoPlayer
-                val parts = finalDrm.rawKeyPair.split(":")
-                if (parts.size == 2) {
-                    try {
-                        val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                        val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-
-                        val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                        val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-
-                        val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                        clearKeyBytes = clearkeyJson.toByteArray()
-                        useLocalClearKey = true
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            } else if (finalDrm.licenseServer != null) {
-                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
-                    val jsonStr = finalDrm.licenseServer.trim()
-                    try {
-                        val jsonObj = org.json.JSONObject(jsonStr)
-                        if (jsonObj.has("keys")) {
-                            // Already a JWK set
-                            clearKeyBytes = jsonStr.toByteArray()
-                        } else {
-                            // Map of kid:key
-                            val keysArray = org.json.JSONArray()
-                            jsonObj.keys().forEach { kidHex ->
-                                val keyHex = jsonObj.getString(kidHex)
-                                try {
-                                    val kidBytes = kidHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                                    val keyBytes = keyHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                                    val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                    val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                                    val keyObj = org.json.JSONObject().apply {
-                                        put("kty", "oct")
-                                        put("k", keyB64)
-                                        put("kid", kidB64)
-                                    }
-                                    keysArray.put(keyObj)
-                                } catch (e: Exception) { e.printStackTrace() }
-                            }
-                            val jwkSet = org.json.JSONObject().apply {
-                                put("keys", keysArray)
-                                put("type", "temporary")
-                            }
-                            clearKeyBytes = jwkSet.toString().toByteArray()
-                        }
-                        useLocalClearKey = true
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        clearKeyBytes = jsonStr.toByteArray()
-                        useLocalClearKey = true
-                    }
-                } else {
-                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                    drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
-                    drmBuilder.setMultiSession(true)
-                }
-            }
-
-            if (useLocalClearKey || finalDrm.type.lowercase() == "clearkey") {
-                drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
-            }
-            mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-            
-            if (useLocalClearKey && clearKeyBytes != null) {
-                val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
-                val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-                    .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
-                    .build(localMediaDrmCallback)
-                mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
-            }
-        }
-
-        val mediaItem = mediaItemBuilder.build()
-        val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
-        
-        exoPlayer.clearMediaItems()
-        exoPlayer.setMediaSource(mediaSource)
+    // Handle Media Source updates
+    LaunchedEffect(currentMediaSource) {
+        val source = currentMediaSource ?: return@LaunchedEffect
+        exoPlayer.setMediaSource(source)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+    }
+
+    // Auto Prefetch next/prev channels
+    LaunchedEffect(channel, currentPlaylist) {
+        val index = currentPlaylist.indexOf(channel)
+        if (index != -1) {
+            playerViewModel.prefetchChannels(currentPlaylist, index)
+        }
     }
 
     // ExoPlayer Listener
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                isLoading = playbackState == Player.STATE_BUFFERING
+                isBuffering = playbackState == Player.STATE_BUFFERING
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
                 }
@@ -567,11 +224,11 @@ fun LivePlayerScreen(
                 if (sourcesList.isNotEmpty() && currentIndex != -1 && currentIndex < sourcesList.size - 1) {
                     // Auto play next source
                     currentSourceUrl = sourcesList[currentIndex + 1]
-                    isLoading = true
+                    isBuffering = true
                     playerError = null
                 } else {
                     playerError = error
-                    isLoading = false
+                    isBuffering = false
                 }
             }
         }
@@ -582,19 +239,11 @@ fun LivePlayerScreen(
     }
 
     // Progress Tracker
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
+    LaunchedEffect(Unit) {
+        while (true) {
             currentPosition = exoPlayer.currentPosition
             bufferedPosition = exoPlayer.bufferedPosition
             duration = exoPlayer.duration.coerceAtLeast(0L)
-            delay(500)
-        }
-    }
-    
-    // Fallback for when paused but buffering
-    LaunchedEffect(isLoading) {
-        while (isLoading) {
-            bufferedPosition = exoPlayer.bufferedPosition
             delay(500)
         }
     }
@@ -622,15 +271,14 @@ fun LivePlayerScreen(
             val currentTime = System.currentTimeMillis()
             if (currentTime - backPressedTime < 2000) {
                 val activity = context as? ComponentActivity
-                activity?.finish()
-                Runtime.getRuntime().exit(0)
+                activity?.finishAndRemoveTask()
             } else {
                 backPressedTime = currentTime
                 android.widget.Toast.makeText(context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT).show()
             }
         } else {
             val activity = context as? ComponentActivity
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
             navController.popBackStack()
@@ -646,22 +294,22 @@ fun LivePlayerScreen(
                     when (event.nativeKeyEvent.keyCode) {
                         android.view.KeyEvent.KEYCODE_DPAD_UP -> {
                             if (!showOverlay) {
-                                viewModel.tuneToNextChannel(isTvModeEnabled)
+                                viewModel.tuneToNextChannel()
                                 true
                             } else false
                         }
                         android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
-                            viewModel.tuneToNextChannel(isTvModeEnabled)
+                            viewModel.tuneToNextChannel()
                             true
                         }
                         android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (!showOverlay) {
-                                viewModel.tuneToPrevChannel(isTvModeEnabled)
+                                viewModel.tuneToPrevChannel()
                                 true
                             } else false
                         }
                         android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                            viewModel.tuneToPrevChannel(isTvModeEnabled)
+                            viewModel.tuneToPrevChannel()
                             true
                         }
                         android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
@@ -697,10 +345,10 @@ fun LivePlayerScreen(
                     onDragEnd = {
                         if (totalDrag > 150f) {
                             // Swiped Right -> Previous Channel
-                            viewModel.tuneToPrevChannel(isTvModeEnabled)
+                            viewModel.tuneToPrevChannel()
                         } else if (totalDrag < -150f) {
                             // Swiped Left -> Next Channel
-                            viewModel.tuneToNextChannel(isTvModeEnabled)
+                            viewModel.tuneToNextChannel()
                         }
                         totalDrag = 0f
                     },
@@ -811,11 +459,12 @@ fun LivePlayerScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (isTvModeEnabled) {
                                 TvIconButton(onClick = {
-                                    viewModel.toggleTvMode(context, false)
+                                    viewModel.toggleTvMode(false)
                                     val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                                     intent?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
                                     if (intent != null) context.startActivity(intent)
-                                    Runtime.getRuntime().exit(0)
+                                    val activity = context as? ComponentActivity
+                                    activity?.finishAndRemoveTask()
                                 }) {
                                     Icon(Icons.Default.PowerSettingsNew, "Turn Off TV Mode", tint = TealAccent)
                                 }
@@ -829,7 +478,7 @@ fun LivePlayerScreen(
                                 Icon(Icons.Default.Lock, "Lock", tint = Color.White)
                             }
                             TvIconButton(onClick = {
-                                val modes = VideoScaleMode.values()
+                                val modes = VideoScaleMode.entries.toTypedArray()
                                 val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
                                 scaleMode = modes[nextIndex]
                                 android.widget.Toast.makeText(context, scaleMode.title, android.widget.Toast.LENGTH_SHORT).show()
@@ -860,7 +509,7 @@ fun LivePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TvIconButton(
-                            onClick = { viewModel.tuneToPrevChannel(isTvModeEnabled) },
+                            onClick = { viewModel.tuneToPrevChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Prev Channel", tint = Color.White, modifier = Modifier.size(28.dp))
@@ -881,7 +530,7 @@ fun LivePlayerScreen(
                         }
 
                         TvIconButton(
-                            onClick = { viewModel.tuneToNextChannel(isTvModeEnabled) },
+                            onClick = { viewModel.tuneToNextChannel() },
                             modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next Channel", tint = Color.White, modifier = Modifier.size(28.dp))
@@ -944,11 +593,16 @@ fun LivePlayerScreen(
             }
         }
 
-        if (isLoading && !isLocked) {
-            CircularProgressIndicator(
-                color = Color.Red,
-                modifier = Modifier.align(Alignment.Center)
-            )
+        if ((isResolving || isBuffering) && !isLocked) {
+            Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.Red)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (isResolving) "Resolving stream..." else "Buffering...",
+                    color = Color.White,
+                    fontSize = 12.sp
+                )
+            }
         } else if (playerError != null) {
             Column(
                 modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp)).padding(24.dp),
@@ -964,14 +618,17 @@ fun LivePlayerScreen(
                 Button(
                     onClick = {
                         playerError = null
-                        isLoading = true
-                        if (channel.sources.isNotEmpty()) {
-                            currentSourceUrl = channel.sources.values.firstOrNull() ?: channel.url
+                        isBuffering = true
+                        val retryUrl = if (channel.sources.isNotEmpty()) {
+                            channel.sources.values.firstOrNull() ?: channel.url
                         } else {
-                            currentSourceUrl = channel.url
+                            channel.url
                         }
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
+                        if (currentSourceUrl != retryUrl) {
+                            currentSourceUrl = retryUrl // This will trigger LaunchedEffect
+                        } else {
+                            playerViewModel.retryResolution(channel, currentSourceUrl)
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
                 ) {

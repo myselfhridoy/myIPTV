@@ -40,7 +40,7 @@ object QuickJsAddonManager {
     private val addonScriptsCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     
     // Cookie cache similar to QuickJsPlaylistParser
-    private val cookieCache = CopyOnWriteArrayList<okhttp3.Cookie>()
+    private val cookieCache = mutableListOf<okhttp3.Cookie>()
 
     private val safeDns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> {
@@ -84,17 +84,21 @@ object QuickJsAddonManager {
         .followSslRedirects(true)
         .cookieJar(object : okhttp3.CookieJar {
             override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-                cookies.forEach { newCookie ->
-                    cookieCache.removeAll { it.name == newCookie.name && it.domain == newCookie.domain && it.path == newCookie.path }
-                    cookieCache.add(newCookie)
+                synchronized(cookieCache) {
+                    cookies.forEach { newCookie ->
+                        cookieCache.removeAll { it.name == newCookie.name && it.domain == newCookie.domain && it.path == newCookie.path }
+                        cookieCache.add(newCookie)
+                    }
                 }
             }
             override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-                val host = url.host
-                val now = System.currentTimeMillis()
-                cookieCache.removeAll { it.expiresAt < now }
-                return cookieCache.filter {
-                    (host == it.domain || host.endsWith(it.domain)) && it.expiresAt >= now
+                synchronized(cookieCache) {
+                    val host = url.host
+                    val now = System.currentTimeMillis()
+                    cookieCache.removeAll { it.expiresAt < now }
+                    return cookieCache.filter {
+                        (host == it.domain || host.endsWith(it.domain)) && it.expiresAt >= now
+                    }
                 }
             }
         })
@@ -399,14 +403,14 @@ object QuickJsAddonManager {
                         };
                     """.trimIndent()
                     
-                    evaluate<String>("$polyfill\n; 'ok';")
-                    evaluate<String>("$cryptoJsCode\n; 'ok';")
+                    evaluate<String>(polyfill)
+                    evaluate<String>(cryptoJsCode)
                     
                     val seasonArg = season?.toString() ?: "null"
                     val episodeArg = episode?.toString() ?: "null"
 
-                    evaluate<String>("var module = { exports: {} }; var exports = module.exports;\n; 'ok';")
-                    evaluate<String>("$addonCode\n; 'ok';")
+                    evaluate<String>("var module = { exports: {} }; var exports = module.exports;")
+                    evaluate<String>(addonCode)
                     
                     val scriptWrapper = """
                         (async function() {
