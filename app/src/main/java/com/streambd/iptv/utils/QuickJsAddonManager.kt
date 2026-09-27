@@ -16,7 +16,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Dns
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,7 +26,6 @@ import java.net.UnknownHostException
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.CopyOnWriteArrayList
 
 object QuickJsAddonManager {
     private val jsExecutionSemaphore = Semaphore(2)
@@ -229,7 +227,10 @@ object QuickJsAddonManager {
             context.assets.open("crypto-js.min.js").bufferedReader().use { it.readText() }
         } catch (e: Exception) { "" }
         val logs = StringBuilder()
-        val resultStr = executeAddonInQuickJs(context, cryptoJsCode, jsCode, "Test Addon", "http://test", null, type, tmdbId, season, episode, logs)
+        val resultStr = executeAddonInQuickJs(
+            context, cryptoJsCode, jsCode, "Test Addon", "http://test",
+            null, type, tmdbId, season, episode, logs
+        )
         return try {
             val listType = object : TypeToken<List<StreamSource>>() {}.type
             Pair(gson.fromJson(resultStr, listType) ?: emptyList(), logs.toString())
@@ -278,10 +279,24 @@ object QuickJsAddonManager {
                         null
                     }
                     function("nativeBtoa") { args ->
-                        if (args.isNotEmpty()) Base64.encodeToString((args[0] as String).toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP) else ""
+                        if (args.isNotEmpty()) {
+                            Base64.encodeToString(
+                                (args[0] as String).toByteArray(Charsets.ISO_8859_1),
+                                Base64.NO_WRAP
+                            )
+                        } else {
+                            ""
+                        }
                     }
                     function("nativeAtob") { args ->
-                        if (args.isNotEmpty()) String(Base64.decode((args[0] as String), Base64.DEFAULT), Charsets.ISO_8859_1) else ""
+                        if (args.isNotEmpty()) {
+                            String(
+                                Base64.decode((args[0] as String), Base64.DEFAULT),
+                                Charsets.ISO_8859_1
+                            )
+                        } else {
+                            ""
+                        }
                     }
                     asyncFunction("nativeBypass") { _ -> false }
 
@@ -369,7 +384,6 @@ object QuickJsAddonManager {
                         };
                     """.trimIndent()
 
-                    // Reserved global names to skip during function discovery
                     val reservedGlobals = setOf(
                         "console", "atob", "btoa", "fetch", "bypassCloudflare",
                         "CryptoJS", "window", "globalThis", "module", "exports",
@@ -395,22 +409,16 @@ object QuickJsAddonManager {
                     evaluate<Any?>("var module = { exports: {} }; var exports = module.exports;")
                     evaluate<Any?>(addonCode)
 
-                    // ── CRITICAL FIX: evaluate<Any?> without '; 'ok';' suffix ──
-                    // Previously '; 'ok';' caused the block to return synchronously,
-                    // abandoning the async IIFE's Promise before nativeSend was ever called.
-                    // Now dokar/quickjs suspends the coroutine until the Promise settles.
                     val scriptWrapper = """
                         (async function() {
                             try {
                                 var reserved = $reservedGlobalsJson;
                                 var parserFunc = null;
-                                
-                                // Priority 1: module.exports is a function
+
                                 if (typeof module.exports === 'function') {
                                     parserFunc = module.exports;
                                 }
-                                
-                                // Priority 2: well-known addon entry point names
+
                                 if (!parserFunc) {
                                     var knownNames = ['resolveFromAddon', 'getStreams', 'resolve', 'getLinks', 'getSources', 'main'];
                                     for (var i = 0; i < knownNames.length; i++) {
@@ -420,8 +428,7 @@ object QuickJsAddonManager {
                                         }
                                     }
                                 }
-                                
-                                // Priority 3: scan globals, skip reserved names
+
                                 if (!parserFunc) {
                                     var keys = Object.keys(globalThis);
                                     for (var j = 0; j < keys.length; j++) {
@@ -432,7 +439,7 @@ object QuickJsAddonManager {
                                         }
                                     }
                                 }
-                                
+
                                 if (typeof parserFunc === 'function') {
                                     var result = parserFunc("$type", "$tmdbId", $seasonArg, $episodeArg);
                                     if (result && typeof result.then === 'function') {
@@ -450,7 +457,6 @@ object QuickJsAddonManager {
                         })();
                     """.trimIndent()
 
-                    // evaluate<Any?> — lets dokar/quickjs await the returned Promise
                     evaluate<Any?>(scriptWrapper)
                 }
             } catch (e: Exception) {
