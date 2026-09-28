@@ -227,6 +227,25 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private fun needsWebView(channel: Channel): Boolean {
+    val u = channel.url.lowercase()
+    return u.contains("tokenurl=streamplay") || u.contains("tokenurl=streambd") ||
+        channel.tokenUrl.equals("streamplay", true) || channel.tokenUrl.equals("streambd", true)
+}
+
+
+    private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
+    if (needsWebView(channel)) return
+    if (!force && getCached(cacheKey) != null) return
+    try {
+        MediaResolver.resolveMediaParams(appContext, channel, channel.url)
+            ?.let { putCached(cacheKey, it) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Prefetch failed for ${channel.name}", e)
+    }
+}
     private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
         if (!force && getCached(cacheKey) != null) return
         try {
