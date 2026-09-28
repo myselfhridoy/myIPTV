@@ -9,12 +9,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import java.io.ByteArrayOutputStream
 
-/**
- * Universal: কোনো ডোমেইন হার্ডকোড নেই।
- * upstream রেসপন্স image/* হলে (বা শুরুর বাইট PNG/JPEG/GIF/WEBP সিগনেচার হলে)
- * সেগমেন্ট নামিয়ে ছবির অংশ কেটে ভেতরের TS/ভিডিও ডেটা দেয়।
- * অন্য সব রেসপন্স সরাসরি (বাফার ছাড়া) পাস হয়।
- */
+
 @UnstableApi
 class PngStrippingDataSource(private val upstream: DataSource) : DataSource {
 
