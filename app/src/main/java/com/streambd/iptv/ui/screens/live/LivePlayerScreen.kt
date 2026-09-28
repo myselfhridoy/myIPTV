@@ -594,15 +594,11 @@ fun LivePlayerScreen(
         }
 
         if ((isResolving || isBuffering) && !isLocked) {
-            Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = Color.Red)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (isResolving) "Resolving stream..." else "Buffering...",
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
-            }
+            // Spinner only — no "Resolving stream..." / "Buffering..." text
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Red
+            )
         } else if (playerError != null) {
             Column(
                 modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp)).padding(24.dp),
