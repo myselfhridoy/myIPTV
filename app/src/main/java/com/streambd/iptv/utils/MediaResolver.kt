@@ -96,8 +96,6 @@ object MediaResolver {
      */
     private val PAGE_URL_MARKERS = listOf(
         "tokenurl=",            // our own page-marker convention
-        "streamplay",           // our own token marker
-        "streambd",             // our own token marker
         "portal.php",           // generic Stalker / IPTV portal
         "action=create_link",   // generic Stalker API action
         "action=get_profile",   // generic Stalker API action
@@ -237,8 +235,13 @@ object MediaResolver {
 
             // ---- Fall back to generic redirect / playlist sniffing ---------------
             if (resolved == null) {
-                resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
-            }
+    val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
+    val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
+        Regex("""^[\\/]?\d+$""").matches(tokenLower)
+    // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
+    if (mustUseResolver) return@withContext null
+    resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
+}
 
             var finalUrl = resolved?.url ?: rawSourceUrl
             val rawFinalHeaders = resolved?.headers ?: initialHeaders
@@ -289,6 +292,13 @@ object MediaResolver {
                 }
             }
 
+            val pathOnly = finalUrl.substringBefore("?").substringBefore("#").lowercase()
+if (!finalUrl.startsWith("data:", ignoreCase = true) &&
+    !pathOnly.contains(".m3u8") && !pathOnly.contains(".mpd") &&
+    (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts"))
+) {
+    mimeType = MimeTypes.VIDEO_MP2T
+}
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
