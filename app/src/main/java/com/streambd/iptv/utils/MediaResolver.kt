@@ -45,39 +45,111 @@ data class ResolvedMediaParams(
 
 @UnstableApi
 object MediaResolver {
-    private val EXT_REGEX = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
-    private val PROTO_REGEX = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-    private val REDIRECT_REGEX = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
+
+    // -------------------------------------------------------------------------
+    // URL pattern tables — no provider names anywhere.
+    // -------------------------------------------------------------------------
+
+    /** URL extensions that almost always indicate a directly playable file. */
+    private val EXT_REGEX = Regex(
+        "\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp|m4v|3gp)(\\?|#|$|[\"'])",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Streaming protocols that ExoPlayer can hand off directly. */
+    private val PROTO_REGEX = Regex(
+        "^(rtmp|rtsp|udp|srt|rtp|mms)://",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** URL patterns that suggest an intermediate redirect / shortener. */
+    private val REDIRECT_REGEX = Regex(
+        "(is\\.gd|tinyurl|bit\\.ly|t\\.co|redirect|url=|goto=)",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** ClearKey raw key pair (`kid:key`). */
     private val DRM_KEY_REGEX = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
+
+    /** Any file-like extension at the end of the path component. */
     private val EXT_ONLY_REGEX = Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)")
 
-    // Max bytes read when sniffing a response body. Playlists/JSON are small; this stops a
-    // live stream that reports a text-like content type from being read forever.
+    /**
+     * Path segments that hint the response is a media manifest even
+     * without a `.m3u8`/`.mpd` extension.
+     * (e.g. `/hls`, `/dash`, `/mpegts`, `/manifest`, `/playlist`, `/chunklist`.)
+     */
+    private val MEDIA_PATH_HINT_REGEX = Regex(
+        "/(hls|dash|mpegts|manifest|playlist|chunklist|master|index|live)(\\?|/|#|$)",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Query parameters that hint at a media format. */
+    private val MEDIA_QUERY_HINT_REGEX = Regex(
+        "[?&](extension|output|type|format|stream|mimetype|media|container)=(m3u8|mpd|ts|hls|dash|mpegts)",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * URL patterns that identify a *page* rather than a stream, regardless of
+     * who the provider is. Kept as generic token markers, not provider names.
+     */
+    private val PAGE_URL_MARKERS = listOf(
+        "tokenurl=",            // our own page-marker convention
+        "streamplay",           // our own token marker
+        "streambd",             // our own token marker
+        "portal.php",           // generic Stalker / IPTV portal
+        "action=create_link",   // generic Stalker API action
+        "action=get_profile",   // generic Stalker API action
+        "action=handshake"      // generic Stalker API action
+    )
+
+    // Max bytes read when sniffing a response body. Playlists / JSON are small; this
+    // stops a live stream that reports a text-like content type from being read forever.
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
-    // Use a single OkHttpClient instance for better performance and resource management
+    // Use a single OkHttpClient instance for better performance and resource management.
     val sharedOkHttpClient: OkHttpClient by lazy {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
             .build()
     }
 
     /**
-     * Returns true for URLs that are obviously HTML/portal pages, not streams.
+     * Returns true for URLs that are obviously HTML/API pages, not streams.
      *
-     * If we don't detect these, the mimeType auto-detection below force-assigns
-     * `application/x-mpegURL` to any extensionless URL, and ExoPlayer then tries to parse
-     * the HTML page as an HLS manifest → "Input does not start with the #EXTM3U header".
+     * Generic check — uses marker tokens, not provider names. The markers are the
+     * same ones our own M3U pages use to flag "this is not a stream, resolve me".
+     * If we don't detect these, the mimeType fallback below would force-assign
+     * `application/x-mpegURL` to an extensionless page URL, and ExoPlayer would
+     * then fail with "Input does not start with the #EXTM3U header".
      */
     private fun isKnownPageUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
-        if (lower.contains("tokenurl=")) return true
-        if (lower.contains("streamplay")) return true
-        if (lower.contains("streambd")) return true
-        if (lower.contains("portal.php")) return true
-        if (lower.contains("action=create_link")) return true
+
+        // Marker tokens in the URL (query, path, or fragment).
+        if (PAGE_URL_MARKERS.any { lower.contains(it) }) return true
+
+        // Literal HTML files. `.php` and other server-side extensions are NOT blocked
+        // here — many valid streams hide behind `live.php`, `stream.php`, etc.
         val path = lower.substringBefore("?").substringBefore("#")
         if (path.endsWith(".html") || path.endsWith(".htm")) return true
+
+        return false
+    }
+
+    /**
+     * True if the URL looks like a media URL by extension, protocol, path, or
+     * query hint. This is deliberately broad so we don't reject valid streams
+     * that come without an explicit `.m3u8` / `.mpd` extension.
+     */
+    private fun looksLikeMediaUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        if (url.startsWith("data:", ignoreCase = true)) return true
+        if (PROTO_REGEX.containsMatchIn(url)) return true
+        if (EXT_REGEX.containsMatchIn(url)) return true
+        if (MEDIA_PATH_HINT_REGEX.containsMatchIn(url)) return true
+        if (MEDIA_QUERY_HINT_REGEX.containsMatchIn(url)) return true
         return false
     }
 
@@ -95,6 +167,9 @@ object MediaResolver {
         })
     }
 
+    // =========================================================================
+    // Public entry point
+    // =========================================================================
     suspend fun resolveMediaParams(
         context: Context,
         channel: Channel,
@@ -104,6 +179,7 @@ object MediaResolver {
             val parsedSource = M3UParser.parseUrlHeaders(currentSourceUrl)
             val rawSourceUrl = parsedSource.cleanUrl
 
+            // ---- Merge headers from channel metadata + URL custom params ---------
             val initialHeaders = mutableMapOf<String, String>()
             channel.userAgent?.let { initialHeaders["User-Agent"] = it }
             channel.cookie?.let { initialHeaders["Cookie"] = it }
@@ -112,6 +188,7 @@ object MediaResolver {
             channel.httpHeaders?.forEach { (k, v) -> initialHeaders[k] = v }
             parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
 
+            // Case-insensitive dedupe: last-wins for conflicting keys.
             val deduplicatedHeaders = linkedMapOf<String, Pair<String, String>>()
             initialHeaders.forEach { (k, v) ->
                 deduplicatedHeaders[k.lowercase()] = k to v
@@ -128,20 +205,22 @@ object MediaResolver {
             val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
             val currentPlayRef = parsedSource.custom["playref"]
 
+            // ---- DRM extraction from URL custom params --------------------------
             var sourceDrm = channel.drm
             if (parsedSource.custom.containsKey("drm-type")) {
                 val drmType = parsedSource.custom["drm-type"]
                 val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
-                if (drmKey != null && DRM_KEY_REGEX.matches(drmKey)) {
-                    sourceDrm = DrmConfig(type = "clearkey", rawKeyPair = drmKey)
+                sourceDrm = if (drmKey != null && DRM_KEY_REGEX.matches(drmKey)) {
+                    DrmConfig(type = "clearkey", rawKeyPair = drmKey)
                 } else {
-                    sourceDrm = DrmConfig(type = drmType, licenseServer = drmKey)
+                    DrmConfig(type = drmType, licenseServer = drmKey)
                 }
             }
 
             val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
                 rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
+            // ---- Try the token/page resolver first ------------------------------
             var resolved: ResolvedToken? = null
             if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal || YouTubeExtractor.isYouTubeUrl(rawSourceUrl)) {
                 resolved = TokenParser.resolveTokenForUrl(
@@ -156,6 +235,7 @@ object MediaResolver {
                 )
             }
 
+            // ---- Fall back to generic redirect / playlist sniffing ---------------
             if (resolved == null) {
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
             }
@@ -165,16 +245,16 @@ object MediaResolver {
             val finalHeaders = TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: sourceDrm
 
-            // ---- NEW GUARD -----------------------------------------------------------
-            // If, after all resolution attempts, the URL still points at a known page
-            // endpoint (tokenUrl=, streamPlay, etc.) — the resolver failed. Return null
-            // so the ViewModel treats it as a resolution failure instead of handing an
-            // HTML page to ExoPlayer as if it were an HLS manifest.
-            if (isKnownPageUrl(finalUrl) && resolved == null) {
+            // ---- Guard: resolver failed and URL is still a page ------------------
+            // If nothing resolved and the URL is still a page marker, return null so
+            // the ViewModel shows "resolver failed" instead of handing a page URL to
+            // ExoPlayer as if it were an HLS manifest.
+            if (resolved == null && isKnownPageUrl(finalUrl)) {
                 return@withContext null
             }
-            // --------------------------------------------------------------------------
 
+            // ---- Crichd-style wrap: many CRICHD endpoints return a bare stream URL
+            //      without an #EXTM3U header; wrap it in a tiny master playlist.
             val isCrichd = currentTokenUrl?.equals("crichd", ignoreCase = true) == true ||
                 rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
@@ -184,40 +264,30 @@ object MediaResolver {
             if (shouldWrapInMasterPlaylist) {
                 val bandwidth = 220000
                 val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
-                finalUrl = "data:application/x-mpegURL;base64," + Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
+                finalUrl = "data:application/x-mpegURL;base64," +
+                    Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
             }
 
-            var mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
+            // ---- MimeType detection ---------------------------------------------
+            var mimeType: String? = if (shouldWrapInMasterPlaylist ||
+                finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
                 MimeTypes.APPLICATION_M3U8
             } else {
                 TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
             }
 
-            // ---- FIXED mimeType fallback --------------------------------------------
-            // Old logic force-set m3u8 for ANY extensionless URL — including page URLs
-            // like `playlist?tokenUrl=streambd` — which produced "Input does not start
-            // with #EXTM3U". Now we only force m3u8 when:
-            //   - URL is not a known page
-            //   - AND the response was already sniffed as HLS (resolved != null with m3u8)
-            //   - OR the URL has an explicit HLS/TS hint
-            if (mimeType == null && !isKnownPageUrl(finalUrl)) {
-                val isHlsOrTsHint =
-                    finalUrl.contains(".m3u8", ignoreCase = true) ||
-                    finalUrl.contains("mpegurl", ignoreCase = true) ||
-                    finalUrl.contains("mpegts", ignoreCase = true) ||
-                    finalUrl.contains("type=ts", ignoreCase = true) ||
-                    finalUrl.contains("extension=m3u8", ignoreCase = true) ||
-                    finalUrl.contains("live.php", ignoreCase = true)
-
-                if (isHlsOrTsHint) {
-                    mimeType = MimeTypes.APPLICATION_M3U8
-                } else if (resolved != null && resolved.mimeType == MimeTypes.APPLICATION_M3U8) {
-                    // The sniffer already told us it's HLS — trust it.
-                    mimeType = MimeTypes.APPLICATION_M3U8
+            // Universal mimeType fallback:
+            // Only force m3u8 when the URL gives us a positive media hint.
+            // Never force m3u8 just because the URL is extensionless — that was the
+            // root cause of "Input does not start with the #EXTM3U header".
+            if (mimeType == null && !isKnownPageUrl(finalUrl) && looksLikeMediaUrl(finalUrl)) {
+                mimeType = when {
+                    finalUrl.contains(".mpd", ignoreCase = true) ||
+                        finalUrl.contains("dash+xml", ignoreCase = true) ||
+                        finalUrl.contains("/dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                    else -> MimeTypes.APPLICATION_M3U8
                 }
-                // Otherwise leave mimeType = null and let ExoPlayer infer from content type.
             }
-            // --------------------------------------------------------------------------
 
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
@@ -226,7 +296,7 @@ object MediaResolver {
                 mimeType = mimeType
             )
         } catch (e: CancellationException) {
-            // Never swallow cancellation, otherwise a cancelled resolve looks like a failed one
+            // Never swallow cancellation.
             throw e
         } catch (e: Exception) {
             e.printStackTrace()
@@ -234,16 +304,41 @@ object MediaResolver {
         }
     }
 
-    private suspend fun resolveRedirectsAndPlaylists(rawSourceUrl: String, initialHeaders: Map<String, String>): ResolvedToken? {
-        val decodedUrl = try { URLDecoder.decode(rawSourceUrl, "UTF-8") } catch (e: Exception) { rawSourceUrl }
-        val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
-        val hasKnownExtensionOrProto = EXT_REGEX.containsMatchIn(decodedUrl) || PROTO_REGEX.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
+    // =========================================================================
+    // Generic redirect / playlist resolver
+    //
+    // Handles URLs that aren't handled by TokenParser (no tokenUrl) and that
+    // look like they might be a redirect or a raw playlist body.
+    // =========================================================================
+    private suspend fun resolveRedirectsAndPlaylists(
+        rawSourceUrl: String,
+        initialHeaders: Map<String, String>
+    ): ResolvedToken? {
+        val decodedUrl = try {
+            URLDecoder.decode(rawSourceUrl, "UTF-8")
+        } catch (e: Exception) {
+            rawSourceUrl
+        }
+
+        // PHP files that explicitly declare HLS in their own query string are
+        // treated as stream endpoints even though their path has `.php`.
+        val isExplicitHlsPhp =
+            rawSourceUrl.contains("live.php", ignoreCase = true) ||
+            rawSourceUrl.contains("extension=m3u8", ignoreCase = true) ||
+            rawSourceUrl.contains("output=m3u8", ignoreCase = true)
+
+        val hasKnownExtensionOrProto =
+            EXT_REGEX.containsMatchIn(decodedUrl) ||
+            PROTO_REGEX.containsMatchIn(rawSourceUrl) ||
+            isExplicitHlsPhp
+
         val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
 
-        // Skip pre-resolve for known page URLs — the WebView path handles them.
+        // Skip pre-resolve for known page URLs — the resolver path handles them.
         if (isKnownPageUrl(rawSourceUrl)) return null
 
-        val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) || (!isKnownFileHost && !hasKnownExtensionOrProto)
+        val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) ||
+            (!isKnownFileHost && !hasKnownExtensionOrProto)
 
         if (!shouldPreResolve) return null
 
@@ -253,23 +348,35 @@ object MediaResolver {
             }.build()
 
             sharedOkHttpClient.newCall(req).await().use { res ->
-                val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let {
-                    it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
-                } == true
+                val isPlaylistOrJsonType = isExplicitHlsPhp ||
+                    res.header("Content-Type")?.lowercase()?.let {
+                        it.contains("mpegurl") ||
+                            it.contains("text/") ||
+                            it.contains("application/vnd.apple.mpegurl") ||
+                            it.contains("json") ||
+                            it.contains("javascript")
+                    } == true
 
                 val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
                 var isMasterPlaylist = false
 
                 if (res.isSuccessful && isPlaylistOrJsonType && contentLength < 10_000_000L) {
-                    // peekBody caps how much is read, so an endless stream can't hang/OOM here
+                    // peekBody caps how much is read, so an endless stream can't hang/OOM here.
                     val bodyStr = res.peekBody(MAX_SNIFF_BYTES).string()
                     isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
+
+                    // JSON body that might be a Stalker / API response.
                     if (bodyStr.trim().startsWith("{")) {
-                        val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
+                        val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(
+                            rawSourceUrl, initialHeaders, bodyStr
+                        )
                         if (stalkerResolved != null) return stalkerResolved
                     }
-                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("EXT-X-STREAM-INF")
 
+                    val isHlsStream = bodyStr.contains("#EXTINF:") ||
+                        bodyStr.contains("EXT-X-STREAM-INF")
+
+                    // Body IS a playlist with custom EXTHTTP headers → parse the first entry.
                     if (bodyStr.contains("#EXTM3U") && (bodyStr.contains("EXTHTTP:") || !isHlsStream)) {
                         val parsedChannels = M3UParser.parsePlaylist(bodyStr)
                         if (parsedChannels.isNotEmpty()) {
@@ -293,22 +400,38 @@ object MediaResolver {
                         }
                     }
 
+                    // Body is an HLS stream missing the leading #EXTM3U → fix and wrap.
                     if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
                         val fixedPlaylist = "#EXTM3U\n" + bodyStr.replace("# EXT-", "#EXT-")
-                        val dataUri = "data:application/x-mpegURL;base64," + Base64.encodeToString(fixedPlaylist.toByteArray(), Base64.NO_WRAP)
-                        return ResolvedToken(url = dataUri, headers = initialHeaders, mimeType = MimeTypes.APPLICATION_M3U8, isMasterPlaylist = fixedPlaylist.contains("EXT-X-STREAM-INF"))
+                        val dataUri = "data:application/x-mpegURL;base64," +
+                            Base64.encodeToString(fixedPlaylist.toByteArray(), Base64.NO_WRAP)
+                        return ResolvedToken(
+                            url = dataUri,
+                            headers = initialHeaders,
+                            mimeType = MimeTypes.APPLICATION_M3U8,
+                            isMasterPlaylist = fixedPlaylist.contains("EXT-X-STREAM-INF")
+                        )
                     }
                 }
 
                 if (res.isSuccessful) {
                     val redirectedUrl = res.request.url.toString()
                     val contentType = res.header("Content-Type")?.lowercase()
-                    val mimeType: String? =
-                        if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist) MimeTypes.APPLICATION_M3U8
-                        else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) MimeTypes.APPLICATION_MPD
-                        else TokenParser.detectMimeType(redirectedUrl)
+                    val mimeType: String? = when {
+                        contentType?.contains("mpegurl") == true ||
+                            redirectedUrl.contains(".m3u8", ignoreCase = true) ||
+                            isMasterPlaylist -> MimeTypes.APPLICATION_M3U8
+                        contentType?.contains("dash") == true ||
+                            redirectedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                        else -> TokenParser.detectMimeType(redirectedUrl)
+                    }
 
-                    return ResolvedToken(url = redirectedUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
+                    return ResolvedToken(
+                        url = redirectedUrl,
+                        headers = initialHeaders,
+                        mimeType = mimeType,
+                        isMasterPlaylist = isMasterPlaylist
+                    )
                 }
             }
         } catch (e: CancellationException) {
@@ -319,6 +442,9 @@ object MediaResolver {
         return null
     }
 
+    // =========================================================================
+    // MediaSource builder — unchanged apart from mimeType routing.
+    // =========================================================================
     @androidx.annotation.MainThread
     fun buildMediaSource(
         context: Context,
@@ -346,8 +472,9 @@ object MediaResolver {
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                 val defaultDelay = super.getRetryDelayMsFor(loadErrorInfo)
-                // Errors the default policy treats as non-retryable (parser error, file not found...)
-                // should fail right away instead of retrying 10 times (~2 min) before source fallback.
+                // Errors the default policy treats as non-retryable (parser error, file
+                // not found...) should fail right away instead of retrying 10 times
+                // (~2 min) before falling back to the next source.
                 if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
                 return if (loadErrorInfo.errorCount <= 10) {
                     1000L * (1 shl (loadErrorInfo.errorCount - 1).coerceIn(0, 4))
@@ -355,6 +482,7 @@ object MediaResolver {
                     defaultDelay
                 }
             }
+
             override fun getMinimumLoadableRetryCount(dataType: Int): Int = 10
         }
 
@@ -392,7 +520,9 @@ object MediaResolver {
                         val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
                         clearKeyBytes = clearkeyJson.toByteArray()
                         useLocalClearKey = true
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
             } else if (finalDrm.licenseServer != null) {
                 if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
@@ -402,6 +532,7 @@ object MediaResolver {
                         if (jsonObj.has("keys")) {
                             clearKeyBytes = jsonStr.toByteArray()
                         } else {
+                            // Legacy {kidHex: keyHex} map → JWK set.
                             val keysArray = JSONArray()
                             jsonObj.keys().forEach { kidHex ->
                                 val keyHex = jsonObj.getString(kidHex)
@@ -416,7 +547,9 @@ object MediaResolver {
                                         put("kid", kidB64)
                                     }
                                     keysArray.put(keyObj)
-                                } catch (e: Exception) { e.printStackTrace() }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             }
                             val jwkSet = JSONObject().apply {
                                 put("keys", keysArray)
