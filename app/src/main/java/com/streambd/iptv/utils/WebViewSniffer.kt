@@ -41,35 +41,67 @@ object WebViewSniffer {
         "caligaoctrois", "/lp/i/"
     )
 
-    private val adultKeywords = listOf("bongacams", "chaturbate", "jerkmate", ".cyou")
+    // NOTE: ".cyou" is checked separately (host suffix) so it doesn't match
+    // inside query strings or path segments.
+    private val adultKeywords = listOf("bongacams", "chaturbate", "jerkmate")
+    private val adultHostSuffixes = listOf(".cyou")
 
     private val adVideoKeywords = listOf(
         "preroll", "midroll", "postroll", "advertisement",
         "vast", "vmap", "adbreak", "ad_segment"
     )
 
-    // ফিক্স: আগে path.contains("playlist"/"manifest"/"chunklist"/".mp4") ধরা হতো, ফলে
-    // playlist.m3u, get_playlist.php, foo.mp4.jpg ইত্যাদি ভুল করে "ভিডিও" ধরা পড়ত এবং
-    // ExoPlayer এ গিয়ে "Input does not start with #EXTM3U" / "Couldn't match #EXTINF" এরর দিত।
-    // এখন শুধু পাথের শেষে আসল এক্সটেনশন (.m3u8/.mpd/...) অথবা এক্সটেনশনহীন
-    // "playlist"/"manifest"/"chunklist" নাম মিললে ভিডিও ধরা হয়। (.m3u এখানে নেই, ইচ্ছাকৃত)
-    private val videoExtRegex = Regex("""\.(m3u8|mpd|mp4|webm|flv|mkv)(?=$|[/;])""", RegexOption.IGNORE_CASE)
-    private val bareVideoNames = setOf("manifest", "playlist", "chunklist")
+    // Page-URL hints that must NEVER be classified as a video URL.
+    private val pageUrlHints = listOf(
+        "tokenurl=",
+        "streamplay",
+        "streambd"
+    )
+    private val pageUrlExts = listOf(".php", ".html", ".htm", ".asp", ".aspx", ".jsp")
 
+    private val videoExtRegex = Regex("""\.(m3u8|mpd|mp4|webm|flv|mkv)(?=$|[/;])""", RegexOption.IGNORE_CASE)
+    private val bareVideoNames = setOf("manifest", "chunklist")
+
+    /**
+     * Returns true only for URLs that are genuinely playable media.
+     *
+     * Fixes the case where `.../playlist?tokenUrl=streambd` (a page) was treated as
+     * video, then ExoPlayer complained:
+     *   "Input does not start with the #EXTM3U header".
+     */
     private fun isVideoUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        val lower = url.lowercase()
+
+        // 1) Reject page URLs that carry token/page hints.
+        if (pageUrlHints.any { lower.contains(it) }) return false
+        if (pageUrlExts.any { lower.substringBefore("?").endsWith(it) }) return false
+
         val path = try {
             Uri.parse(url).path.orEmpty()
         } catch (e: Exception) {
             url.substringBefore("?")
         }
         if (path.isEmpty()) return false
+
+        // 2) Must end with a real media extension…
         if (videoExtRegex.containsMatchIn(path)) return true
+
+        // 3) …or be an extensionless bare manifest name.
         val last = path.trimEnd('/').substringAfterLast('/').lowercase()
         return !last.contains('.') && last in bareVideoNames
     }
 
     private fun isAdVideoUrl(url: String) = adVideoKeywords.any { url.lowercase().contains(it) }
-    private fun isAdUrl(url: String) = adKeywords.any { url.lowercase().contains(it) } || adultKeywords.any { url.lowercase().contains(it) }
+
+    private fun isAdUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        if (adKeywords.any { lower.contains(it) }) return true
+        if (adultKeywords.any { lower.contains(it) }) return true
+        val host = try { Uri.parse(url).host?.lowercase().orEmpty() } catch (e: Exception) { "" }
+        if (host.isNotEmpty() && adultHostSuffixes.any { host.endsWith(it) }) return true
+        return false
+    }
 
     private fun isSameDomain(h1: String, h2: String): Boolean {
         if (h1 == h2) return true
@@ -97,10 +129,9 @@ object WebViewSniffer {
         }
     }
 
-    // ফিক্স: আগে key.contains("ad_") / contains("mp_") ধরা হতো, তাই "read_token", "temp_session",
-    // "jump_id" এর মতো দরকারি কুকিও মুছে যেত (ফলে সার্ভার HTML/403 দিত)।
-    // এখন শুধু ট্র্যাকিং কুকির পরিচিত prefix মিললে বাদ যায়।
-    private val garbageCookiePrefixes = listOf("_ga", "_gid", "_fbp", "_gcl", "wzrk", "mp_", "ajs_", "ad_", "_hj", "__utm")
+    private val garbageCookiePrefixes = listOf(
+        "_ga", "_gid", "_fbp", "_gcl", "wzrk", "mp_", "ajs_", "ad_", "_hj", "__utm"
+    )
 
     private fun filterEssentialCookies(rawCookie: String?): String {
         if (rawCookie.isNullOrBlank()) return ""
@@ -139,9 +170,12 @@ object WebViewSniffer {
         return map
     }
 
-    private fun emptyResponse(): WebResourceResponse {
+    /**
+     * 403 for blocked requests — 200-with-empty-body causes some players to retry the URL.
+     */
+    private fun blockedResponse(): WebResourceResponse {
         val response = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
-        response.setStatusCodeAndReasonPhrase(200, "OK")
+        response.setStatusCodeAndReasonPhrase(403, "Forbidden")
         response.responseHeaders = mapOf(
             "Access-Control-Allow-Origin" to "*",
             "Cache-Control" to "no-store, no-cache"
@@ -190,7 +224,9 @@ object WebViewSniffer {
                 )
 
                 val extraHeaders = headers.filterKeys { key ->
-                    key.lowercase() !in listOf("referer", "origin", "cookie", "user-agent", "host", "content-length")
+                    key.lowercase() !in listOf(
+                        "referer", "origin", "cookie", "user-agent", "host", "content-length"
+                    )
                 }.toMutableMap()
 
                 extraHeaders["Referer"] = referer
@@ -206,7 +242,9 @@ object WebViewSniffer {
 
         @JavascriptInterface
         fun log(msg: String) {
-            android.util.Log.d("WebViewSniffer_JS", msg)
+            if (com.streambd.iptv.BuildConfig.DEBUG) {
+                android.util.Log.d("WebViewSniffer_JS", msg)
+            }
         }
     }
 
@@ -217,7 +255,7 @@ object WebViewSniffer {
         headers: Map<String, String>? = null,
         userAgent: String? = null
     ): ResolvedToken? = withContext(Dispatchers.Main) {
-        withTimeoutOrNull(20000L) { // Increased timeout to 20 seconds for deep sniffing
+        withTimeoutOrNull(20000L) {
             suspendCancellableCoroutine { continuation ->
                 var isResumed = false
                 var foundMpdUrl: String? = null
@@ -227,11 +265,10 @@ object WebViewSniffer {
                 val handler = Handler(Looper.getMainLooper())
                 var currentPageUrl = url
 
-                val bypassUA = userAgent ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                val bypassUA = userAgent
+                    ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
-                CookieManager.getInstance().apply {
-                    setAcceptCookie(true)
-                }
+                CookieManager.getInstance().apply { setAcceptCookie(true) }
 
                 val webView = WebView(context).apply {
                     alpha = 0f
@@ -264,7 +301,8 @@ object WebViewSniffer {
                                 android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                             else
                                 android.view.WindowManager.LayoutParams.TYPE_PHONE,
-                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                             android.graphics.PixelFormat.TRANSPARENT
                         )
                         if (context is android.app.Activity) {
@@ -282,13 +320,11 @@ object WebViewSniffer {
                 fun cleanup() {
                     if (isCleanedUp) return
                     isCleanedUp = true
-                    // ফিক্স: পেন্ডিং postDelayed (injectDeepSniffer / MPD timeout) destroy হওয়া WebView এ চলত
+                    // Safe to clear ALL callbacks — this handler is local to the coroutine.
                     handler.removeCallbacksAndMessages(null)
                     try {
                         webView.stopLoading()
-                        try {
-                            webView.removeJavascriptInterface("AndroidBridge")
-                        } catch (e: Exception) {}
+                        try { webView.removeJavascriptInterface("AndroidBridge") } catch (e: Exception) {}
                         try {
                             if (webView.parent != null) {
                                 (webView.parent as? android.view.ViewGroup)?.removeView(webView)
@@ -300,9 +336,7 @@ object WebViewSniffer {
                     } catch (e: Exception) {}
                 }
 
-                continuation.invokeOnCancellation {
-                    handler.post { cleanup() }
-                }
+                continuation.invokeOnCancellation { handler.post { cleanup() } }
 
                 val secretToken = java.util.UUID.randomUUID().toString()
 
@@ -315,13 +349,17 @@ object WebViewSniffer {
                             if (isResumed) return@post
                             val lowerUrl = resolved.url.lowercase()
 
-                            // If it's MPD, we might want to wait for DRM keys
                             if (lowerUrl.contains(".mpd")) {
                                 if (foundKeyJson != null) {
                                     isResumed = true
                                     cleanup()
-                                    val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = foundKeyJson!!)
-                                    continuation.resume(ResolvedToken(url = resolved.url, headers = resolved.headers, drm = drmConfig))
+                                    val drmConfig = com.streambd.iptv.data.models.DrmConfig(
+                                        type = "clearkey",
+                                        licenseServer = foundKeyJson!!
+                                    )
+                                    continuation.resume(
+                                        ResolvedToken(url = resolved.url, headers = resolved.headers, drm = drmConfig)
+                                    )
                                 } else {
                                     foundMpdUrl = resolved.url
                                     foundMpdHeaders = resolved.headers
@@ -330,7 +368,9 @@ object WebViewSniffer {
                                             if (!isResumed) {
                                                 isResumed = true
                                                 cleanup()
-                                                continuation.resume(ResolvedToken(url = resolved.url, headers = resolved.headers))
+                                                continuation.resume(
+                                                    ResolvedToken(url = resolved.url, headers = resolved.headers)
+                                                )
                                             }
                                         }
                                         handler.postDelayed(mpdTimeoutRunnable!!, 3000)
@@ -350,8 +390,13 @@ object WebViewSniffer {
                                 isResumed = true
                                 mpdTimeoutRunnable?.let { handler.removeCallbacks(it) }
                                 cleanup()
-                                val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = keyJson)
-                                continuation.resume(ResolvedToken(url = foundMpdUrl!!, headers = foundMpdHeaders, drm = drmConfig))
+                                val drmConfig = com.streambd.iptv.data.models.DrmConfig(
+                                    type = "clearkey",
+                                    licenseServer = keyJson
+                                )
+                                continuation.resume(
+                                    ResolvedToken(url = foundMpdUrl!!, headers = foundMpdHeaders, drm = drmConfig)
+                                )
                             }
                         }
                     },
@@ -366,9 +411,6 @@ object WebViewSniffer {
                     databaseEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
-
-                    // CORS বাইপাস সেটিংস রিমুভ করা হলো ইউজারের রিকোয়েস্ট অনুযায়ী
-
                     mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
                     useWideViewPort = true
@@ -402,12 +444,23 @@ object WebViewSniffer {
                             return JSON.stringify(h);
                         }
 
+                        // IMPORTANT: same rules as the Kotlin side. Page URLs like
+                        // `.../playlist?tokenUrl=streambd` MUST NOT be reported.
                         function isVideoUrl(url) {
                             if (!url || typeof url !== 'string') return false;
-                            var u = url.toLowerCase().split('?')[0].split('#')[0];
-                            return u.endsWith('.m3u8') ||
-                                   u.endsWith('.mp4') ||
-                                   u.endsWith('.flv');
+                            var l = url.toLowerCase();
+                            if (l.indexOf('tokenurl=') !== -1) return false;
+                            if (l.indexOf('streamplay') !== -1) return false;
+                            if (l.indexOf('streambd') !== -1) return false;
+                            var bare = l.split('?')[0].split('#')[0];
+                            if (bare.endsWith('.php') || bare.endsWith('.html') ||
+                                bare.endsWith('.htm') || bare.endsWith('.asp')) return false;
+                            return bare.endsWith('.m3u8') ||
+                                   bare.endsWith('.mpd')  ||
+                                   bare.endsWith('.mp4')  ||
+                                   bare.endsWith('.webm') ||
+                                   bare.endsWith('.mkv')  ||
+                                   bare.endsWith('.flv');
                         }
                         function report(url, extraHeaders) {
                             try {
@@ -418,9 +471,8 @@ object WebViewSniffer {
                             } catch(e) {}
                         }
 
-                        // ─── Auto-click player buttons ────────────────────────────────────────────
+                        // ─── Auto-click player buttons ────────────────────────────────────────
                         setInterval(function() {
-                            // Remove known ad layers
                             var ads = document.querySelectorAll('#first-click-ads-layer, .delayed-popup-ads-layer, [id*="ads"], [class*="ads"]');
                             ads.forEach(function(ad) { ad.remove(); });
 
@@ -452,19 +504,20 @@ object WebViewSniffer {
                                 }
                             }
 
-                            // Try playing any video element
                             var videos = document.getElementsByTagName('video');
-                            if(videos.length > 0) { try { videos[0].play(); } catch(e) {} }
+                            if (videos.length > 0) { try { videos[0].play(); } catch(e) {} }
 
-                            // Click center of the screen to trigger any player if no specific buttons found
                             try {
                                 var clickEvent = document.createEvent('MouseEvents');
-                                clickEvent.initMouseEvent('click', true, true, window, 0, 0, 0, window.innerWidth/2, window.innerHeight/2, false, false, false, false, 0, null);
-                                document.elementFromPoint(window.innerWidth/2, window.innerHeight/2)?.dispatchEvent(clickEvent);
+                                clickEvent.initMouseEvent('click', true, true, window, 0, 0, 0,
+                                    window.innerWidth/2, window.innerHeight/2,
+                                    false, false, false, false, 0, null);
+                                var elAt = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
+                                if (elAt) elAt.dispatchEvent(clickEvent);
                             } catch(e) {}
                         }, 1000);
 
-                        // ─── iframe reload trick ──────────────────────────────────────────────────
+                        // ─── iframe reload trick ──────────────────────────────────────────────
                         document.querySelectorAll('iframe').forEach(function(f) {
                             var origSrc = f.getAttribute('src') || f.getAttribute('data-src');
                             if (!origSrc) return;
@@ -473,7 +526,7 @@ object WebViewSniffer {
                             setTimeout(function() { f.setAttribute('src', origSrc); }, 100);
                         });
 
-                        // ─── MutationObserver for dynamic iframes ────────────────────────────────
+                        // ─── MutationObserver ────────────────────────────────────────────────
                         var _observer = new MutationObserver(function(mutations) {
                             mutations.forEach(function(m) {
                                 m.addedNodes.forEach(function(node) {
@@ -481,7 +534,6 @@ object WebViewSniffer {
                                         var src = node.getAttribute('src') || node.getAttribute('data-src');
                                         if (src) report(src);
                                     }
-                                    // script tag-এর ভেতরে hardcoded URL খোঁজো
                                     if (node.tagName === 'SCRIPT' && node.textContent) {
                                         scanTextForStream(node.textContent, {});
                                     }
@@ -490,7 +542,7 @@ object WebViewSniffer {
                         });
                         _observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
 
-                        // ─── MSE hook ────────────────────────────────────────────────────────────
+                        // ─── MSE hook (log only) ─────────────────────────────────────────────
                         if (window.MediaSource) {
                             var _origMSOpen = MediaSource.prototype.addSourceBuffer;
                             MediaSource.prototype.addSourceBuffer = function(mime) {
@@ -499,7 +551,7 @@ object WebViewSniffer {
                             };
                         }
 
-                        // ─── Text scanner for hardcoded stream URLs ───────────────────────────────
+                        // ─── Text scanner ────────────────────────────────────────────────────
                         function scanTextForStream(text, extraHeaders) {
                             if (!text || typeof text !== 'string') return;
                             var patterns = [
@@ -515,7 +567,7 @@ object WebViewSniffer {
                             });
                         }
 
-                        // ─── XHR hook ────────────────────────────────────────────────────────────
+                        // ─── XHR hook ────────────────────────────────────────────────────────
                         var _origOpen  = XMLHttpRequest.prototype.open;
                         var _origSend  = XMLHttpRequest.prototype.send;
                         var _origSetRH = XMLHttpRequest.prototype.setRequestHeader;
@@ -543,7 +595,7 @@ object WebViewSniffer {
                             return _origSend.apply(this, arguments);
                         };
 
-                        // ─── Fetch hook ───────────────────────────────────────────────────────────
+                        // ─── Fetch hook ──────────────────────────────────────────────────────
                         var _origFetch = window.fetch;
                         window.fetch = function(input, init) {
                             var url = typeof input === 'string' ? input
@@ -574,12 +626,12 @@ object WebViewSniffer {
                             return p;
                         };
 
-                        // ─── Page source scan ─────────────
+                        // ─── Page source scan ────────────────────────────────────────────────
                         setTimeout(function() {
                             try { scanTextForStream(document.documentElement.innerHTML, {}); } catch(e){}
                         }, 2000);
 
-                        // Existing EME Hook
+                        // ─── EME (ClearKey) hook ─────────────────────────────────────────────
                         if (!window.hookedEME && window.MediaKeySession) {
                             window.hookedEME = true;
                             const originalUpdate = MediaKeySession.prototype.update;
@@ -625,10 +677,19 @@ object WebViewSniffer {
 
                         function isVideoUrl(url) {
                             if (!url || typeof url !== 'string') return false;
-                            var u = url.toLowerCase().split('?')[0].split('#')[0];
-                            return u.endsWith('.m3u8') ||
-                                   u.endsWith('.mp4') ||
-                                   u.endsWith('.flv');
+                            var l = url.toLowerCase();
+                            if (l.indexOf('tokenurl=') !== -1) return false;
+                            if (l.indexOf('streamplay') !== -1) return false;
+                            if (l.indexOf('streambd') !== -1) return false;
+                            var bare = l.split('?')[0].split('#')[0];
+                            if (bare.endsWith('.php') || bare.endsWith('.html') ||
+                                bare.endsWith('.htm') || bare.endsWith('.asp')) return false;
+                            return bare.endsWith('.m3u8') ||
+                                   bare.endsWith('.mpd')  ||
+                                   bare.endsWith('.mp4')  ||
+                                   bare.endsWith('.webm') ||
+                                   bare.endsWith('.mkv')  ||
+                                   bare.endsWith('.flv');
                         }
 
                         function report(url, extra) {
@@ -640,7 +701,7 @@ object WebViewSniffer {
                             } catch(e) {}
                         }
 
-                        // ─── HLS.js hook ─────────────────────────────────────────────────────────
+                        // ─── HLS.js hook ────────────────────────────────────────────────────
                         if (window.Hls && !window.Hls.__hooked) {
                             window.Hls.__hooked = true;
                             var _origLS = window.Hls.prototype.loadSource;
@@ -655,7 +716,7 @@ object WebViewSniffer {
                             _b && _b.log('[Sniffer] HLS.js hooked');
                         }
 
-                        // ─── Shaka Player hook ────────────────────────────────────────────────────
+                        // ─── Shaka Player hook ──────────────────────────────────────────────
                         if (window.shaka && window.shaka.Player && !window.shaka.__hooked) {
                             window.shaka.__hooked = true;
                             var _origLoad = window.shaka.Player.prototype.load;
@@ -666,7 +727,7 @@ object WebViewSniffer {
                             };
                         }
 
-                        // ─── Video.js hook ────────────────────────────────────────────────────────
+                        // ─── Video.js hook ──────────────────────────────────────────────────
                         if (window.videojs && !window.videojs.__hooked) {
                             window.videojs.__hooked = true;
                             var _origVjsSrc = window.videojs.prototype && window.videojs.prototype.src;
@@ -680,7 +741,8 @@ object WebViewSniffer {
                                 };
                             }
                         }
-                        // ─── JW Player hook ───────────────────────────────────────────────────────
+
+                        // ─── JW Player hook ─────────────────────────────────────────────────
                         if (window.jwplayer && !window.jwplayer.__hooked) {
                             window.jwplayer.__hooked = true;
                             var _origJwSetup = window.jwplayer.prototype && window.jwplayer.prototype.setup;
@@ -697,7 +759,7 @@ object WebViewSniffer {
                             }
                         }
 
-                        // ─── HTMLMediaElement src hook ────────────────────────────────────────────
+                        // ─── HTMLMediaElement.src hook ──────────────────────────────────────
                         if (!window.__mediaSrcHooked) {
                             window.__mediaSrcHooked = true;
                             var _nativeSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
@@ -715,7 +777,7 @@ object WebViewSniffer {
                             }
                         }
 
-                        // ─── All script tags scan ─────────────────────────────────────────────
+                        // ─── All script tags scan ───────────────────────────────────────────
                         document.querySelectorAll('script').forEach(function(s) {
                             var text = s.textContent;
                             if (!text || typeof text !== 'string') return;
@@ -732,7 +794,7 @@ object WebViewSniffer {
                             });
                         });
 
-                        // ─── DOM-এ video element poll করো (80 * 500ms = 40 seconds) ──────────────
+                        // ─── DOM-এ video element poll (40s) ────────────────────────────────
                         var pollCount = 0;
                         var pollInterval = setInterval(function() {
                             document.querySelectorAll('video').forEach(function(v) {
@@ -758,8 +820,9 @@ object WebViewSniffer {
                         error: android.net.http.SslError?
                     ) {
                         val requestUrl = error?.url ?: ""
-                        if (!requestUrl.contains("github.io", ignoreCase = true) && !requestUrl.contains("tmdb.org", ignoreCase = true)) {
-                            // Crucial for Android 7.0 TV Box: Let's Encrypt / modern SSL root certs are expired or untrusted on older OS
+                        if (!requestUrl.contains("github.io", ignoreCase = true) &&
+                            !requestUrl.contains("tmdb.org", ignoreCase = true)
+                        ) {
                             handler?.proceed()
                         } else {
                             handler?.cancel()
@@ -787,15 +850,16 @@ object WebViewSniffer {
                         }
                     }
 
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
                         val reqUrl = request?.url?.toString() ?: return true
                         if (!reqUrl.startsWith("http://") && !reqUrl.startsWith("https://")) return true
 
-                        // If video URL, do not block
                         if (isVideoUrl(reqUrl) && !isAdUrl(reqUrl)) return false
 
                         if (request.isForMainFrame) {
-                            // ফিক্স: আগে শুরুর url এর host এর সাথে তুলনা হতো, এখন বর্তমান পেজের সাথে
                             val curHost = Uri.parse(currentPageUrl).host ?: ""
                             val newHost = Uri.parse(reqUrl).host ?: ""
 
@@ -815,7 +879,8 @@ object WebViewSniffer {
                         view: WebView?,
                         request: WebResourceRequest?
                     ): WebResourceResponse? {
-                        val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
+                        val reqUrl = request?.url?.toString()
+                            ?: return super.shouldInterceptRequest(view, request)
                         val reqHeaders = request.requestHeaders ?: emptyMap()
 
                         val acceptHeader = reqHeaders.entries
@@ -829,24 +894,26 @@ object WebViewSniffer {
                         val lowerUrl = reqUrl.lowercase()
 
                         if (isVideoUrl(reqUrl)) {
-                            // Apply custom live stream valid rules if needed
-                            if ((url.contains("crichd") || url.contains("daddylive")) && (lowerUrl.contains(".mp4") || lowerUrl.contains(".webm"))) {
-                                // Skip
+                            if ((url.contains("crichd") || url.contains("daddylive")) &&
+                                (lowerUrl.contains(".mp4") || lowerUrl.contains(".webm"))
+                            ) {
+                                // passthrough
                             } else {
-                                if (isAdVideoUrl(reqUrl)) return emptyResponse()
+                                if (isAdVideoUrl(reqUrl)) return blockedResponse()
 
                                 val cm = CookieManager.getInstance()
                                 cm.flush()
 
-                                val referer = reqHeaders["Referer"] ?: reqHeaders["referer"] ?: currentPageUrl.ifEmpty { url }
-                                val origin = reqHeaders["Origin"] ?: reqHeaders["origin"] ?: extractOrigin(referer)
+                                val referer = reqHeaders["Referer"] ?: reqHeaders["referer"]
+                                    ?: currentPageUrl.ifEmpty { url }
+                                val origin = reqHeaders["Origin"] ?: reqHeaders["origin"]
+                                    ?: extractOrigin(referer)
                                 val ua = reqHeaders["User-Agent"] ?: bypassUA
                                 val rootDomain = getRootDomain(Uri.parse(referer).host)
 
                                 val finalCookie = mergeCookies(
                                     reqHeaders["Cookie"], reqHeaders["cookie"],
                                     cm.getCookie(reqUrl), cm.getCookie(referer),
-                                    // ফিক্স: "https://.$rootDomain" অবৈধ URL, getCookie সবসময় null দিত
                                     cm.getCookie("https://$rootDomain"),
                                     cm.getCookie(currentPageUrl), cm.getCookie(url)
                                 )
@@ -867,8 +934,13 @@ object WebViewSniffer {
                                         if (foundKeyJson != null) {
                                             isResumed = true
                                             cleanup()
-                                            val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = foundKeyJson!!)
-                                            continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders, drm = drmConfig))
+                                            val drmConfig = com.streambd.iptv.data.models.DrmConfig(
+                                                type = "clearkey",
+                                                licenseServer = foundKeyJson!!
+                                            )
+                                            continuation.resume(
+                                                ResolvedToken(url = reqUrl, headers = outHeaders, drm = drmConfig)
+                                            )
                                         } else {
                                             foundMpdUrl = reqUrl
                                             foundMpdHeaders = outHeaders
@@ -877,7 +949,9 @@ object WebViewSniffer {
                                                     if (!isResumed) {
                                                         isResumed = true
                                                         cleanup()
-                                                        continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
+                                                        continuation.resume(
+                                                            ResolvedToken(url = reqUrl, headers = outHeaders)
+                                                        )
                                                     }
                                                 }
                                                 handler.postDelayed(mpdTimeoutRunnable!!, 3000)
@@ -894,7 +968,7 @@ object WebViewSniffer {
                         }
 
                         if (isAdUrl(reqUrl)) {
-                            return emptyResponse()
+                            return blockedResponse()
                         }
 
                         return super.shouldInterceptRequest(view, request)
@@ -905,14 +979,16 @@ object WebViewSniffer {
                 if (userAgent != null) additionalHeaders["User-Agent"] = userAgent
 
                 try {
-                    com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log("WebViewSniffer: Loading URL: $url")
+                    com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
+                        .log("WebViewSniffer: Loading URL: $url")
                 } catch (e: Exception) {}
 
                 webView.loadUrl(url, additionalHeaders)
             }
         } ?: run {
             try {
-                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(Exception("WebViewSniffer Timeout after 20s for URL: $url"))
+                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
+                    .recordException(Exception("WebViewSniffer Timeout after 20s for URL: $url"))
             } catch (e: Exception) {}
             null
         }
