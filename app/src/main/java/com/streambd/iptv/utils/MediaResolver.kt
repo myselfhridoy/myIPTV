@@ -20,13 +20,21 @@ import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.DrmConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLDecoder
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class ResolvedMediaParams(
     val url: String,
@@ -42,11 +50,29 @@ object MediaResolver {
     private val REDIRECT_REGEX = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
     private val DRM_KEY_REGEX = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
     private val EXT_ONLY_REGEX = Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)")
-    
+
+    // Max bytes read when sniffing a response body. Playlists/JSON are small; this stops a
+    // live stream that reports a text-like content type from being read forever.
+    private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
+
     // Use a single OkHttpClient instance for better performance and resource management
     val sharedOkHttpClient: OkHttpClient by lazy {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
             .build()
+    }
+
+    /** Cancellable OkHttp call: cancelling the coroutine also cancels the network request. */
+    private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
+        cont.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (cont.isActive) cont.resume(response) else response.close()
+            }
+        })
     }
 
     suspend fun resolveMediaParams(
@@ -65,9 +91,9 @@ object MediaResolver {
             channel.origin?.let { initialHeaders["Origin"] = it }
             channel.httpHeaders?.forEach { (k, v) -> initialHeaders[k] = v }
             parsedSource.headers.forEach { (k, v) -> initialHeaders[k] = v }
-            
+
             val deduplicatedHeaders = linkedMapOf<String, Pair<String, String>>()
-            initialHeaders.forEach { (k, v) -> 
+            initialHeaders.forEach { (k, v) ->
                 deduplicatedHeaders[k.lowercase()] = k to v
             }
             initialHeaders.clear()
@@ -75,13 +101,13 @@ object MediaResolver {
             if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
                 initialHeaders["User-Agent"] = UnsafeOkHttpClient.DEFAULT_USER_AGENT
             }
-            
+
             val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
             val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
             val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
             val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
             val currentPlayRef = parsedSource.custom["playref"]
-            
+
             var sourceDrm = channel.drm
             if (parsedSource.custom.containsKey("drm-type")) {
                 val drmType = parsedSource.custom["drm-type"]
@@ -109,7 +135,7 @@ object MediaResolver {
                     playRef = currentPlayRef
                 )
             }
-            
+
             if (resolved == null) {
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
             }
@@ -126,7 +152,7 @@ object MediaResolver {
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = if (isCrichd) 220000 else 15000000
+                val bandwidth = 220000
                 val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
                 finalUrl = "data:application/x-mpegURL;base64," + Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
             }
@@ -136,7 +162,7 @@ object MediaResolver {
             } else {
                 TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
             }
-            
+
             if (mimeType == null && (finalUrl.contains(".php", ignoreCase = true) || !EXT_ONLY_REGEX.containsMatchIn(finalUrl))) {
                 if (!finalUrl.contains("mpegts", ignoreCase = true) && !finalUrl.contains("type=ts", ignoreCase = true)) {
                     mimeType = MimeTypes.APPLICATION_M3U8
@@ -149,44 +175,48 @@ object MediaResolver {
                 drm = finalDrm,
                 mimeType = mimeType
             )
+        } catch (e: CancellationException) {
+            // Never swallow cancellation, otherwise a cancelled resolve looks like a failed one
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext null
         }
     }
-    
+
     private suspend fun resolveRedirectsAndPlaylists(rawSourceUrl: String, initialHeaders: Map<String, String>): ResolvedToken? {
         val decodedUrl = try { URLDecoder.decode(rawSourceUrl, "UTF-8") } catch (e: Exception) { rawSourceUrl }
         val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
         val hasKnownExtensionOrProto = EXT_REGEX.containsMatchIn(decodedUrl) || PROTO_REGEX.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
         val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
-        
+
         val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) || (!isKnownFileHost && !hasKnownExtensionOrProto)
-        
+
         if (!shouldPreResolve) return null
-        
+
         try {
             val req = Request.Builder().url(rawSourceUrl).apply {
                 initialHeaders.forEach { (k, v) -> header(k, v) }
             }.build()
-            
-            sharedOkHttpClient.newCall(req).execute().use { res ->
-                val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
+
+            sharedOkHttpClient.newCall(req).await().use { res ->
+                val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let {
                     it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                 } == true
-                
+
                 val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
                 var isMasterPlaylist = false
-                
+
                 if (res.isSuccessful && isPlaylistOrJsonType && contentLength < 10_000_000L) {
-                    val bodyStr = res.body?.string() ?: ""
+                    // peekBody caps how much is read, so an endless stream can't hang/OOM here
+                    val bodyStr = res.peekBody(MAX_SNIFF_BYTES).string()
                     isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
                     if (bodyStr.trim().startsWith("{")) {
                         val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
                         if (stalkerResolved != null) return stalkerResolved
                     }
                     val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("EXT-X-STREAM-INF")
-                    
+
                     if (bodyStr.contains("#EXTM3U") && (bodyStr.contains("EXTHTTP:") || !isHlsStream)) {
                         val parsedChannels = M3UParser.parsePlaylist(bodyStr)
                         if (parsedChannels.isNotEmpty()) {
@@ -197,10 +227,10 @@ object MediaResolver {
                             first.cookie?.let { mergedHeaders["Cookie"] = it }
                             first.httpReferer?.let { mergedHeaders["Referer"] = it }
                             first.origin?.let { mergedHeaders["Origin"] = it }
-                            
+
                             val innerParsed = M3UParser.parseUrlHeaders(first.url)
                             innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-                            
+
                             return ResolvedToken(
                                 url = innerParsed.cleanUrl,
                                 headers = mergedHeaders,
@@ -209,25 +239,27 @@ object MediaResolver {
                             )
                         }
                     }
-                    
+
                     if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
                         val fixedPlaylist = "#EXTM3U\n" + bodyStr.replace("# EXT-", "#EXT-")
                         val dataUri = "data:application/x-mpegURL;base64," + Base64.encodeToString(fixedPlaylist.toByteArray(), Base64.NO_WRAP)
                         return ResolvedToken(url = dataUri, headers = initialHeaders, mimeType = MimeTypes.APPLICATION_M3U8, isMasterPlaylist = fixedPlaylist.contains("EXT-X-STREAM-INF"))
                     }
                 }
-                
+
                 if (res.isSuccessful) {
                     val redirectedUrl = res.request.url.toString()
                     val contentType = res.header("Content-Type")?.lowercase()
-                    var mimeType: String? = null
-                    if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist) mimeType = MimeTypes.APPLICATION_M3U8
-                    else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) mimeType = MimeTypes.APPLICATION_MPD
-                    else mimeType = TokenParser.detectMimeType(redirectedUrl)
-                    
+                    val mimeType: String? =
+                        if (contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist) MimeTypes.APPLICATION_M3U8
+                        else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true)) MimeTypes.APPLICATION_MPD
+                        else TokenParser.detectMimeType(redirectedUrl)
+
                     return ResolvedToken(url = redirectedUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -243,11 +275,11 @@ object MediaResolver {
         val finalHeaders = params.headers
         val mimeType = params.mimeType
         val finalDrm = params.drm
-        
+
         val httpDataSourceFactory = OkHttpDataSource.Factory(sharedOkHttpClient)
             .setDefaultRequestProperties(finalHeaders)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        
+
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
@@ -260,18 +292,26 @@ object MediaResolver {
 
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                return if (loadErrorInfo.errorCount <= 10) (1000L * (1 shl (loadErrorInfo.errorCount - 1).coerceAtMost(4))) else super.getRetryDelayMsFor(loadErrorInfo)
+                val defaultDelay = super.getRetryDelayMsFor(loadErrorInfo)
+                // Errors the default policy treats as non-retryable (parser error, file not found...)
+                // should fail right away instead of retrying 10 times (~2 min) before source fallback.
+                if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+                return if (loadErrorInfo.errorCount <= 10) {
+                    1000L * (1 shl (loadErrorInfo.errorCount - 1).coerceIn(0, 4))
+                } else {
+                    defaultDelay
+                }
             }
             override fun getMinimumLoadableRetryCount(dataType: Int): Int = 10
         }
-        
+
         val extractorsFactory = DefaultExtractorsFactory()
             .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
-            
+
         if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
             extractorsFactory.setMatroskaExtractorFlags(MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
         }
-            
+
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
@@ -348,7 +388,7 @@ object MediaResolver {
                 drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
             }
             mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-            
+
             if (useLocalClearKey && clearKeyBytes != null) {
                 val localMediaDrmCallback = LocalMediaDrmCallback(clearKeyBytes)
                 val drmSessionManager = DefaultDrmSessionManager.Builder()
