@@ -80,11 +80,12 @@ private data class UiPlaybackError(
 /**
  * Rejects only URLs we *know* are pages, not media.
  *
- * Fix vs previous version: we no longer blanket-block `.php` / `.html` / `.asp`,
- * because endpoints like `https://example.com/live.php?id=123` can legitimately
- * return an HLS manifest. We only block:
- *   - the specific token/page patterns used by our provider pages
- *   - literal `.html`/`.htm` files (those are never streams)
+ * Uses generic marker tokens (not provider names), so the same guard works for
+ * any IPTV provider whose URL patterns match common page conventions:
+ *   - our own `tokenUrl=` / `streamPlay` / `streambd` markers
+ *   - generic Stalker portal endpoints
+ *   - literal `.html`/`.htm` files
+ * Deliberately does NOT block `.php` / `.asp` / `.jsp` — those can serve HLS too.
  */
 private fun isKnownPageUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
@@ -92,6 +93,12 @@ private fun isKnownPageUrl(url: String?): Boolean {
     if (lower.contains("tokenurl=")) return true
     if (lower.contains("streamplay")) return true
     if (lower.contains("streambd")) return true
+    if (lower.contains("portal.php")) return true
+    if (lower.contains("action=create_link")) return true
+    if (lower.contains("action=get_profile")) return true
+    if (lower.contains("action=handshake")) return true
+    if (lower.contains("/stream.php")) return true
+    if (lower.contains("/player.php")) return true
     val path = lower.substringBefore("?").substringBefore("#")
     if (path.endsWith(".html") || path.endsWith(".htm")) return true
     return false
@@ -127,8 +134,9 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
 }
 
 /**
- * indexOf() with a fallback: the selected channel (restored from saved JSON, or enriched with
- * extra sources) is often not equals() to the instance in the loaded playlist.
+ * indexOf() with a fallback: the selected channel (restored from saved JSON, or
+ * enriched with extra sources) is often not equals() to the instance in the loaded
+ * playlist.
  */
 private fun List<com.streambd.iptv.data.models.Channel>.indexOfChannel(
     channel: com.streambd.iptv.data.models.Channel
@@ -190,7 +198,7 @@ fun LivePlayerScreen(
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
     }
 
-    // Fix #1 (continued): track URLs that already failed for this channel so we try each once.
+    // Fix #1 (continued): track URLs that already failed for this channel so each is tried once.
     var failedSourceUrls by remember(channelKey) {
         mutableStateOf(setOf<String>())
     }
@@ -203,6 +211,7 @@ fun LivePlayerScreen(
 
     val currentMediaSource by playerViewModel.currentMediaSource.collectAsState()
     val isResolving by playerViewModel.isLoading.collectAsState()
+    val isResolutionFailed by playerViewModel.resolutionFailed.collectAsState()
     val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
@@ -296,17 +305,14 @@ fun LivePlayerScreen(
     }
 
     // Media Source updates — guarded so page URLs never reach ExoPlayer.
-    // NOTE: true stale-result protection needs a generation ID in LivePlayerViewModel
-    // (see response notes below this file). The screen guard below is best-effort.
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
 
-        // Guard A: resolver returned a page URL for a token endpoint.
+        // Guard: resolver returned a page URL rather than a real stream.
         if (isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
-                message = "Stream resolver returned a page URL instead of a video stream.\n" +
-                    "The WebView sniffer could not extract the real .m3u8/.mpd URL.",
+                message = "Stream resolver returned a page URL instead of a video stream.",
                 causeMessage = null,
                 isHlsFormat = true
             )
@@ -382,7 +388,7 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // Fix #6: progress tracker — `while (isActive)` for clarity (behavior unchanged).
+    // Fix #6: progress tracker — `while (isActive)` for clarity.
     LaunchedEffect(exoPlayer) {
         while (currentCoroutineContext().isActive) {
             currentPosition = exoPlayer.currentPosition
@@ -678,9 +684,15 @@ fun LivePlayerScreen(
             }
         }
 
-        if ((isResolving || isBuffering) && !isLocked && playerError == null) {
+        // ---------------------------------------------------------------
+        // Status overlays: spinner OR error card OR nothing.
+        // Consumes BOTH playerError AND resolution-failed signals from the VM.
+        // ---------------------------------------------------------------
+        val showError = playerError != null || isResolutionFailed
+
+        if (!showError && (isResolving || isBuffering) && !isLocked) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.Red)
-        } else if (playerError != null) {
+        } else if (showError) {
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -692,20 +704,26 @@ fun LivePlayerScreen(
                 Spacer(Modifier.height(12.dp))
                 Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    playerError?.message ?: "Unknown Error",
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
-                if (lastHlsError) {
+
+                val primaryText = when {
+                    playerError != null -> playerError?.message ?: "Unknown error"
+                    isResolutionFailed -> "Stream resolver could not extract a playable URL.\n" +
+                        "The provider page may be unreachable, blocked, or behind a captcha."
+                    else -> "Unknown error"
+                }
+                Text(primaryText, color = Color.White, fontSize = 12.sp)
+
+                // Universal hint — no longer names a specific provider or file.
+                if (lastHlsError || isResolutionFailed) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Hint: the resolver returned a non-HLS page. " +
-                            "Fix WebViewSniffer.isVideoUrl() to ignore tokenUrl= URLs.",
+                        "Hint: The resolver could not extract a valid HLS/DASH manifest. " +
+                            "The provider page may be unreachable, or the stream format is unsupported.",
                         color = Color(0xFFFFC107),
                         fontSize = 11.sp
                     )
                 }
+
                 val causeText = playerError?.causeMessage
                 if (!causeText.isNullOrBlank()) {
                     Spacer(Modifier.height(4.dp))
