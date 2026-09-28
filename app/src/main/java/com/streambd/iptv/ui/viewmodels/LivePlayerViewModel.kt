@@ -1,25 +1,29 @@
 package com.streambd.iptv.ui.viewmodels
 
 import android.app.Application
-import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.source.MediaSource
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.ResolvedMediaParams
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 class LivePlayerViewModel(application: Application) : AndroidViewModel(application) {
-    
+
     private val appContext = application.applicationContext
 
     private val _currentMediaSource = MutableStateFlow<MediaSource?>(null)
@@ -28,10 +32,34 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val prefetchCache = ConcurrentHashMap<String, ResolvedMediaParams>()
-    
+    private data class CacheEntry(val params: ResolvedMediaParams, val timestamp: Long)
+
+    private val prefetchCache = ConcurrentHashMap<String, CacheEntry>()
+
     private var resolveJob: Job? = null
     private var prefetchJob: Job? = null
+
+    private companion object {
+        const val TAG = "LivePlayerViewModel"
+        const val MAX_CACHE_SIZE = 10
+        // Resolved stream URLs/tokens can expire, so don't reuse them forever
+        const val CACHE_TTL_MS = 5 * 60 * 1000L
+        // Don't prefetch while the user is quickly channel-surfing
+        const val PREFETCH_DELAY_MS = 1000L
+    }
+
+    private fun getCached(key: String): ResolvedMediaParams? {
+        val entry = prefetchCache[key] ?: return null
+        if (System.currentTimeMillis() - entry.timestamp > CACHE_TTL_MS) {
+            prefetchCache.remove(key)
+            return null
+        }
+        return entry.params
+    }
+
+    private fun putCached(key: String, params: ResolvedMediaParams) {
+        prefetchCache[key] = CacheEntry(params, System.currentTimeMillis())
+    }
 
     fun resolveChannel(channel: Channel, sourceUrl: String) {
         resolveJob?.cancel()
@@ -39,7 +67,7 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         _currentMediaSource.value = null
 
         val cacheKey = "${channel.name}|$sourceUrl"
-        val cachedParams = prefetchCache[cacheKey]
+        val cachedParams = getCached(cacheKey)
         if (cachedParams != null) {
             _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
             _isLoading.value = false
@@ -47,56 +75,71 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         resolveJob = viewModelScope.launch(Dispatchers.IO) {
-            val params = MediaResolver.resolveMediaParams(appContext, channel, sourceUrl)
-            if (params != null) {
-                prefetchCache[cacheKey] = params
-                val source = kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    MediaResolver.buildMediaSource(appContext, params)
+            try {
+                val params = MediaResolver.resolveMediaParams(appContext, channel, sourceUrl)
+                // If a newer resolve started meanwhile, drop this stale result
+                ensureActive()
+                if (params != null) {
+                    putCached(cacheKey, params)
+                    val source = withContext(Dispatchers.Main) {
+                        MediaResolver.buildMediaSource(appContext, params)
+                    }
+                    ensureActive()
+                    _currentMediaSource.value = source
                 }
-                _currentMediaSource.value = source
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to resolve ${channel.name}", e)
+            } finally {
+                // Only the latest (still active) job may turn the loading flag off,
+                // otherwise a cancelled job hides the spinner of the new one.
+                if (isActive) _isLoading.value = false
             }
-            _isLoading.value = false
         }
     }
 
     fun prefetchChannels(playlist: List<Channel>, currentIndex: Int) {
         if (playlist.size <= 1 || currentIndex == -1) return
-        
+
         prefetchJob?.cancel()
         prefetchJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(PREFETCH_DELAY_MS)
+
             // Determine next and previous channels to pre-resolve
             val nextIndex = if (currentIndex < playlist.size - 1) currentIndex + 1 else 0
             val prevIndex = if (currentIndex > 0) currentIndex - 1 else playlist.size - 1
-            
+
             val nextChannel = playlist[nextIndex]
             val prevChannel = playlist[prevIndex]
-            
+
             val currentKey = "${playlist[currentIndex].name}|${playlist[currentIndex].url}"
             val nextCacheKey = "${nextChannel.name}|${nextChannel.url}"
             val prevCacheKey = "${prevChannel.name}|${prevChannel.url}"
-            
-            // Clean up old cache to prevent memory leaks (keep max 10)
-            if (prefetchCache.size > 10) {
+
+            // Clean up old cache to prevent memory leaks
+            if (prefetchCache.size > MAX_CACHE_SIZE) {
                 val keysToKeep = setOf(currentKey, nextCacheKey, prevCacheKey)
                 prefetchCache.keys.retainAll(keysToKeep)
             }
-            
-            kotlinx.coroutines.coroutineScope {
-                val nextDeferred = async {
-                    if (!prefetchCache.containsKey(nextCacheKey)) {
-                        MediaResolver.resolveMediaParams(appContext, nextChannel, nextChannel.url)
-                    } else null
-                }
-                
-                val prevDeferred = async {
-                    if (!prefetchCache.containsKey(prevCacheKey)) {
-                        MediaResolver.resolveMediaParams(appContext, prevChannel, prevChannel.url)
-                    } else null
-                }
-                
-                nextDeferred.await()?.let { prefetchCache[nextCacheKey] = it }
-                prevDeferred.await()?.let { prefetchCache[prevCacheKey] = it }
+
+            coroutineScope {
+                launch { prefetchOne(nextChannel, nextCacheKey) }
+                launch { prefetchOne(prevChannel, prevCacheKey) }
             }
+        }
+    }
+
+    private suspend fun prefetchOne(channel: Channel, cacheKey: String) {
+        if (getCached(cacheKey) != null) return
+        try {
+            MediaResolver.resolveMediaParams(appContext, channel, channel.url)
+                ?.let { putCached(cacheKey, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A failed prefetch must never crash the app or cancel the other prefetch
+            Log.w(TAG, "Prefetch failed for ${channel.name}", e)
         }
     }
 
