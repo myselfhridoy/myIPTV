@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 
@@ -44,19 +43,29 @@ object WebViewSniffer {
 
     private val adultKeywords = listOf("bongacams", "chaturbate", "jerkmate", ".cyou")
 
-    private val videoPatterns = listOf(
-        ".m3u8", ".mpd", ".mp4", ".webm", ".flv", ".mkv",
-        "manifest", "playlist", "chunklist"
-    )
-
     private val adVideoKeywords = listOf(
         "preroll", "midroll", "postroll", "advertisement",
         "vast", "vmap", "adbreak", "ad_segment"
     )
 
+    // ফিক্স: আগে path.contains("playlist"/"manifest"/"chunklist"/".mp4") ধরা হতো, ফলে
+    // playlist.m3u, get_playlist.php, foo.mp4.jpg ইত্যাদি ভুল করে "ভিডিও" ধরা পড়ত এবং
+    // ExoPlayer এ গিয়ে "Input does not start with #EXTM3U" / "Couldn't match #EXTINF" এরর দিত।
+    // এখন শুধু পাথের শেষে আসল এক্সটেনশন (.m3u8/.mpd/...) অথবা এক্সটেনশনহীন
+    // "playlist"/"manifest"/"chunklist" নাম মিললে ভিডিও ধরা হয়। (.m3u এখানে নেই, ইচ্ছাকৃত)
+    private val videoExtRegex = Regex("""\.(m3u8|mpd|mp4|webm|flv|mkv)(?=$|[/;])""", RegexOption.IGNORE_CASE)
+    private val bareVideoNames = setOf("manifest", "playlist", "chunklist")
+
     private fun isVideoUrl(url: String): Boolean {
-        val path = url.lowercase().substringBefore("?")
-        return videoPatterns.any { path.endsWith(it) || path.contains(it) }
+        val path = try {
+            Uri.parse(url).path.orEmpty()
+        } catch (e: Exception) {
+            url.substringBefore("?")
+        }
+        if (path.isEmpty()) return false
+        if (videoExtRegex.containsMatchIn(path)) return true
+        val last = path.trimEnd('/').substringAfterLast('/').lowercase()
+        return !last.contains('.') && last in bareVideoNames
     }
 
     private fun isAdVideoUrl(url: String) = adVideoKeywords.any { url.lowercase().contains(it) }
@@ -88,6 +97,11 @@ object WebViewSniffer {
         }
     }
 
+    // ফিক্স: আগে key.contains("ad_") / contains("mp_") ধরা হতো, তাই "read_token", "temp_session",
+    // "jump_id" এর মতো দরকারি কুকিও মুছে যেত (ফলে সার্ভার HTML/403 দিত)।
+    // এখন শুধু ট্র্যাকিং কুকির পরিচিত prefix মিললে বাদ যায়।
+    private val garbageCookiePrefixes = listOf("_ga", "_gid", "_fbp", "_gcl", "wzrk", "mp_", "ajs_", "ad_", "_hj", "__utm")
+
     private fun filterEssentialCookies(rawCookie: String?): String {
         if (rawCookie.isNullOrBlank()) return ""
         val cookieMap = linkedMapOf<String, String>()
@@ -102,15 +116,15 @@ object WebViewSniffer {
         if (cookieMap.containsKey("Edge-Cache-Cookie")) {
             return "Edge-Cache-Cookie=${cookieMap["Edge-Cache-Cookie"]}"
         }
-        val garbage = listOf("_ga", "_fbp", "WZRK", "mp_", "mixpanel", "_gcl", "ad_")
         val cleanMap = cookieMap.filterKeys { key ->
-            garbage.none { g -> key.contains(g, ignoreCase = true) }
+            garbageCookiePrefixes.none { g -> key.startsWith(g, ignoreCase = true) } &&
+                !key.contains("mixpanel", ignoreCase = true)
         }
         return cleanMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
 
     private fun mergeCookies(vararg cookieStrings: String?): String {
-        val mergedRaw = cookieStrings.filterNotNull().joinToString("; ")
+        val mergedRaw = cookieStrings.filterNotNull().filter { it.isNotBlank() }.joinToString("; ")
         return filterEssentialCookies(mergedRaw)
     }
 
@@ -212,7 +226,7 @@ object WebViewSniffer {
                 var mpdTimeoutRunnable: Runnable? = null
                 val handler = Handler(Looper.getMainLooper())
                 var currentPageUrl = url
-                
+
                 val bypassUA = userAgent ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
 
                 CookieManager.getInstance().apply {
@@ -224,7 +238,7 @@ object WebViewSniffer {
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-                
+
                 var windowManager: android.view.WindowManager? = null
                 var layoutParams: android.view.WindowManager.LayoutParams? = null
                 var addedToWindow = false
@@ -264,9 +278,17 @@ object WebViewSniffer {
                     }
                 }
 
+                var isCleanedUp = false
                 fun cleanup() {
+                    if (isCleanedUp) return
+                    isCleanedUp = true
+                    // ফিক্স: পেন্ডিং postDelayed (injectDeepSniffer / MPD timeout) destroy হওয়া WebView এ চলত
+                    handler.removeCallbacksAndMessages(null)
                     try {
                         webView.stopLoading()
+                        try {
+                            webView.removeJavascriptInterface("AndroidBridge")
+                        } catch (e: Exception) {}
                         try {
                             if (webView.parent != null) {
                                 (webView.parent as? android.view.ViewGroup)?.removeView(webView)
@@ -279,11 +301,11 @@ object WebViewSniffer {
                 }
 
                 continuation.invokeOnCancellation {
-                    cleanup()
+                    handler.post { cleanup() }
                 }
 
                 val secretToken = java.util.UUID.randomUUID().toString()
-                
+
                 val jsInterface = SnifferJSInterface(
                     secretToken = secretToken,
                     currentInputUrl = url,
@@ -292,7 +314,7 @@ object WebViewSniffer {
                         handler.post {
                             if (isResumed) return@post
                             val lowerUrl = resolved.url.lowercase()
-                            
+
                             // If it's MPD, we might want to wait for DRM keys
                             if (lowerUrl.contains(".mpd")) {
                                 if (foundKeyJson != null) {
@@ -326,10 +348,10 @@ object WebViewSniffer {
                             foundKeyJson = keyJson
                             if (!isResumed && foundMpdUrl != null) {
                                 isResumed = true
+                                mpdTimeoutRunnable?.let { handler.removeCallbacks(it) }
                                 cleanup()
                                 val drmConfig = com.streambd.iptv.data.models.DrmConfig(type = "clearkey", licenseServer = keyJson)
                                 continuation.resume(ResolvedToken(url = foundMpdUrl!!, headers = foundMpdHeaders, drm = drmConfig))
-                                mpdTimeoutRunnable?.let { handler.removeCallbacks(it) }
                             }
                         }
                     },
@@ -344,8 +366,8 @@ object WebViewSniffer {
                     databaseEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
-                    
-                    // CORS বাইপাস সেটিংস রিমুভ করা হলো ইউজারের রিকোয়েস্ট অনুযায়ী
+
+                    // CORS বাইপাস সেটিংস রিমুভ করা হলো ইউজারের রিকোয়েস্ট অনুযায়ী
 
                     mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
@@ -382,11 +404,10 @@ object WebViewSniffer {
 
                         function isVideoUrl(url) {
                             if (!url || typeof url !== 'string') return false;
-                            var u = url.toLowerCase().split('?')[0];
+                            var u = url.toLowerCase().split('?')[0].split('#')[0];
                             return u.endsWith('.m3u8') ||
                                    u.endsWith('.mp4') ||
-                                   u.endsWith('.flv') ||
-                                   u.includes('playlist') || u.includes('chunklist');
+                                   u.endsWith('.flv');
                         }
                         function report(url, extraHeaders) {
                             try {
@@ -402,7 +423,7 @@ object WebViewSniffer {
                             // Remove known ad layers
                             var ads = document.querySelectorAll('#first-click-ads-layer, .delayed-popup-ads-layer, [id*="ads"], [class*="ads"]');
                             ads.forEach(function(ad) { ad.remove(); });
-                            
+
                             document.querySelectorAll('video').forEach(function(v) {
                                 if (v.paused) {
                                     v.muted = true;
@@ -430,11 +451,11 @@ object WebViewSniffer {
                                     try { el.click(); } catch(e){}
                                 }
                             }
-                            
+
                             // Try playing any video element
                             var videos = document.getElementsByTagName('video');
-                            if(videos.length > 0) { videos[0].play(); }
-                            
+                            if(videos.length > 0) { try { videos[0].play(); } catch(e) {} }
+
                             // Click center of the screen to trigger any player if no specific buttons found
                             try {
                                 var clickEvent = document.createEvent('MouseEvents');
@@ -557,9 +578,9 @@ object WebViewSniffer {
                         setTimeout(function() {
                             try { scanTextForStream(document.documentElement.innerHTML, {}); } catch(e){}
                         }, 2000);
-                        
+
                         // Existing EME Hook
-                        if (!window.hookedEME) {
+                        if (!window.hookedEME && window.MediaKeySession) {
                             window.hookedEME = true;
                             const originalUpdate = MediaKeySession.prototype.update;
                             MediaKeySession.prototype.update = function(response) {
@@ -604,11 +625,10 @@ object WebViewSniffer {
 
                         function isVideoUrl(url) {
                             if (!url || typeof url !== 'string') return false;
-                            var u = url.toLowerCase().split('?')[0];
+                            var u = url.toLowerCase().split('?')[0].split('#')[0];
                             return u.endsWith('.m3u8') ||
                                    u.endsWith('.mp4') ||
-                                   u.endsWith('.flv') ||
-                                   u.includes('playlist') || u.includes('chunklist');
+                                   u.endsWith('.flv');
                         }
 
                         function report(url, extra) {
@@ -756,7 +776,7 @@ object WebViewSniffer {
                         super.onPageFinished(view, url)
                         if (!url.isNullOrBlank()) currentPageUrl = url
                         CookieManager.getInstance().flush()
-                        
+
                         view?.let { wv ->
                             injectDeepSniffer(wv)
                             handler.postDelayed({ injectDeepSniffer(wv) }, 1500)
@@ -775,7 +795,8 @@ object WebViewSniffer {
                         if (isVideoUrl(reqUrl) && !isAdUrl(reqUrl)) return false
 
                         if (request.isForMainFrame) {
-                            val curHost = Uri.parse(url).host ?: ""
+                            // ফিক্স: আগে শুরুর url এর host এর সাথে তুলনা হতো, এখন বর্তমান পেজের সাথে
+                            val curHost = Uri.parse(currentPageUrl).host ?: ""
                             val newHost = Uri.parse(reqUrl).host ?: ""
 
                             if (!isSameDomain(curHost, newHost)) {
@@ -813,7 +834,7 @@ object WebViewSniffer {
                                 // Skip
                             } else {
                                 if (isAdVideoUrl(reqUrl)) return emptyResponse()
-                                
+
                                 val cm = CookieManager.getInstance()
                                 cm.flush()
 
@@ -825,14 +846,15 @@ object WebViewSniffer {
                                 val finalCookie = mergeCookies(
                                     reqHeaders["Cookie"], reqHeaders["cookie"],
                                     cm.getCookie(reqUrl), cm.getCookie(referer),
-                                    cm.getCookie("https://.$rootDomain"),
+                                    // ফিক্স: "https://.$rootDomain" অবৈধ URL, getCookie সবসময় null দিত
+                                    cm.getCookie("https://$rootDomain"),
                                     cm.getCookie(currentPageUrl), cm.getCookie(url)
                                 )
 
                                 val outHeaders = reqHeaders.filterKeys { k ->
                                     k.lowercase() !in listOf("referer", "origin", "cookie", "user-agent", "host")
                                 }.toMutableMap()
-                                
+
                                 outHeaders["Referer"] = referer
                                 outHeaders["Origin"] = origin
                                 outHeaders["User-Agent"] = ua
@@ -840,7 +862,7 @@ object WebViewSniffer {
 
                                 handler.post {
                                     if (isResumed) return@post
-                                    
+
                                     if (lowerUrl.contains(".mpd")) {
                                         if (foundKeyJson != null) {
                                             isResumed = true
@@ -850,14 +872,16 @@ object WebViewSniffer {
                                         } else {
                                             foundMpdUrl = reqUrl
                                             foundMpdHeaders = outHeaders
-                                            mpdTimeoutRunnable = Runnable {
-                                                if (!isResumed) {
-                                                    isResumed = true
-                                                    cleanup()
-                                                    continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
+                                            if (mpdTimeoutRunnable == null) {
+                                                mpdTimeoutRunnable = Runnable {
+                                                    if (!isResumed) {
+                                                        isResumed = true
+                                                        cleanup()
+                                                        continuation.resume(ResolvedToken(url = reqUrl, headers = outHeaders))
+                                                    }
                                                 }
+                                                handler.postDelayed(mpdTimeoutRunnable!!, 3000)
                                             }
-                                            handler.postDelayed(mpdTimeoutRunnable!!, 3000)
                                         }
                                     } else {
                                         isResumed = true
@@ -879,11 +903,11 @@ object WebViewSniffer {
 
                 val additionalHeaders = headers?.toMutableMap() ?: mutableMapOf()
                 if (userAgent != null) additionalHeaders["User-Agent"] = userAgent
-                
+
                 try {
                     com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log("WebViewSniffer: Loading URL: $url")
                 } catch (e: Exception) {}
-                
+
                 webView.loadUrl(url, additionalHeaders)
             }
         } ?: run {
