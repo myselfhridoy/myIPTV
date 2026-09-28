@@ -91,8 +91,6 @@ private fun isKnownPageUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val lower = url.lowercase()
     if (lower.contains("tokenurl=")) return true
-    if (lower.contains("streamplay")) return true
-    if (lower.contains("streambd")) return true
     if (lower.contains("portal.php")) return true
     if (lower.contains("action=create_link")) return true
     if (lower.contains("action=get_profile")) return true
