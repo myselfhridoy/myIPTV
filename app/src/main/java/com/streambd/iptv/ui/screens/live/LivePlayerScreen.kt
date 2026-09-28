@@ -31,10 +31,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -511,6 +514,11 @@ fun LivePlayerScreen(
             )
         }
 
+        // ---- Static noise background on error / resolution failure ----
+        if (playerError != null || isResolutionFailed) {
+            StaticNoiseBackground(Modifier.fillMaxSize())
+        }
+
         if (showOverlay && !isInPiP) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                 if (isLocked) {
@@ -821,6 +829,48 @@ fun LivePlayerScreen(
                 currentSourceUrl = url
             },
             onDismiss = { showSourceSelector = false }
+        )
+    }
+}
+
+// ---------- Static noise background ---------------------------------------
+
+/**
+ * ঝিরঝির সাদা-কালো নয়েজ। কোনো ভিডিও/অডিও ফাইল লাগে না — প্রতি ৭০ms-এ
+ * ৯৬×৫৪ পিক্সেল বিটম্যাপ র্যান্ডম ডেটায় ভরে পুরো স্ক্রিনে স্কেল-আপ করা হয়।
+ * TV Box-এ হালকা চলে কারণ বিটম্যাপ ছোট এবং Nearest-neighbor (FilterQuality.None)।
+ */
+@Composable
+private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
+    val w = 96
+    val h = 54
+    val bitmap = remember {
+        android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+    }
+    val pixels = remember { IntArray(w * h) }
+    var frame by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        val rnd = java.util.Random()
+        while (isActive) {
+            for (i in pixels.indices) {
+                val v = rnd.nextInt(256)
+                pixels[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+            bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+            frame++
+            delay(70)
+        }
+    }
+
+    androidx.compose.foundation.Canvas(modifier) {
+        // `frame` রিড করলে প্রতি ফ্রেমে রিড্র হয়
+        @Suppress("UNUSED_EXPRESSION")
+        frame
+        drawImage(
+            image = bitmap.asImageBitmap(),
+            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+            filterQuality = FilterQuality.None
         )
     }
 }
