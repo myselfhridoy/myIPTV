@@ -246,8 +246,11 @@ object TokenParser {
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }
-            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT) ?: return@withContext null
-            return@withContext if (validateStreamUrl(sniffed.url, sniffed.headers ?: headers)) sniffed else null
+            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
+if (sniffed == null) return@withContext null
+val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
+return@withContext if (ok) sniffed else null
         }
 
         // ─── InfinityFree ─────────────────────────────────────────────────────
@@ -349,8 +352,11 @@ object TokenParser {
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
-            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT) ?: return@withContext null
-            return@withContext if (validateStreamUrl(sniffed.url, sniffed.headers ?: headers)) sniffed else null
+            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
+if (sniffed == null) return@withContext null
+val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
+return@withContext if (ok) sniffed else null
         }
 
         // ─── crichd (specific JS-obfuscation pattern) ─────────────────────────
@@ -614,6 +620,10 @@ object TokenParser {
         null
     }
 
+    private fun hasManifestExt(url: String): Boolean {
+    val p = url.substringBefore("?").substringBefore("#").lowercase()
+    return p.endsWith(".m3u8") || p.endsWith(".mpd")
+}
     // =========================================================================
     // Universal HTTP endpoint resolver
     //
