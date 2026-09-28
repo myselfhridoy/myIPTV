@@ -233,8 +233,7 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         channel.tokenUrl.equals("streamplay", true) || channel.tokenUrl.equals("streambd", true)
 }
 
-
-    private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
+private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
     if (needsWebView(channel)) return
     if (!force && getCached(cacheKey) != null) return
     try {
@@ -246,18 +245,6 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         Log.w(TAG, "Prefetch failed for ${channel.name}", e)
     }
 }
-    private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
-        if (!force && getCached(cacheKey) != null) return
-        try {
-            MediaResolver.resolveMediaParams(appContext, channel, channel.url)
-                ?.let { putCached(cacheKey, it) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // A failed prefetch must never crash the app or cancel the other prefetch.
-            Log.w(TAG, "Prefetch failed for ${channel.name}", e)
-        }
-    }
 
     fun retryResolution(channel: Channel, sourceUrl: String) {
         val cacheKey = "${channel.name}|$sourceUrl"
