@@ -66,7 +66,17 @@ enum class VideoScaleMode(val title: String) {
     CINEMA("Cinema (18:9)")
 }
 
-// ---------- helpers ---------------------------------------------------------
+// ---------- top-level helpers ----------------------------------------------
+
+/**
+ * UI-only error holder. `PlaybackException`'s constructor is `protected` in Media3,
+ * so we cannot instantiate it ourselves — this data class carries what we display.
+ */
+private data class UiPlaybackError(
+    val message: String,
+    val causeMessage: String?,
+    val isHlsFormat: Boolean = false
+)
 
 /**
  * Returns true if the URL looks like a directly-playable media URL.
@@ -76,7 +86,6 @@ enum class VideoScaleMode(val title: String) {
 private fun looksLikePlayableMediaUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val lower = url.lowercase()
-    // Anything carrying the page/token hints is NOT a stream URL.
     if (lower.contains("tokenurl=")) return false
     if (lower.contains("streamplay") || lower.contains("streambd")) return false
     if (lower.contains(".php") || lower.contains(".html") || lower.contains(".asp")) return false
@@ -120,7 +129,7 @@ private fun formatTime(ms: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-// ---------- screen ----------------------------------------------------------
+// ---------- screen ---------------------------------------------------------
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -159,8 +168,7 @@ fun LivePlayerScreen(
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
-    var playerError by remember { mutableStateOf<PlaybackException?>(null) }
-    // True when the current failure is an HLS parse error we should not keep retrying blindly.
+    var playerError by remember { mutableStateOf<UiPlaybackError?>(null) }
     var lastHlsError by remember { mutableStateOf(false) }
 
     val currentMediaSource by playerViewModel.currentMediaSource.collectAsState()
@@ -248,19 +256,18 @@ fun LivePlayerScreen(
         playerViewModel.resolveChannel(channel, currentSourceUrl)
     }
 
-    // Media Source updates — guarded so we never feed page URLs to ExoPlayer.
+    // Media Source updates — guarded so page URLs never reach ExoPlayer.
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
 
         // Guard #1: resolver returned a page URL (WebViewSniffer failed).
         if (!looksLikePlayableMediaUrl(sourceUri) && sourceUri.contains("tokenUrl=", ignoreCase = true)) {
-            playerError = PlaybackException(
-                "Stream resolver returned a page URL instead of a video stream.\n" +
+            playerError = UiPlaybackError(
+                message = "Stream resolver returned a page URL instead of a video stream.\n" +
                     "The WebView sniffer could not extract the real .m3u8/.mpd URL.",
-                null,
-                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
-                android.os.SystemClock.elapsedRealtime()
+                causeMessage = null,
+                isHlsFormat = true
             )
             isBuffering = false
             return@LaunchedEffect
@@ -270,11 +277,10 @@ fun LivePlayerScreen(
         val bareName = sourceUri.substringBefore("?").substringBefore("#").trimEnd('/').substringAfterLast('/').lowercase()
         val bareManifestOk = bareName == "manifest" || bareName == "chunklist"
         if (!looksLikePlayableMediaUrl(sourceUri) && !bareManifestOk && !sourceUri.startsWith("data:")) {
-            playerError = PlaybackException(
-                "Unsupported stream URL (not a media URL): ${sourceUri.take(120)}…",
-                null,
-                PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
-                android.os.SystemClock.elapsedRealtime()
+            playerError = UiPlaybackError(
+                message = "Unsupported stream URL (not a media URL): ${sourceUri.take(120)}…",
+                causeMessage = null,
+                isHlsFormat = false
             )
             isBuffering = false
             return@LaunchedEffect
@@ -303,30 +309,30 @@ fun LivePlayerScreen(
                     lastHlsError = false
                 }
             }
+
             override fun onIsPlayingChanged(isPlayingState: Boolean) {
                 isPlaying = isPlayingState
             }
+
             override fun onPlayerError(error: PlaybackException) {
                 val sourcesList = channel.sources.values.toList()
                 val currentIndex = sourcesList.indexOf(currentSourceUrl)
                 val hasNext = sourcesList.isNotEmpty() && currentIndex in 0 until (sourcesList.size - 1)
                 val hls = isHlsFormatError(error)
 
-                if (hasNext && !hls) {
-                    // Normal auto-fallback to the next source.
+                if (hasNext) {
+                    // Skip the broken source. Remember whether it was an HLS error so we
+                    // can show the hint if every source subsequently fails.
                     currentSourceUrl = sourcesList[currentIndex + 1]
                     isBuffering = true
                     playerError = null
-                    lastHlsError = false
-                } else if (hasNext && hls) {
-                    // #EXTM3U failure on one source usually means that source is a page URL.
-                    // Skip it, but remember we saw an HLS error.
-                    currentSourceUrl = sourcesList[currentIndex + 1]
-                    isBuffering = true
-                    playerError = null
-                    lastHlsError = true
+                    lastHlsError = hls
                 } else {
-                    playerError = error
+                    playerError = UiPlaybackError(
+                        message = error.message ?: "Unknown playback error",
+                        causeMessage = error.cause?.message,
+                        isHlsFormat = hls
+                    )
                     isBuffering = false
                     lastHlsError = hls
                 }
@@ -479,6 +485,7 @@ fun LivePlayerScreen(
                         Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
                     }
                 } else {
+                    // Top bar
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -559,6 +566,7 @@ fun LivePlayerScreen(
                         }
                     }
 
+                    // Center controls
                     Row(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -590,6 +598,7 @@ fun LivePlayerScreen(
                         }
                     }
 
+                    // Bottom bar
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -665,6 +674,11 @@ fun LivePlayerScreen(
                         color = Color(0xFFFFC107),
                         fontSize = 11.sp
                     )
+                }
+                val causeText = playerError?.causeMessage
+                if (!causeText.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(causeText, color = Color.LightGray, fontSize = 10.sp)
                 }
                 Spacer(Modifier.height(16.dp))
                 Button(
