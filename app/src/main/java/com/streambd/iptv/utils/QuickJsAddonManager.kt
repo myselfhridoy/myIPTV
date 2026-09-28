@@ -217,7 +217,13 @@ object QuickJsAddonManager {
                                 val parsedSources: List<StreamSource> =
                                     gson.fromJson(sourcesJson, sourceType)
                                 val mapped = parsedSources.map { s ->
-                                    s.copy(provider = if (s.provider.isBlank()) addon.name else s.provider)
+                                    s.copy(
+                                        provider = if (s.provider.isBlank()) {
+                                            addon.name
+                                        } else {
+                                            s.provider
+                                        }
+                                    )
                                 }
                                 if (mapped.isNotEmpty()) {
                                     withContext(Dispatchers.Main) {
@@ -233,6 +239,7 @@ object QuickJsAddonManager {
                 } catch (e: Exception) {
                     Log.e("QuickJsAddonManager", "Addon ${addon.name} failed: ${e.message}", e)
                 }
+                Unit // ── explicit Unit return — kills all if-expression ambiguity ──
             }
         }
 
@@ -304,14 +311,12 @@ object QuickJsAddonManager {
                                 "AddonManagerJS[$addonName]",
                                 "nativeSend received ${scriptResult?.length ?: 0} chars"
                             )
-                        } else {
-                            // no-op — explicit else so Kotlin treats this as a statement
                         }
                         null
                     }
 
                     function("nativeBtoa") { args ->
-                        if (args.isNotEmpty()) {
+                        val result: String = if (args.isNotEmpty()) {
                             Base64.encodeToString(
                                 (args[0] as String).toByteArray(Charsets.ISO_8859_1),
                                 Base64.NO_WRAP
@@ -319,10 +324,11 @@ object QuickJsAddonManager {
                         } else {
                             ""
                         }
+                        result
                     }
 
                     function("nativeAtob") { args ->
-                        if (args.isNotEmpty()) {
+                        val result: String = if (args.isNotEmpty()) {
                             String(
                                 Base64.decode((args[0] as String), Base64.DEFAULT),
                                 Charsets.ISO_8859_1
@@ -330,6 +336,7 @@ object QuickJsAddonManager {
                         } else {
                             ""
                         }
+                        result
                     }
 
                     asyncFunction("nativeBypass") { _ ->
@@ -512,8 +519,6 @@ object QuickJsAddonManager {
                         })();
                     """.trimIndent()
 
-                    // evaluate<Any?> — lets dokar/quickjs await the returned Promise
-                    // no '; 'ok';' suffix — that was the original async bug
                     evaluate<Any?>(scriptWrapper)
                 }
             } catch (e: Exception) {
