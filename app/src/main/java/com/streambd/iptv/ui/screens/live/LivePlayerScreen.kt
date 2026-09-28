@@ -54,9 +54,11 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class VideoScaleMode(val title: String) {
@@ -68,10 +70,7 @@ enum class VideoScaleMode(val title: String) {
 
 // ---------- top-level helpers ----------------------------------------------
 
-/**
- * UI-only error holder. `PlaybackException`'s constructor is `protected` in Media3,
- * so we cannot instantiate it ourselves — this data class carries what we display.
- */
+/** UI-only error holder — `PlaybackException`'s constructor is `protected` in Media3. */
 private data class UiPlaybackError(
     val message: String,
     val causeMessage: String?,
@@ -79,23 +78,43 @@ private data class UiPlaybackError(
 )
 
 /**
- * Returns true if the URL looks like a directly-playable media URL.
- * Page URLs like `.../playlist?tokenUrl=streambd` must return false —
- * otherwise ExoPlayer will report "Input does not start with the #EXTM3U header".
+ * Rejects only URLs we *know* are pages, not media.
+ *
+ * Fix vs previous version: we no longer blanket-block `.php` / `.html` / `.asp`,
+ * because endpoints like `https://example.com/live.php?id=123` can legitimately
+ * return an HLS manifest. We only block:
+ *   - the specific token/page patterns used by our provider pages
+ *   - literal `.html`/`.htm` files (those are never streams)
  */
-private fun looksLikePlayableMediaUrl(url: String?): Boolean {
+private fun isKnownPageUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val lower = url.lowercase()
-    if (lower.contains("tokenurl=")) return false
-    if (lower.contains("streamplay") || lower.contains("streambd")) return false
-    if (lower.contains(".php") || lower.contains(".html") || lower.contains(".asp")) return false
+    if (lower.contains("tokenurl=")) return true
+    if (lower.contains("streamplay")) return true
+    if (lower.contains("streambd")) return true
     val path = lower.substringBefore("?").substringBefore("#")
-    return path.endsWith(".m3u8") || path.endsWith(".mpd") ||
-           path.endsWith(".mp4") || path.endsWith(".mkv") ||
-           path.endsWith(".webm") || path.endsWith(".flv")
+    if (path.endsWith(".html") || path.endsWith(".htm")) return true
+    return false
 }
 
+/**
+ * Media3-first error classifier. Uses `errorCode` when possible, falls back to
+ * string matching only for codes we haven't explicitly mapped.
+ */
 private fun isHlsFormatError(error: PlaybackException): Boolean {
+    when (error.errorCode) {
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return true
+
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> return false
+
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED -> return false
+    }
+    // Unknown / unmapped — fall back to string sniffing.
     val text = buildString {
         append(error.message.orEmpty())
         append(' ')
@@ -103,7 +122,8 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
     }.lowercase()
     return text.contains("#extm3u") ||
            text.contains("ext-x-") ||
-           text.contains("contentismalformed")
+           text.contains("contentismalformed") ||
+           text.contains("does not start with the #extm3u")
 }
 
 /**
@@ -154,6 +174,8 @@ fun LivePlayerScreen(
     }
 
     val channel = selectedChannel!!
+    val channelKey = channel.tokenId ?: channel.name
+
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
@@ -161,8 +183,16 @@ fun LivePlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
-    var currentSourceUrl by remember(channel.tokenId ?: channel.name) {
-        mutableStateOf(channel.url)
+
+    // Fix #1: start from sources[0] if available, not channel.url.
+    // This makes onPlayerError fallback work even when channel.url is the failing one.
+    var currentSourceUrl by remember(channelKey) {
+        mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
+    }
+
+    // Fix #1 (continued): track URLs that already failed for this channel so we try each once.
+    var failedSourceUrls by remember(channelKey) {
+        mutableStateOf(setOf<String>())
     }
 
     var currentPosition by remember { mutableStateOf(0L) }
@@ -176,6 +206,8 @@ fun LivePlayerScreen(
     val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
+
+    // Fix #5: derive mute from player state instead of a local snapshot that can go stale.
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
 
     var backPressedTime by remember { mutableStateOf(0L) }
@@ -186,6 +218,13 @@ fun LivePlayerScreen(
     var channelNumberInput by remember { mutableStateOf("") }
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
+
+    // Fix #4: single exit path — orientation restore is handled by DisposableEffect.onDispose.
+    val exitPlayer: () -> Unit = {
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        navController.popBackStack()
+    }
 
     LaunchedEffect(Unit) {
         snapshotFlow { channelNumberInput }
@@ -248,7 +287,7 @@ fun LivePlayerScreen(
     }
 
     // Reset per-channel state and kick off resolution.
-    LaunchedEffect(channel.tokenId ?: channel.name, currentSourceUrl) {
+    LaunchedEffect(channelKey, currentSourceUrl) {
         playerError = null
         lastHlsError = false
         exoPlayer.stop()
@@ -257,30 +296,19 @@ fun LivePlayerScreen(
     }
 
     // Media Source updates — guarded so page URLs never reach ExoPlayer.
+    // NOTE: true stale-result protection needs a generation ID in LivePlayerViewModel
+    // (see response notes below this file). The screen guard below is best-effort.
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
 
-        // Guard #1: resolver returned a page URL (WebViewSniffer failed).
-        if (!looksLikePlayableMediaUrl(sourceUri) && sourceUri.contains("tokenUrl=", ignoreCase = true)) {
+        // Guard A: resolver returned a page URL for a token endpoint.
+        if (isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
                 message = "Stream resolver returned a page URL instead of a video stream.\n" +
                     "The WebView sniffer could not extract the real .m3u8/.mpd URL.",
                 causeMessage = null,
                 isHlsFormat = true
-            )
-            isBuffering = false
-            return@LaunchedEffect
-        }
-
-        // Guard #2: URL looks like a page (no media extension, not a known bare manifest).
-        val bareName = sourceUri.substringBefore("?").substringBefore("#").trimEnd('/').substringAfterLast('/').lowercase()
-        val bareManifestOk = bareName == "manifest" || bareName == "chunklist"
-        if (!looksLikePlayableMediaUrl(sourceUri) && !bareManifestOk && !sourceUri.startsWith("data:")) {
-            playerError = UiPlaybackError(
-                message = "Unsupported stream URL (not a media URL): ${sourceUri.take(120)}…",
-                causeMessage = null,
-                isHlsFormat = false
             )
             isBuffering = false
             return@LaunchedEffect
@@ -307,6 +335,9 @@ fun LivePlayerScreen(
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
                     lastHlsError = false
+                    // Source worked — clear the failed set so a transient glitch doesn't
+                    // permanently disqualify a URL for this session.
+                    failedSourceUrls = emptySet()
                 }
             }
 
@@ -314,16 +345,25 @@ fun LivePlayerScreen(
                 isPlaying = isPlayingState
             }
 
+            // Fix #5: keep mute UI in sync with player volume (external changes included).
+            override fun onVolumeChanged(volume: Float) {
+                isMuted = volume == 0f
+            }
+
             override fun onPlayerError(error: PlaybackException) {
-                val sourcesList = channel.sources.values.toList()
-                val currentIndex = sourcesList.indexOf(currentSourceUrl)
-                val hasNext = sourcesList.isNotEmpty() && currentIndex in 0 until (sourcesList.size - 1)
                 val hls = isHlsFormatError(error)
 
-                if (hasNext) {
-                    // Skip the broken source. Remember whether it was an HLS error so we
-                    // can show the hint if every source subsequently fails.
-                    currentSourceUrl = sourcesList[currentIndex + 1]
+                // Fix #1: build the full candidate list, don't rely on currentSourceUrl being
+                // present in channel.sources.
+                val allUrls = (listOf(channel.url) + channel.sources.values.toList())
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
+
+                if (remaining.isNotEmpty()) {
+                    // Advance to the next candidate.
+                    failedSourceUrls = failedSourceUrls + currentSourceUrl
+                    currentSourceUrl = remaining.first()
                     isBuffering = true
                     playerError = null
                     lastHlsError = hls
@@ -342,9 +382,9 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // Progress tracker
-    LaunchedEffect(Unit) {
-        while (true) {
+    // Fix #6: progress tracker — `while (isActive)` for clarity (behavior unchanged).
+    LaunchedEffect(exoPlayer) {
+        while (currentCoroutineContext().isActive) {
             currentPosition = exoPlayer.currentPosition
             bufferedPosition = exoPlayer.bufferedPosition
             duration = exoPlayer.duration.coerceAtLeast(0L)
@@ -380,11 +420,7 @@ fun LivePlayerScreen(
                 android.widget.Toast.makeText(context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT).show()
             }
         } else {
-            val activity = context as? ComponentActivity
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-            navController.popBackStack()
+            exitPlayer()
         }
     }
 
@@ -491,13 +527,7 @@ fun LivePlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TvIconButton(
-                            onClick = {
-                                val activity = context as? ComponentActivity
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                exoPlayer.stop()
-                                exoPlayer.clearMediaItems()
-                                navController.popBackStack()
-                            },
+                            onClick = { exitPlayer() },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
                         Spacer(Modifier.width(12.dp))
@@ -598,7 +628,7 @@ fun LivePlayerScreen(
                         }
                     }
 
-                    // Bottom bar
+                    // Bottom bar (seekbar kept as-is per request)
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -633,8 +663,9 @@ fun LivePlayerScreen(
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                         Spacer(Modifier.width(16.dp))
                         TvIconButton(onClick = {
-                            isMuted = !isMuted
-                            exoPlayer.volume = if (isMuted) 0f else 1f
+                            val newMuted = !isMuted
+                            exoPlayer.volume = if (newMuted) 0f else 1f
+                            // isMuted will update via onVolumeChanged.
                         }) {
                             Icon(
                                 if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -686,9 +717,9 @@ fun LivePlayerScreen(
                         playerError = null
                         lastHlsError = false
                         isBuffering = true
-                        val retryUrl = if (channel.sources.isNotEmpty()) {
-                            channel.sources.values.firstOrNull() ?: channel.url
-                        } else channel.url
+                        // Reset failed set and start over from the first source.
+                        failedSourceUrls = emptySet()
+                        val retryUrl = channel.sources.values.firstOrNull() ?: channel.url
                         if (currentSourceUrl != retryUrl) {
                             currentSourceUrl = retryUrl
                         } else {
@@ -768,7 +799,11 @@ fun LivePlayerScreen(
         SourceSelectionDialog(
             sources = channel.sources,
             currentSourceUrl = currentSourceUrl,
-            onSourceSelected = { _, url -> currentSourceUrl = url },
+            onSourceSelected = { _, url ->
+                // Manual source pick — reset failed set and switch immediately.
+                failedSourceUrls = emptySet()
+                currentSourceUrl = url
+            },
             onDismiss = { showSourceSelector = false }
         )
     }
