@@ -293,28 +293,13 @@ object WebViewSniffer {
                 }
 
                 if (!addedToWindow) {
-                    try {
-                        windowManager = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-                        layoutParams = android.view.WindowManager.LayoutParams(
-                            20, 20,
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-                                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                            else
-                                android.view.WindowManager.LayoutParams.TYPE_PHONE,
-                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                            android.graphics.PixelFormat.TRANSPARENT
-                        )
-                        if (context is android.app.Activity) {
-                            layoutParams.type = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG
-                        }
-                        windowManager.addView(webView, layoutParams)
-                    } catch (e: Exception) {
-                        android.util.Log.e("WebViewSniffer", "Error attaching WebView via WindowManager", e)
-                        continuation.resume(null)
-                        return@suspendCancellableCoroutine
-                    }
-                }
+    // Overlay permission লাগে বলে window-তে না যোগ করে detached রেখে সাইজ দিচ্ছি
+    webView.measure(
+        android.view.View.MeasureSpec.makeMeasureSpec(1280, android.view.View.MeasureSpec.EXACTLY),
+        android.view.View.MeasureSpec.makeMeasureSpec(720, android.view.View.MeasureSpec.EXACTLY)
+    )
+    webView.layout(0, 0, 1280, 720)
+}
 
                 var isCleanedUp = false
                 fun cleanup() {
