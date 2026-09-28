@@ -28,6 +28,76 @@ object TokenParser {
 
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+    // -------------------------------------------------------------------------
+    // Stream validation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Probes the given URL and checks whether the response really looks like a
+     * playable media stream (HLS, DASH, or a media container).
+     *
+     * This is the guard that stops the resolver from handing ExoPlayer a URL that
+     * happens to end in `.m3u8` but actually returns HTML/JSON — which produces
+     * "Input does not start with the #EXTM3U header".
+     *
+     * Cost: one extra lightweight HTTP request per resolution. Only the first
+     * ~1 KB of the body is peeked (`Range: bytes=0-1024`), so even slow live
+     * streams respond quickly. Non-HTTP schemes (rtmp, data:, etc.) short-circuit
+     * to true.
+     */
+    private suspend fun validateStreamUrl(url: String, headers: Map<String, String>?): Boolean {
+        if (url.isBlank()) return false
+        val lower = url.lowercase()
+        if (lower.startsWith("data:")) return true
+        if (lower.startsWith("rtmp://") || lower.startsWith("rtsp://") ||
+            lower.startsWith("udp://") || lower.startsWith("srt://")) return true
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder().url(url).apply {
+                    header("User-Agent", USER_AGENT)
+                    header("Accept", "*/*")
+                    // Only need the first bytes — cheaper for servers, faster for us
+                    header("Range", "bytes=0-1024")
+                    headers?.forEach { (k, v) ->
+                        // Don't override the values we set explicitly above
+                        if (!k.equals("User-Agent", ignoreCase = true) &&
+                            !k.equals("Accept", ignoreCase = true) &&
+                            !k.equals("Range", ignoreCase = true)) {
+                            try { header(k, v) } catch (e: Exception) {}
+                        }
+                    }
+                }.build()
+
+                client.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful && res.code != 206) return@use false
+
+                    // Content-Type is the strongest signal
+                    val ct = res.header("Content-Type")?.lowercase() ?: ""
+                    if (ct.contains("mpegurl") || ct.contains("dash+xml")) return@use true
+                    if (ct.startsWith("video/") || ct.startsWith("audio/")) return@use true
+                    if (ct.contains("text/html") || ct.contains("application/json")) return@use false
+
+                    // Fall back to first-bytes sniff
+                    val head = res.peekBody(1024).string().trimStart()
+                    val looksGood = head.startsWith("#EXTM3U") ||
+                                    head.startsWith("#EXT-X-") ||
+                                    head.contains("<MPD") ||
+                                    head.contains("ftyp") ||         // MP4/MOV box
+                                    head.contains("#EXTINF")
+                    looksGood
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("TokenParser", "validateStreamUrl failed for $url: ${e.message}")
+                false
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Main entry point
+    // -------------------------------------------------------------------------
+
     suspend fun resolveTokenForUrl(
         context: Context,
         baseUrl: String,
@@ -62,13 +132,13 @@ object TokenParser {
             }
         }
 
-        // 0. YouTube extractor via NewPipeExtractor
+        // 0. YouTube
         if (lowerTokenUrl == "youtube" || lowerTokenUrl == "yt" || YouTubeExtractor.isYouTubeUrl(baseUrl)) {
             val ytToken = YouTubeExtractor.extractStreamUrl(baseUrl)
             if (ytToken != null) return@withContext ytToken
         }
 
-        // 0. streamBD WebViewSniffer
+        // 0. streamBD / streamPlay WebViewSniffer — WITH VALIDATION
         if (lowerTokenUrl == "streambd" || lowerTokenUrl == "streamplay") {
             if (baseUrl.contains("sportsupa.sbs") || baseUrl.contains("streamed.pk")) {
                 try {
@@ -76,11 +146,14 @@ object TokenParser {
                     val matchId = uri.getQueryParameter("id")
                     val src = uri.getQueryParameter("src") ?: "admin"
                     val sno = uri.getQueryParameter("sno")?.toIntOrNull() ?: 1
-                    
+
                     if (matchId != null) {
                         var sourceId: String? = null
-                        val endpoints = listOf("https://streamed.pk/api/matches/live", "https://streamed.pk/api/matches/all")
-                        
+                        val endpoints = listOf(
+                            "https://streamed.pk/api/matches/live",
+                            "https://streamed.pk/api/matches/all"
+                        )
+
                         for (endpoint in endpoints) {
                             val req = Request.Builder().url(endpoint).apply {
                                 header("User-Agent", USER_AGENT)
@@ -108,7 +181,7 @@ object TokenParser {
                             }
                             if (sourceId != null) break
                         }
-                        
+
                         if (sourceId != null) {
                             val streamReq = Request.Builder().url("https://streamed.pk/api/stream/${src}/${sourceId}").apply {
                                 header("User-Agent", USER_AGENT)
@@ -128,9 +201,14 @@ object TokenParser {
                                         break
                                     }
                                 }
-                                
+
                                 if (!embedUrl.isNullOrBlank()) {
-                                    return@withContext WebViewSniffer.sniff(context, embedUrl, headers, USER_AGENT)
+                                    val sniffed = WebViewSniffer.sniff(context, embedUrl, headers, USER_AGENT)
+                                    if (sniffed != null && validateStreamUrl(sniffed.url, sniffed.headers ?: headers)) {
+                                        return@withContext sniffed
+                                    } else if (sniffed != null) {
+                                        android.util.Log.w("TokenParser", "streamed.pk sniffed URL failed validation: ${sniffed.url}")
+                                    }
                                 }
                             }
                         }
@@ -139,18 +217,29 @@ object TokenParser {
                     e.printStackTrace()
                 }
             }
-            return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+
+            // Generic path — sniff then validate
+            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+            if (sniffed == null) return@withContext null
+
+            if (validateStreamUrl(sniffed.url, sniffed.headers ?: headers)) {
+                return@withContext sniffed
+            }
+
+            // Sniffer picked up a URL that isn't really a playable stream
+            // (probably an ad/tracking URL that ends in .m3u8).
+            android.util.Log.w("TokenParser", "streamPlay/streambd sniffed URL failed validation: ${sniffed.url}")
+            return@withContext null
         }
 
         // 1. InfinityFree
         if (lowerTokenUrl == "if") {
             val bypass = InfinityFreeBypass.resolve(baseUrl, headers)
             if (bypass?.content?.contains("#EXTM3U") == true) {
-                // Parse mini-M3U (similar to JS logic)
                 var streamUrl = ""
                 val streamHeaders = bypass.headers?.toMutableMap() ?: mutableMapOf()
                 var drm: DrmConfig? = null
-                
+
                 val lines = bypass.content.split("\n").map { it.trim() }
                 for (line in lines) {
                     if (line.isEmpty() || line.startsWith("#EXTM3U")) continue
@@ -209,14 +298,12 @@ object TokenParser {
                     return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm, mimeType = "application/x-mpegURL")
                 }
             } else if (bypass?.content != null) {
-                // Try jsdecode
                 val decoded = JSDecoder.decode(context, bypass.content)
                 if (decoded != null) {
                     var finalUrl = decoded.url
                     if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
                     return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, bypass.headers), drm = decoded.drm)
                 }
-                // Try crichd
                 val crichdRegex = Pattern.compile("return\\s*\\(\\s*\\[(.*?)\\]\\.join\\(", Pattern.CASE_INSENSITIVE)
                 val m = crichdRegex.matcher(bypass.content)
                 if (m.find()) {
@@ -248,9 +335,15 @@ object TokenParser {
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
-            
-            // Fallback to WebViewSniffer if JSDecode fails
-            return@withContext WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+
+            val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
+            if (sniffed == null) return@withContext null
+            return@withContext if (validateStreamUrl(sniffed.url, sniffed.headers ?: headers)) {
+                sniffed
+            } else {
+                android.util.Log.w("TokenParser", "jsdecode sniffed URL failed validation: ${sniffed.url}")
+                null
+            }
         }
 
         // 3. crichd
@@ -282,7 +375,7 @@ object TokenParser {
             return@withContext null
         }
 
-        // 4. fetchiframe
+        // 4. fetchiframe — WITH VALIDATION
         if (lowerTokenUrl == "fetchiframe") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
@@ -294,22 +387,21 @@ object TokenParser {
                     val html = res.body?.string() ?: ""
                     val iframeRegex = Regex("<iframe[^>]+src=[\"']([^\"']+)[\"']")
                     val match = iframeRegex.find(html)
+                    var candidate: String? = null
                     if (match != null) {
-                        var src = match.groupValues[1]
-                        if (tokenMatch != null && tokenReplace != null) {
-                            src = src.replace(tokenMatch, tokenReplace)
-                        }
-                        return@withContext ResolvedToken(url = src, headers = getStreamHeaders(baseUrl, headers))
+                        candidate = match.groupValues[1]
                     } else {
-                        // Fallback: search for m3u8 in html
                         val m3u8Regex = Regex("[\"']([^\"']+\\.m3u8[^\"]*)[\"']")
-                        val m3u8Match = m3u8Regex.find(html)
-                        if (m3u8Match != null) {
-                            var src = m3u8Match.groupValues[1]
-                            if (tokenMatch != null && tokenReplace != null) {
-                                src = src.replace(tokenMatch, tokenReplace)
-                            }
-                            return@withContext ResolvedToken(url = src, headers = getStreamHeaders(baseUrl, headers))
+                        candidate = m3u8Regex.find(html)?.groupValues?.get(1)
+                    }
+                    if (candidate != null) {
+                        var src = candidate
+                        if (tokenMatch != null && tokenReplace != null) src = src.replace(tokenMatch, tokenReplace)
+                        val hdrs = getStreamHeaders(baseUrl, headers)
+                        if (validateStreamUrl(src, hdrs)) {
+                            return@withContext ResolvedToken(url = src, headers = hdrs)
+                        } else {
+                            android.util.Log.w("TokenParser", "fetchiframe candidate failed validation: $src")
                         }
                     }
                 }
@@ -328,10 +420,12 @@ object TokenParser {
                 if (res.isSuccessful) {
                     val html = res.body?.string() ?: ""
                     val streams = extractAllUrls(html).filter { isStreamUrl(it) }
-                    if (streams.isNotEmpty()) {
-                        val streamUrl = streams.first()
-                        val drm = extractDrmFromBody(html)
-                        return@withContext ResolvedToken(url = streamUrl, headers = getStreamHeaders(baseUrl, headers), drm = drm)
+                    for (streamUrl in streams) {
+                        val hdrs = getStreamHeaders(baseUrl, headers)
+                        if (validateStreamUrl(streamUrl, hdrs)) {
+                            val drm = extractDrmFromBody(html)
+                            return@withContext ResolvedToken(url = streamUrl, headers = hdrs, drm = drm)
+                        }
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
@@ -352,7 +446,7 @@ object TokenParser {
                         var streamUrl = ""
                         val streamHeaders = headers?.toMutableMap() ?: mutableMapOf()
                         var drm: DrmConfig? = null
-                        
+
                         val lines = content.split("\n").map { it.trim() }
                         for (line in lines) {
                             if (line.isEmpty() || line.startsWith("#EXTM3U") || line.startsWith("#EXTINF:")) continue
@@ -415,13 +509,13 @@ object TokenParser {
                             return@withContext ResolvedToken(url = streamUrl, headers = streamHeaders, drm = drm)
                         }
                     } else {
-                         return@withContext ResolvedToken(url = res.request.url.toString(), headers = headers)
+                        return@withContext ResolvedToken(url = res.request.url.toString(), headers = headers)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 7. dlhd
+        // 7. dlhd — WITH VALIDATION
         if (lowerTokenUrl == "dlhd") {
             try {
                 var req = Request.Builder().url(baseUrl).apply {
@@ -432,13 +526,13 @@ object TokenParser {
                     headers?.forEach { (k, v) -> header(k, v) }
                 }.build()
                 var res = client.newCall(req).execute()
-                
+
                 if (res.isSuccessful) {
                     var html = res.body?.string() ?: ""
-                    
+
                     val iframeRegex = Regex("<iframe[^>]*id=[\"']playerFrame[\"'][^>]*src=[\"']([^\"']+)[\"']|<iframe[^>]*src=[\"']([^\"']+)[\"'][^>]*id=[\"']playerFrame[\"']", RegexOption.IGNORE_CASE)
                     val match = iframeRegex.find(html)
-                    
+
                     if (match != null) {
                         var iframeUrl = match.groupValues[1].takeIf { it.isNotEmpty() } ?: match.groupValues[2]
                         if (!iframeUrl.startsWith("http")) {
@@ -446,7 +540,7 @@ object TokenParser {
                             val base = "${parsedUrl.protocol}://${parsedUrl.host}"
                             iframeUrl = base + (if (iframeUrl.startsWith("/")) "" else "/") + iframeUrl
                         }
-                        
+
                         var currentIframeUrl = iframeUrl
                         req = Request.Builder().url(iframeUrl).apply {
                             header("User-Agent", USER_AGENT)
@@ -456,10 +550,10 @@ object TokenParser {
                             header("Referer", baseUrl)
                         }.build()
                         res = client.newCall(req).execute()
-                        
+
                         if (res.isSuccessful) {
                             var iframeHtml = res.body?.string() ?: ""
-                            
+
                             if (!iframeHtml.contains("window.atob", ignoreCase = true)) {
                                 val innerIframeRegex = Regex("<iframe[^>]*src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
                                 val innerMatch = innerIframeRegex.find(iframeHtml)
@@ -488,27 +582,31 @@ object TokenParser {
                                     }
                                 }
                             }
-                            
+
                             val b64Regex = Regex("window\\.atob\\(['\"]([A-Za-z0-9+/=\\-_]+)['\"]\\)", RegexOption.IGNORE_CASE)
                             val b64Match = b64Regex.find(iframeHtml)
                             if (b64Match != null) {
                                 val base64Str = b64Match.groupValues[1]
                                 val decodedBytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
                                 val m3u8Url = String(decodedBytes, Charsets.UTF_8)
-                                
+
                                 val parsedIframe = URL(currentIframeUrl)
                                 val dynamicDomain = if (parsedIframe.port != -1) {
                                     "${parsedIframe.protocol}://${parsedIframe.host}:${parsedIframe.port}"
                                 } else {
                                     "${parsedIframe.protocol}://${parsedIframe.host}"
                                 }
-                                
+
                                 val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
                                 streamHeaders["Referer"] = "$dynamicDomain/"
                                 streamHeaders["Origin"] = dynamicDomain
                                 streamHeaders["User-Agent"] = USER_AGENT
-                                
-                                return@withContext ResolvedToken(url = m3u8Url, headers = streamHeaders)
+
+                                if (validateStreamUrl(m3u8Url, streamHeaders)) {
+                                    return@withContext ResolvedToken(url = m3u8Url, headers = streamHeaders)
+                                } else {
+                                    android.util.Log.w("TokenParser", "dlhd decoded URL failed validation: $m3u8Url")
+                                }
                             }
                         }
                     }
@@ -519,10 +617,9 @@ object TokenParser {
             return@withContext null
         }
 
-        // 8. handlerId logic (omitted complex extraction for brevity, basic fallback)
+        // 8. handlerId
         val idMatch = tokenUrl?.let { Regex("^[\\\\/]?(\\d+)$").find(it) }
         if (idMatch != null) {
-            // Simplified handler logic
             try {
                 val req = Request.Builder().url(baseUrl).apply {
                     header("User-Agent", USER_AGENT)
@@ -531,11 +628,10 @@ object TokenParser {
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
                     val body = res.body?.string() ?: ""
-                    
+
                     var jsonStreamUrl: String? = null
                     try {
                         val jsonObj = org.json.JSONObject(body)
-                        // Recursively search JSON for any value that is a valid stream URL
                         fun findStreamUrl(json: Any?): String? {
                             when (json) {
                                 is org.json.JSONObject -> {
@@ -559,7 +655,6 @@ object TokenParser {
                             }
                             return null
                         }
-                        
                         jsonStreamUrl = findStreamUrl(jsonObj)
                     } catch (e: Exception) {}
 
@@ -591,7 +686,7 @@ object TokenParser {
         try {
             val isPortal = baseUrl.contains("portal.php", ignoreCase = true)
             val mergedHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
-            
+
             fun parseCmd(bodyStr: String, reqUrl: String): String? {
                 try {
                     val jsonObj = org.json.JSONObject(bodyStr)
@@ -630,17 +725,17 @@ object TokenParser {
 
                     if (cmd.isNotEmpty()) {
                         var streamUrl = cmd.removePrefix("ffmpeg ").removePrefix("ffrtsp ").removePrefix("vlc ").trim()
-                        if (streamUrl.startsWith("http://", ignoreCase = true) || 
-                            streamUrl.startsWith("https://", ignoreCase = true) || 
+                        if (streamUrl.startsWith("http://", ignoreCase = true) ||
+                            streamUrl.startsWith("https://", ignoreCase = true) ||
                             streamUrl.startsWith("rtmp://", ignoreCase = true)) {
-                            
+
                             try {
                                 val baseAuthority = URL(reqUrl).authority
                                 if (!baseAuthority.isNullOrEmpty() && (streamUrl.contains("localhost") || streamUrl.contains("127.0.0.1") || streamUrl.contains("0.0.0.0"))) {
                                     streamUrl = streamUrl.replace(Regex("://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(?::\\d+)?/"), "://$baseAuthority/")
                                 }
                             } catch (e: Exception) {}
-                            
+
                             return streamUrl
                         }
                     }
@@ -648,7 +743,6 @@ object TokenParser {
                 return null
             }
 
-            // 1. If responseBody was provided, try parsing it first
             if (responseBody != null) {
                 val foundUrl = parseCmd(responseBody, baseUrl)
                 if (foundUrl != null) {
@@ -658,14 +752,13 @@ object TokenParser {
                 }
             }
 
-            // 2. If it's a Stalker portal URL, perform automatic handshake if needed
             if (isPortal) {
                 try {
                     val portalIdx = baseUrl.indexOf("/portal.php", ignoreCase = true)
                     if (portalIdx != -1) {
                         val portalBase = baseUrl.substring(0, portalIdx)
                         val handshakeUrl = "$portalBase/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
-                        
+
                         val hsReq = Request.Builder().url(handshakeUrl).apply {
                             mergedHeaders.forEach { (k, v) -> header(k, v) }
                         }.build()
@@ -673,7 +766,7 @@ object TokenParser {
                         if (hsRes.isSuccessful) {
                             val hsHeaders = hsRes.headers("Set-Cookie")
                             val hsBody = hsRes.body?.string() ?: ""
-                            
+
                             val existingCookies = (mergedHeaders.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value ?: "").split(";").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
                             for (sc in hsHeaders) {
                                 val cNameVal = sc.substringBefore(";").trim()
@@ -682,7 +775,7 @@ object TokenParser {
                                     existingCookies.add(cNameVal)
                                 }
                             }
-                            
+
                             try {
                                 val hsJson = org.json.JSONObject(hsBody)
                                 val token = hsJson.optJSONObject("js")?.optString("token") ?: hsJson.optString("token")
@@ -703,7 +796,6 @@ object TokenParser {
                 }
             }
 
-            // 3. Make the request to baseUrl (create_link or portal API) with merged handshake headers and cookies
             val req = Request.Builder().url(baseUrl).apply {
                 mergedHeaders.forEach { (k, v) -> header(k, v) }
             }.build()
@@ -726,20 +818,20 @@ object TokenParser {
     private fun extractDrmFromBody(body: String): DrmConfig? {
         val kidPattern = Regex("(?:const|let|var)?\\s*kid\\s*=\\s*['\"]([a-fA-F0-9]{32})['\"]", RegexOption.IGNORE_CASE)
         val keyPattern = Regex("(?:const|let|var)?\\s*key\\s*=\\s*['\"]([a-fA-F0-9]{32})['\"]", RegexOption.IGNORE_CASE)
-        
+
         val kidMatch = kidPattern.find(body)
         val keyMatch = keyPattern.find(body)
-        
+
         if (kidMatch != null && keyMatch != null) {
             return DrmConfig(type = "clearkey", rawKeyPair = "${kidMatch.groupValues[1]}:${keyMatch.groupValues[1]}")
         }
-        
+
         val pairPattern = Regex("([a-fA-F0-9]{32}):([a-fA-F0-9]{32})")
         val pairMatch = pairPattern.find(body)
         if (pairMatch != null) {
             return DrmConfig(type = "clearkey", rawKeyPair = "${pairMatch.groupValues[1]}:${pairMatch.groupValues[2]}")
         }
-        
+
         return null
     }
 
@@ -750,14 +842,12 @@ object TokenParser {
     private fun getStreamHeaders(baseUrl: String, headers: Map<String, String>?, playRef: String? = null): Map<String, String> {
         val out = headers?.toMutableMap() ?: mutableMapOf()
         try {
-            // 1. Check if user specified a dedicated PlayRef / stream-referer for video playback
-            val explicitPlayRef = playRef ?: out.entries.firstOrNull { 
+            val explicitPlayRef = playRef ?: out.entries.firstOrNull {
                 val l = it.key.lowercase()
                 l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref" || l == "stream-referer" || l == "m3u8-referer" || l == "cdnref" || l == "mediaref" || l == "liveref"
             }?.value
-            
-            // Remove control keys from out map so OkHttp/ExoPlayer only sends clean standard HTTP headers
-            out.keys.filter { 
+
+            out.keys.filter {
                 val l = it.lowercase()
                 l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref" || l == "stream-referer" || l == "m3u8-referer" || l == "cdnref" || l == "mediaref" || l == "liveref"
             }.forEach { out.remove(it) }
@@ -770,8 +860,7 @@ object TokenParser {
                 } catch (e: Exception) {}
                 return out
             }
-            
-            // 2. If no PlayRef is specified, check if Referer already exists
+
             val existingRefererKey = out.keys.firstOrNull { it.lowercase() == "referer" || it.lowercase() == "referrer" }
             if (existingRefererKey == null) {
                 val u = URL(baseUrl)
@@ -807,10 +896,9 @@ object TokenParser {
     fun detectMimeType(url: String, explicitMimeType: String? = null): String? {
         if (explicitMimeType != null) return explicitMimeType
         val lower = url.lowercase()
-        
-        // Also check decoded URL for filename parameter
+
         val decoded = try { java.net.URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
-        
+
         if (lower.contains(".mpd") || lower.contains("extension=mpd") || lower.contains("output=mpd") || lower.contains("format=mpd")) {
             return androidx.media3.common.MimeTypes.APPLICATION_MPD
         }
@@ -850,13 +938,13 @@ object TokenParser {
             .replace("\\u002F", "/", ignoreCase = true)
             .replace("\\u003A", ":", ignoreCase = true)
             .replace("\\u0026", "&", ignoreCase = true)
-        
+
         val httpRegex = Regex("https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+")
         httpRegex.findAll(decoded).forEach { candidates.add(it.value) }
-        
+
         val protoRegex = Regex("(rtmp|rtsp|udp|srt)://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+")
         protoRegex.findAll(decoded).forEach { candidates.add(it.value) }
-        
+
         return candidates.distinct()
     }
 }
