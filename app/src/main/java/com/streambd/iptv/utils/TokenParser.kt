@@ -810,20 +810,26 @@ object TokenParser {
     // Universal — no provider names.
     // =========================================================================
     private fun mimeTypeFromHint(hint: String?, url: String): String? {
-        when (hint?.lowercase()) {
-            "hls", "m3u8", "mpegurl", "application/x-mpegurl", "application/vnd.apple.mpegurl",
-            "x-mpegurl" -> return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-            "dash", "mpd", "application/dash+xml", "dash+xml" ->
-                return androidx.media3.common.MimeTypes.APPLICATION_MPD
-            "ts", "mpegts", "video/mp2t" ->
-                return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-            "mp4", "video/mp4", "m4v" ->
-                return androidx.media3.common.MimeTypes.VIDEO_MP4
-            "webm", "video/webm", "matroska", "mkv", "video/x-matroska" ->
-                return "video/x-matroska"
-        }
-        return detectMimeType(url)
+    val pathOnly = url.substringBefore("?").substringBefore("#").lowercase()
+    // URL-এর পাথ hint-এর চেয়ে বেশি নির্ভরযোগ্য: /mpegts মানে raw TS
+    if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
+        return androidx.media3.common.MimeTypes.VIDEO_MP2T
     }
+    when (hint?.lowercase()) {
+        "hls", "m3u8", "mpegurl", "application/x-mpegurl",
+        "application/vnd.apple.mpegurl", "x-mpegurl" ->
+            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        "dash", "mpd", "application/dash+xml", "dash+xml" ->
+            return androidx.media3.common.MimeTypes.APPLICATION_MPD
+        "ts", "mpegts", "video/mp2t" ->
+            return androidx.media3.common.MimeTypes.VIDEO_MP2T
+        "mp4", "video/mp4", "m4v" ->
+            return androidx.media3.common.MimeTypes.VIDEO_MP4
+        "webm", "video/webm", "matroska", "mkv", "video/x-matroska" ->
+            return "video/x-matroska"
+    }
+    return detectMimeType(url)
+}
 
     // =========================================================================
     // Stalker portal (specific MAC handshake + JSON protocol) — unchanged
@@ -997,29 +1003,34 @@ object TokenParser {
     }
 
     fun detectMimeType(url: String, explicitMimeType: String? = null): String? {
-        if (explicitMimeType != null) return explicitMimeType
-        val lower = url.lowercase()
-        val decoded = try { java.net.URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
-        if (lower.contains(".mpd") || lower.contains("extension=mpd") || lower.contains("output=mpd") || lower.contains("format=mpd")) {
-            return androidx.media3.common.MimeTypes.APPLICATION_MPD
-        }
-        if (lower.contains(".m3u8") || lower.contains("extension=m3u8") || lower.contains("output=m3u8") ||
-            lower.contains("type=m3u8") || lower.contains("format=m3u8") || lower.contains("stream=m3u8") ||
-            lower.contains("hls=true") || lower.contains("m3u8=true")) {
-            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-        }
-        // Path-based hint (universal — no provider name).
-        if (lower.contains("/mpegts") || lower.contains("/hls") || lower.contains("/manifest") || lower.contains("/playlist")) {
-            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-        }
-        if (lower.contains("/dash/") || lower.contains("/dash?")) {
-            return androidx.media3.common.MimeTypes.APPLICATION_MPD
-        }
-        if (lower.contains(".mkv") || decoded.contains(".mkv")) return "video/x-matroska"
-        if (lower.contains(".mp4") || decoded.contains(".mp4")) return androidx.media3.common.MimeTypes.VIDEO_MP4
-        if (lower.contains(".ts") || decoded.contains(".ts")) return androidx.media3.common.MimeTypes.VIDEO_MP2T
-        return null
+    if (explicitMimeType != null) return explicitMimeType
+    val lower = url.lowercase()
+    val pathOnly = lower.substringBefore("?").substringBefore("#")
+    val decoded = try { java.net.URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
+
+    if (lower.contains(".mpd") || lower.contains("extension=mpd") ||
+        lower.contains("output=mpd") || lower.contains("format=mpd")) {
+        return androidx.media3.common.MimeTypes.APPLICATION_MPD
     }
+    if (lower.contains(".m3u8") || lower.contains("extension=m3u8") || lower.contains("output=m3u8") ||
+        lower.contains("type=m3u8") || lower.contains("format=m3u8") || lower.contains("stream=m3u8") ||
+        lower.contains("hls=true") || lower.contains("m3u8=true")) {
+        return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+    }
+    // raw MPEG-TS
+    if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
+        return androidx.media3.common.MimeTypes.VIDEO_MP2T
+    }
+    if (lower.contains("/hls") || lower.contains("/manifest") || lower.contains("/playlist")) {
+        return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+    }
+    if (lower.contains("/dash/") || lower.contains("/dash?")) {
+        return androidx.media3.common.MimeTypes.APPLICATION_MPD
+    }
+    if (lower.contains(".mkv") || decoded.contains(".mkv")) return "video/x-matroska"
+    if (lower.contains(".mp4") || decoded.contains(".mp4")) return androidx.media3.common.MimeTypes.VIDEO_MP4
+    return null
+}
 
     private fun extractAllUrls(payload: String): List<String> {
         val candidates = mutableListOf<String>()
