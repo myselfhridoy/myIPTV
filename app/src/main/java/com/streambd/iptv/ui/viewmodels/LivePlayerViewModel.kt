@@ -21,6 +21,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 class LivePlayerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,6 +39,17 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
     private var resolveJob: Job? = null
     private var prefetchJob: Job? = null
+
+    /**
+     * Generation counter for channel resolution.
+     *
+     * Every call to [resolveChannel] increments this. Any result produced by a resolve whose
+     * generation no longer matches the current one is discarded. This protects against the
+     * case where [MediaResolver.resolveMediaParams] swallows [CancellationException] or is
+     * otherwise slow to unwind — cancelling the previous job alone would not prevent the
+     * stale write to [_currentMediaSource].
+     */
+    private val resolveGeneration = AtomicInteger(0)
 
     private companion object {
         const val TAG = "LivePlayerViewModel"
@@ -64,6 +76,10 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun resolveChannel(channel: Channel, sourceUrl: String) {
+        // Bump the generation first so any in-flight older resolve is invalidated even
+        // before its coroutine has finished unwinding.
+        val myGeneration = resolveGeneration.incrementAndGet()
+
         resolveJob?.cancel()
         _isLoading.value = true
         _currentMediaSource.value = null
@@ -71,22 +87,49 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         val cacheKey = "${channel.name}|$sourceUrl"
         val cachedParams = getCached(cacheKey)
         if (cachedParams != null) {
-            _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
-            _isLoading.value = false
+            // Cache hit — synchronous on the caller's (main) dispatcher, so no interleaving
+            // is possible. Still verify generation for consistency.
+            if (myGeneration == resolveGeneration.get()) {
+                _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
+                _isLoading.value = false
+            }
             return
         }
 
         resolveJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val params = MediaResolver.resolveMediaParams(appContext, channel, sourceUrl)
-                // If a newer resolve started meanwhile, drop this stale result
+
+                // ---- Generation check #1: bail out before doing any expensive work. ----
+                if (myGeneration != resolveGeneration.get()) {
+                    Log.d(
+                        TAG,
+                        "Dropping stale resolve (pre-build) for ${channel.name} " +
+                            "(gen=$myGeneration, current=${resolveGeneration.get()})"
+                    )
+                    return@launch
+                }
                 ensureActive()
+
                 if (params != null) {
                     putCached(cacheKey, params)
+
                     val source = withContext(Dispatchers.Main) {
                         MediaResolver.buildMediaSource(appContext, params)
                     }
+
+                    // ---- Generation check #2: another resolve may have started while we
+                    //      were hopping to the main thread. Drop if so. ----
+                    if (myGeneration != resolveGeneration.get()) {
+                        Log.d(
+                            TAG,
+                            "Dropping stale resolve (post-build) for ${channel.name} " +
+                                "(gen=$myGeneration, current=${resolveGeneration.get()})"
+                        )
+                        return@launch
+                    }
                     ensureActive()
+
                     _currentMediaSource.value = source
                 }
             } catch (e: CancellationException) {
@@ -94,9 +137,11 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to resolve ${channel.name}", e)
             } finally {
-                // Only the latest (still active) job may turn the loading flag off,
-                // otherwise a cancelled job hides the spinner of the new one.
-                if (isActive) _isLoading.value = false
+                // Only the latest generation may clear the loading flag; a stale job
+                // must not hide the spinner belonging to a newer job.
+                if (myGeneration == resolveGeneration.get()) {
+                    _isLoading.value = false
+                }
             }
         }
     }
