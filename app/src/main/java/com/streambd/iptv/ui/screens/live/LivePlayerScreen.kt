@@ -168,6 +168,7 @@ fun LivePlayerScreen(
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         
         onDispose {
+            playerViewModel.stopPrefetch()
             activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
             if (originalOrientation != null) {
                 activity?.requestedOrientation = originalOrientation
@@ -200,7 +201,7 @@ fun LivePlayerScreen(
 
     // Auto Prefetch next/prev channels
     LaunchedEffect(channel, currentPlaylist) {
-        val index = currentPlaylist.indexOf(channel)
+        val index = currentPlaylist.indexOfChannel(channel)
         if (index != -1) {
             playerViewModel.prefetchChannels(currentPlaylist, index)
         }
@@ -705,6 +706,22 @@ fun LivePlayerScreen(
             onSourceSelected = { _, url -> currentSourceUrl = url },
             onDismiss = { showSourceSelector = false }
         )
+    }
+}
+
+/**
+ * indexOf() with a fallback: the selected channel (restored from saved JSON, or enriched with
+ * extra sources) is often not equals() to the instance in the loaded playlist.
+ * Same matching rule as MainViewModel.indexOfChannel.
+ */
+private fun List<com.streambd.iptv.data.models.Channel>.indexOfChannel(
+    channel: com.streambd.iptv.data.models.Channel
+): Int {
+    val exact = indexOf(channel)
+    if (exact != -1) return exact
+    return indexOfFirst {
+        it.name == channel.name &&
+            (it.url == channel.url || (it.tokenId != null && it.tokenId == channel.tokenId))
     }
 }
 
