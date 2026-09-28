@@ -467,7 +467,10 @@ if (!finalUrl.startsWith("data:", ignoreCase = true) &&
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(sharedOkHttpClient)
             .setDefaultRequestProperties(finalHeaders)
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val baseDataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+val dataSourceFactory = androidx.media3.datasource.DataSource.Factory {
+    PngStrippingDataSource(baseDataSourceFactory.createDataSource())
+}
 
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
