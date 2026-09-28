@@ -61,6 +61,26 @@ object MediaResolver {
             .build()
     }
 
+    /**
+     * Returns true for URLs that are obviously HTML/portal pages, not streams.
+     *
+     * If we don't detect these, the mimeType auto-detection below force-assigns
+     * `application/x-mpegURL` to any extensionless URL, and ExoPlayer then tries to parse
+     * the HTML page as an HLS manifest → "Input does not start with the #EXTM3U header".
+     */
+    private fun isKnownPageUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val lower = url.lowercase()
+        if (lower.contains("tokenurl=")) return true
+        if (lower.contains("streamplay")) return true
+        if (lower.contains("streambd")) return true
+        if (lower.contains("portal.php")) return true
+        if (lower.contains("action=create_link")) return true
+        val path = lower.substringBefore("?").substringBefore("#")
+        if (path.endsWith(".html") || path.endsWith(".htm")) return true
+        return false
+    }
+
     /** Cancellable OkHttp call: cancelling the coroutine also cancels the network request. */
     private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
         cont.invokeOnCancellation { cancel() }
@@ -145,6 +165,16 @@ object MediaResolver {
             val finalHeaders = TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: sourceDrm
 
+            // ---- NEW GUARD -----------------------------------------------------------
+            // If, after all resolution attempts, the URL still points at a known page
+            // endpoint (tokenUrl=, streamPlay, etc.) — the resolver failed. Return null
+            // so the ViewModel treats it as a resolution failure instead of handing an
+            // HTML page to ExoPlayer as if it were an HLS manifest.
+            if (isKnownPageUrl(finalUrl) && resolved == null) {
+                return@withContext null
+            }
+            // --------------------------------------------------------------------------
+
             val isCrichd = currentTokenUrl?.equals("crichd", ignoreCase = true) == true ||
                 rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
@@ -163,11 +193,31 @@ object MediaResolver {
                 TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
             }
 
-            if (mimeType == null && (finalUrl.contains(".php", ignoreCase = true) || !EXT_ONLY_REGEX.containsMatchIn(finalUrl))) {
-                if (!finalUrl.contains("mpegts", ignoreCase = true) && !finalUrl.contains("type=ts", ignoreCase = true)) {
+            // ---- FIXED mimeType fallback --------------------------------------------
+            // Old logic force-set m3u8 for ANY extensionless URL — including page URLs
+            // like `playlist?tokenUrl=streambd` — which produced "Input does not start
+            // with #EXTM3U". Now we only force m3u8 when:
+            //   - URL is not a known page
+            //   - AND the response was already sniffed as HLS (resolved != null with m3u8)
+            //   - OR the URL has an explicit HLS/TS hint
+            if (mimeType == null && !isKnownPageUrl(finalUrl)) {
+                val isHlsOrTsHint =
+                    finalUrl.contains(".m3u8", ignoreCase = true) ||
+                    finalUrl.contains("mpegurl", ignoreCase = true) ||
+                    finalUrl.contains("mpegts", ignoreCase = true) ||
+                    finalUrl.contains("type=ts", ignoreCase = true) ||
+                    finalUrl.contains("extension=m3u8", ignoreCase = true) ||
+                    finalUrl.contains("live.php", ignoreCase = true)
+
+                if (isHlsOrTsHint) {
+                    mimeType = MimeTypes.APPLICATION_M3U8
+                } else if (resolved != null && resolved.mimeType == MimeTypes.APPLICATION_M3U8) {
+                    // The sniffer already told us it's HLS — trust it.
                     mimeType = MimeTypes.APPLICATION_M3U8
                 }
+                // Otherwise leave mimeType = null and let ExoPlayer infer from content type.
             }
+            // --------------------------------------------------------------------------
 
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
@@ -189,6 +239,9 @@ object MediaResolver {
         val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
         val hasKnownExtensionOrProto = EXT_REGEX.containsMatchIn(decodedUrl) || PROTO_REGEX.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
         val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
+
+        // Skip pre-resolve for known page URLs — the WebView path handles them.
+        if (isKnownPageUrl(rawSourceUrl)) return null
 
         val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) || (!isKnownFileHost && !hasKnownExtensionOrProto)
 
