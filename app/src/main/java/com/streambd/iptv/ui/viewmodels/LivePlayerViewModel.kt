@@ -46,6 +46,8 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         const val CACHE_TTL_MS = 5 * 60 * 1000L
         // Don't prefetch while the user is quickly channel-surfing
         const val PREFETCH_DELAY_MS = 1000L
+        // Re-resolve neighbours before CACHE_TTL_MS expires (must stay below the TTL)
+        const val REFRESH_INTERVAL_MS = 4 * 60 * 1000L
     }
 
     private fun getCached(key: String): ResolvedMediaParams? {
@@ -123,15 +125,38 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
                 prefetchCache.keys.retainAll(keysToKeep)
             }
 
-            coroutineScope {
-                launch { prefetchOne(nextChannel, nextCacheKey) }
-                launch { prefetchOne(prevChannel, prevCacheKey) }
+            prefetchNeighbors(nextChannel, nextCacheKey, prevChannel, prevCacheKey, force = false)
+
+            // Refresh neighbours before the cache TTL runs out, so Up/Down still hits the
+            // cache after a long time on one channel. Stops when the job is cancelled.
+            while (isActive) {
+                delay(REFRESH_INTERVAL_MS)
+                prefetchNeighbors(nextChannel, nextCacheKey, prevChannel, prevCacheKey, force = true)
             }
         }
     }
 
-    private suspend fun prefetchOne(channel: Channel, cacheKey: String) {
-        if (getCached(cacheKey) != null) return
+    /** Stop background prefetching (call when leaving the player screen). */
+    fun stopPrefetch() {
+        prefetchJob?.cancel()
+        prefetchJob = null
+    }
+
+    private suspend fun prefetchNeighbors(
+        nextChannel: Channel,
+        nextCacheKey: String,
+        prevChannel: Channel,
+        prevCacheKey: String,
+        force: Boolean
+    ) {
+        coroutineScope {
+            launch { prefetchOne(nextChannel, nextCacheKey, force) }
+            launch { prefetchOne(prevChannel, prevCacheKey, force) }
+        }
+    }
+
+    private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
+        if (!force && getCached(cacheKey) != null) return
         try {
             MediaResolver.resolveMediaParams(appContext, channel, channel.url)
                 ?.let { putCached(cacheKey, it) }
