@@ -33,6 +33,16 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    /**
+     * True when the last [resolveChannel] finished without producing a usable MediaSource
+     * (params == null, or an exception was thrown).
+     *
+     * The screen reads this to render an error card instead of leaving the user on a
+     * silent black screen. Reset to `false` at the start of every new resolve.
+     */
+    private val _resolutionFailed = MutableStateFlow(false)
+    val resolutionFailed: StateFlow<Boolean> = _resolutionFailed.asStateFlow()
+
     private data class CacheEntry(val params: ResolvedMediaParams, val timestamp: Long)
 
     private val prefetchCache = ConcurrentHashMap<String, CacheEntry>()
@@ -47,18 +57,18 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
      * generation no longer matches the current one is discarded. This protects against the
      * case where [MediaResolver.resolveMediaParams] swallows [CancellationException] or is
      * otherwise slow to unwind — cancelling the previous job alone would not prevent the
-     * stale write to [_currentMediaSource].
+     * stale write to [_currentMediaSource] (or to [_resolutionFailed]).
      */
     private val resolveGeneration = AtomicInteger(0)
 
     private companion object {
         const val TAG = "LivePlayerViewModel"
         const val MAX_CACHE_SIZE = 10
-        // Resolved stream URLs/tokens can expire, so don't reuse them forever
+        // Resolved stream URLs/tokens can expire, so don't reuse them forever.
         const val CACHE_TTL_MS = 5 * 60 * 1000L
-        // Don't prefetch while the user is quickly channel-surfing
+        // Don't prefetch while the user is quickly channel-surfing.
         const val PREFETCH_DELAY_MS = 1000L
-        // Re-resolve neighbours before CACHE_TTL_MS expires (must stay below the TTL)
+        // Re-resolve neighbours before CACHE_TTL_MS expires (must stay below the TTL).
         const val REFRESH_INTERVAL_MS = 4 * 60 * 1000L
     }
 
@@ -82,6 +92,7 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
         resolveJob?.cancel()
         _isLoading.value = true
+        _resolutionFailed.value = false
         _currentMediaSource.value = null
 
         val cacheKey = "${channel.name}|$sourceUrl"
@@ -90,8 +101,15 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
             // Cache hit — synchronous on the caller's (main) dispatcher, so no interleaving
             // is possible. Still verify generation for consistency.
             if (myGeneration == resolveGeneration.get()) {
-                _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
-                _isLoading.value = false
+                try {
+                    _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
+                    _resolutionFailed.value = false
+                } catch (e: Exception) {
+                    Log.e(TAG, "buildMediaSource failed for cached ${channel.name}", e)
+                    _resolutionFailed.value = true
+                } finally {
+                    _isLoading.value = false
+                }
             }
             return
         }
@@ -111,31 +129,40 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 ensureActive()
 
-                if (params != null) {
-                    putCached(cacheKey, params)
-
-                    val source = withContext(Dispatchers.Main) {
-                        MediaResolver.buildMediaSource(appContext, params)
-                    }
-
-                    // ---- Generation check #2: another resolve may have started while we
-                    //      were hopping to the main thread. Drop if so. ----
-                    if (myGeneration != resolveGeneration.get()) {
-                        Log.d(
-                            TAG,
-                            "Dropping stale resolve (post-build) for ${channel.name} " +
-                                "(gen=$myGeneration, current=${resolveGeneration.get()})"
-                        )
-                        return@launch
-                    }
-                    ensureActive()
-
-                    _currentMediaSource.value = source
+                if (params == null) {
+                    // Resolver could not produce a usable URL. Mark failure so the UI
+                    // can show a proper error card instead of a forever-spinner.
+                    _resolutionFailed.value = true
+                    return@launch
                 }
+
+                putCached(cacheKey, params)
+
+                val source = withContext(Dispatchers.Main) {
+                    MediaResolver.buildMediaSource(appContext, params)
+                }
+
+                // ---- Generation check #2: another resolve may have started while we
+                //      were hopping to the main thread. Drop if so. ----
+                if (myGeneration != resolveGeneration.get()) {
+                    Log.d(
+                        TAG,
+                        "Dropping stale resolve (post-build) for ${channel.name} " +
+                            "(gen=$myGeneration, current=${resolveGeneration.get()})"
+                    )
+                    return@launch
+                }
+                ensureActive()
+
+                _currentMediaSource.value = source
+                _resolutionFailed.value = false
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to resolve ${channel.name}", e)
+                if (myGeneration == resolveGeneration.get()) {
+                    _resolutionFailed.value = true
+                }
             } finally {
                 // Only the latest generation may clear the loading flag; a stale job
                 // must not hide the spinner belonging to a newer job.
@@ -208,7 +235,7 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // A failed prefetch must never crash the app or cancel the other prefetch
+            // A failed prefetch must never crash the app or cancel the other prefetch.
             Log.w(TAG, "Prefetch failed for ${channel.name}", e)
         }
     }
