@@ -26,9 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.border
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -40,21 +38,22 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
-import com.streambd.iptv.data.models.StreamSource
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.utils.MediaResolver
 import kotlinx.coroutines.delay
+
+// Max bytes read when sniffing a response body (playlists/JSON are small)
+private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -90,6 +89,15 @@ fun VodPlayerScreen(
     var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
+
+    // Resolution (token / redirect / setup) failed before ExoPlayer even started
+    var resolveFailed by remember { mutableStateOf(false) }
+    // Bumped by the Retry button so the whole resolve + prepare runs again with fresh tokens
+    var retryToken by remember { mutableStateOf(0) }
+
+    // Slider dragging state (so the thumb follows the finger and seeks only on release)
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf(0f) }
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
@@ -140,119 +148,124 @@ fun VodPlayerScreen(
     }
 
     // Handle ExoPlayer Media Setup
-    LaunchedEffect(stream) {
+    LaunchedEffect(stream, retryToken) {
         isLoading = true
+        resolveFailed = false
 
-        val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
-        if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
-            initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
-        }
+        try {
+            val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
+            if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+                initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
+            }
 
-        // Resolve token if present, or pre-resolve generic links
-        val currentPlayRef = stream.headers?.entries?.firstOrNull { 
-            val l = it.key.lowercase()
-            l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref"
-        }?.value
-        val isStalkerOrPortal = stream.url.contains("portal.php", ignoreCase = true) ||
-            stream.url.contains("action=create_link", ignoreCase = true)
+            // Resolve token if present, or pre-resolve generic links
+            val currentPlayRef = stream.headers?.entries?.firstOrNull {
+                val l = it.key.lowercase()
+                l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref"
+            }?.value
+            val isStalkerOrPortal = stream.url.contains("portal.php", ignoreCase = true) ||
+                stream.url.contains("action=create_link", ignoreCase = true)
 
-        var resolved: com.streambd.iptv.utils.ResolvedToken? = null
-        if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal || com.streambd.iptv.utils.YouTubeExtractor.isYouTubeUrl(stream.url)) {
-            resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
-                context = context,
-                baseUrl = stream.url,
-                tokenUrl = stream.tokenUrl,
-                tokenId = stream.tokenId?.toString(),
-                headers = initialHeaders,
-                tokenMatch = stream.tokenMatch,
-                tokenReplace = stream.tokenReplace,
-                playRef = currentPlayRef
-            )
-        }
-        if (resolved == null) {
-            val rawSourceUrl = stream.url
-            val decodedUrl = try { java.net.URLDecoder.decode(stream.url, "UTF-8") } catch (e: Exception) { stream.url }
-            val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
-            val paramRegex = Regex("([?&](extension|output|type|format|stream)=(m3u8|mpd|ts))", RegexOption.IGNORE_CASE)
-            val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
-            
-            val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) || 
-                rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
-            val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
-            val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
-            val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
-            val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) || 
-                (!isKnownFileHost && !hasKnownExtensionOrProto)
-            if (shouldPreResolve) {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            var resolved: com.streambd.iptv.utils.ResolvedToken? = null
+            if (!stream.tokenUrl.isNullOrEmpty() || isStalkerOrPortal || com.streambd.iptv.utils.YouTubeExtractor.isYouTubeUrl(stream.url)) {
+                resolved = com.streambd.iptv.utils.TokenParser.resolveTokenForUrl(
+                    context = context,
+                    baseUrl = stream.url,
+                    tokenUrl = stream.tokenUrl,
+                    tokenId = stream.tokenId?.toString(),
+                    headers = initialHeaders,
+                    tokenMatch = stream.tokenMatch,
+                    tokenReplace = stream.tokenReplace,
+                    playRef = currentPlayRef
+                )
+            }
+            if (resolved == null) {
+                val rawSourceUrl = stream.url
+                val decodedUrl = try { java.net.URLDecoder.decode(stream.url, "UTF-8") } catch (e: Exception) { stream.url }
+                val extRegex = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp)(\\?|$|[\"'])", RegexOption.IGNORE_CASE)
+                val protoRegex = Regex("^(rtmp|rtsp|udp|srt)://", RegexOption.IGNORE_CASE)
+
+                val isPhpHlsUrl = rawSourceUrl.contains("live.php", ignoreCase = true) ||
+                    rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
+                val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) || protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
+                val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
+                val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
+                val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) ||
+                    (!isKnownFileHost && !hasKnownExtensionOrProto)
+
+                // NOTE: the result is now actually assigned to `resolved`.
+                // Before, the value of this block was computed and thrown away.
+                resolved = if (shouldPreResolve) {
+                    kotlinx.coroutines.withContext<com.streambd.iptv.utils.ResolvedToken?>(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                            val client = MediaResolver.sharedOkHttpClient
                             val req = okhttp3.Request.Builder().url(stream.url).apply {
                                 initialHeaders.forEach { (k, v) -> header(k, v) }
                             }.head().build() // Use HEAD first
-                            
+
                             var res = client.newCall(req).execute()
-                            val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
-                                it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
-                            } == true
-                            
-                            var isMasterPlaylist = false
-                            if (!res.isSuccessful || isPlaylistOrJsonType) {
-                                res.close()
-                                val getReq = okhttp3.Request.Builder().url(stream.url).apply {
-                                    initialHeaders.forEach { (k, v) -> header(k, v) }
-                                }.build()
-                                res = client.newCall(getReq).execute()
-                                
-                                val isGetPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let { 
+                            try {
+                                val isPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let {
                                     it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
                                 } == true
-                                val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
-                                
-                                if (res.isSuccessful && isGetPlaylistOrJsonType && contentLength < 10_000_000L) {
-                                    val bodyStr = res.body?.string() ?: ""
-                                    isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
-                                    if (bodyStr.trim().startsWith("{")) {
-                                        val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(stream.url, initialHeaders, bodyStr)
-                                        if (stalkerResolved != null) {
-                                            return@withContext stalkerResolved
+
+                                var isMasterPlaylist = false
+                                if (!res.isSuccessful || isPlaylistOrJsonType) {
+                                    res.close()
+                                    val getReq = okhttp3.Request.Builder().url(stream.url).apply {
+                                        initialHeaders.forEach { (k, v) -> header(k, v) }
+                                    }.build()
+                                    res = client.newCall(getReq).execute()
+
+                                    val isGetPlaylistOrJsonType = isPhpHlsUrl || res.header("Content-Type")?.lowercase()?.let {
+                                        it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
+                                    } == true
+                                    val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
+
+                                    if (res.isSuccessful && isGetPlaylistOrJsonType && contentLength < 10_000_000L) {
+                                        // peekBody caps the read so an endless stream can't hang here
+                                        val bodyStr = res.peekBody(MAX_SNIFF_BYTES).string()
+                                        isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
+                                        if (bodyStr.trim().startsWith("{")) {
+                                            val stalkerResolved = com.streambd.iptv.utils.TokenParser.resolveStalkerPortalOrJson(stream.url, initialHeaders, bodyStr)
+                                            if (stalkerResolved != null) {
+                                                return@withContext stalkerResolved
+                                            }
                                         }
-                                    }
-                                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
-                                    if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
-                                        val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
-                                        if (parsedChannels.isNotEmpty()) {
-                                            val first = parsedChannels.first()
-                                            val mergedHeaders = initialHeaders.toMutableMap()
-                                            first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
-                                            first.userAgent?.let { mergedHeaders["User-Agent"] = it }
-                                            first.cookie?.let { mergedHeaders["Cookie"] = it }
-                                            first.httpReferer?.let { mergedHeaders["Referer"] = it }
-                                            first.origin?.let { mergedHeaders["Origin"] = it }
-                                            
-                                            val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
-                                            innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-                                            
-                                            return@withContext com.streambd.iptv.utils.ResolvedToken(
-                                                url = innerParsed.cleanUrl,
-                                                headers = mergedHeaders,
-                                                mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
-                                                isMasterPlaylist = false
-                                            )
+                                        val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("#EXT-X-STREAM-INF")
+                                        if (bodyStr.contains("#EXTM3U") && !isHlsStream) {
+                                            val parsedChannels = com.streambd.iptv.utils.M3UParser.parsePlaylist(bodyStr)
+                                            if (parsedChannels.isNotEmpty()) {
+                                                val first = parsedChannels.first()
+                                                val mergedHeaders = initialHeaders.toMutableMap()
+                                                first.httpHeaders?.forEach { (k, v) -> mergedHeaders[k] = v }
+                                                first.userAgent?.let { mergedHeaders["User-Agent"] = it }
+                                                first.cookie?.let { mergedHeaders["Cookie"] = it }
+                                                first.httpReferer?.let { mergedHeaders["Referer"] = it }
+                                                first.origin?.let { mergedHeaders["Origin"] = it }
+
+                                                val innerParsed = com.streambd.iptv.utils.M3UParser.parseUrlHeaders(first.url)
+                                                innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
+
+                                                return@withContext com.streambd.iptv.utils.ResolvedToken(
+                                                    url = innerParsed.cleanUrl,
+                                                    headers = mergedHeaders,
+                                                    mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8,
+                                                    isMasterPlaylist = false
+                                                )
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            
-                            res.use { response ->
-                                if (response.isSuccessful) {
-                                    val redirectedUrl = response.request.url.toString()
-                                    val contentType = response.header("Content-Type")?.lowercase()
-                                    var mimeType: String? = null
-                                    if (contentType?.contains("mpegurl") == true) mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                                    else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd")) mimeType = androidx.media3.common.MimeTypes.APPLICATION_MPD
-                                    else mimeType = com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
-                                    
+
+                                if (res.isSuccessful) {
+                                    val redirectedUrl = res.request.url.toString()
+                                    val contentType = res.header("Content-Type")?.lowercase()
+                                    val mimeType: String? =
+                                        if (contentType?.contains("mpegurl") == true) androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                                        else if (contentType?.contains("dash") == true || redirectedUrl.contains(".mpd")) androidx.media3.common.MimeTypes.APPLICATION_MPD
+                                        else com.streambd.iptv.utils.TokenParser.detectMimeType(redirectedUrl)
+
                                     // Universal Rule (Like NSPlayer / OTT Navigator):
                                     // When a stream URL redirects via Location (or is a master playlist),
                                     // we keep stream.url so ExoPlayer's OkHttpDataSource follows Location redirects natively with fresh tokens every time!
@@ -261,10 +274,15 @@ fun VodPlayerScreen(
                                     } else {
                                         redirectedUrl
                                     }
-                                    
+
                                     com.streambd.iptv.utils.ResolvedToken(url = finalUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                                 } else null
+                            } finally {
+                                // Always release the connection, including on the early returns above
+                                res.close()
                             }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             null
                         }
@@ -272,150 +290,156 @@ fun VodPlayerScreen(
                 } else {
                     null
                 }
-        }
-
-        var finalUrl = resolved?.url ?: stream.url
-        val rawFinalHeaders = resolved?.headers ?: initialHeaders
-        val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
-        val finalDrm = resolved?.drm ?: stream.drm
-
-        val isCrichd = stream.tokenUrl?.equals("crichd", ignoreCase = true) == true ||
-            stream.url.contains("tokenUrl=crichd", ignoreCase = true) ||
-            finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
-
-        val isPhpHls = (finalUrl.contains("live.php", ignoreCase = true) || finalUrl.contains("extension=m3u8", ignoreCase = true)) &&
-            (resolved?.isMasterPlaylist == false || (resolved == null && !finalUrl.contains("workers.dev", ignoreCase = true)))
-
-        val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
-
-        if (shouldWrapInMasterPlaylist) {
-            val bandwidth = if (isCrichd) 220000 else 15000000
-            val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
-            finalUrl = "data:application/x-mpegURL;base64," +
-                android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
-        }
-
-        if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
-            val okHttpClient = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().apply {
-                addNetworkInterceptor { chain ->
-                    val originalReq = chain.request()
-                    val builder = originalReq.newBuilder()
-                    finalHeaders.forEach { (k, v) ->
-                        builder.header(k, v)
-                    }
-                    chain.proceed(builder.build())
-                }
-            }.build()
-
-            val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-            val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
-
-            val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
-            val mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
-                androidx.media3.common.MimeTypes.APPLICATION_M3U8
-            } else {
-                com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
             }
-            mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-            // Add subtitles from stream source if available
-            val subtitleConfigs = stream.subtitles?.map { sub ->
-                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
-                    .setMimeType(
-                        when {
-                            sub.url.endsWith(".vtt", ignoreCase = true) -> androidx.media3.common.MimeTypes.TEXT_VTT
-                            sub.url.endsWith(".srt", ignoreCase = true) -> androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
-                            sub.url.endsWith(".ass", ignoreCase = true) || sub.url.endsWith(".ssa", ignoreCase = true) -> androidx.media3.common.MimeTypes.TEXT_SSA
-                            else -> androidx.media3.common.MimeTypes.TEXT_VTT
+            var finalUrl = resolved?.url ?: stream.url
+            val rawFinalHeaders = resolved?.headers ?: initialHeaders
+            val finalHeaders = com.streambd.iptv.utils.TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
+            val finalDrm = resolved?.drm ?: stream.drm
+
+            val isCrichd = stream.tokenUrl?.equals("crichd", ignoreCase = true) == true ||
+                stream.url.contains("tokenUrl=crichd", ignoreCase = true) ||
+                finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
+
+            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
+
+            if (shouldWrapInMasterPlaylist) {
+                val bandwidth = 220000
+                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
+                finalUrl = "data:application/x-mpegURL;base64," +
+                    android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)
+            }
+
+            if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
+                // Share the connection pool / dispatcher with the rest of the app
+                val okHttpClient = MediaResolver.sharedOkHttpClient.newBuilder().apply {
+                    addNetworkInterceptor { chain ->
+                        val originalReq = chain.request()
+                        val builder = originalReq.newBuilder()
+                        finalHeaders.forEach { (k, v) ->
+                            builder.header(k, v)
                         }
-                    )
-                    .setLanguage(sub.language)
-                    .setLabel(sub.label ?: sub.language)
-                    .build()
-            } ?: emptyList()
+                        chain.proceed(builder.build())
+                    }
+                }.build()
 
-            if (subtitleConfigs.isNotEmpty()) {
-                mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
-            }
+                val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
+                val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-            val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
-                override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
-                    return if (loadErrorInfo.errorCount <= 5) 1000L else super.getRetryDelayMsFor(loadErrorInfo)
+                val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
+                val mimeType = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
+                    androidx.media3.common.MimeTypes.APPLICATION_M3U8
+                } else {
+                    com.streambd.iptv.utils.TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
                 }
-                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
-            }
-            
-            val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-                .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
-                
-            if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
-                extractorsFactory.setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
-            }
-                
-            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-                .setLoadErrorHandlingPolicy(loadErrorPolicy)
+                mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-            // DRM Setup
-            if (finalDrm != null && finalDrm.type != null) {
-                val drmScheme = when (finalDrm.type.lowercase()) {
-                    "widevine" -> androidx.media3.common.C.WIDEVINE_UUID
-                    "playready" -> androidx.media3.common.C.PLAYREADY_UUID
-                    "clearkey" -> androidx.media3.common.C.CLEARKEY_UUID
-                    else -> androidx.media3.common.C.WIDEVINE_UUID
+                // Add subtitles from stream source if available
+                val subtitleConfigs = stream.subtitles?.map { sub ->
+                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
+                        .setMimeType(
+                            when {
+                                sub.url.endsWith(".vtt", ignoreCase = true) -> androidx.media3.common.MimeTypes.TEXT_VTT
+                                sub.url.endsWith(".srt", ignoreCase = true) -> androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
+                                sub.url.endsWith(".ass", ignoreCase = true) || sub.url.endsWith(".ssa", ignoreCase = true) -> androidx.media3.common.MimeTypes.TEXT_SSA
+                                else -> androidx.media3.common.MimeTypes.TEXT_VTT
+                            }
+                        )
+                        .setLanguage(sub.language)
+                        .setLabel(sub.label ?: sub.language)
+                        .build()
+                } ?: emptyList()
+
+                if (subtitleConfigs.isNotEmpty()) {
+                    mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
                 }
 
-                val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
+                val loadErrorPolicy = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                    override fun getRetryDelayMsFor(loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+                        return if (loadErrorInfo.errorCount <= 5) 1000L else super.getRetryDelayMsFor(loadErrorInfo)
+                    }
+                    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
+                }
 
-                var useLocalClearKey = false
-                var clearKeyBytes: ByteArray? = null
+                val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+                    .setMp4ExtractorFlags(androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
 
-                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
-                    val parts = finalDrm.rawKeyPair.split(":")
-                    if (parts.size == 2) {
-                        try {
-                            val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                            val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
+                    extractorsFactory.setMatroskaExtractorFlags(androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
+                }
 
-                            val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
-                            val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+                    .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
-                            val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                            clearKeyBytes = clearkeyJson.toByteArray()
+                // DRM Setup
+                if (finalDrm != null && finalDrm.type != null) {
+                    val drmScheme = when (finalDrm.type.lowercase()) {
+                        "widevine" -> C.WIDEVINE_UUID
+                        "playready" -> C.PLAYREADY_UUID
+                        "clearkey" -> C.CLEARKEY_UUID
+                        else -> C.WIDEVINE_UUID
+                    }
+
+                    val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
+
+                    var useLocalClearKey = false
+                    var clearKeyBytes: ByteArray? = null
+
+                    if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
+                        val parts = finalDrm.rawKeyPair.split(":")
+                        if (parts.size == 2) {
+                            try {
+                                val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                                val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+                                val kidB64 = android.util.Base64.encodeToString(kidBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+                                val keyB64 = android.util.Base64.encodeToString(keyBytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+
+                                val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
+                                clearKeyBytes = clearkeyJson.toByteArray()
+                                useLocalClearKey = true
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    } else if (finalDrm.licenseServer != null) {
+                        if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
+                            clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
                             useLocalClearKey = true
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                        } else {
+                            drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                            drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
+                            drmBuilder.setMultiSession(true)
                         }
                     }
-                } else if (finalDrm.licenseServer != null) {
-                    if (finalDrm.type.lowercase() == "clearkey" && finalDrm.licenseServer.trim().startsWith("{")) {
-                        clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
-                        useLocalClearKey = true
-                    } else {
-                        drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                        drmBuilder.setLicenseRequestHeaders(finalHeaders.filterKeys { it.lowercase() != "user-agent" })
-                        drmBuilder.setMultiSession(true)
+
+                    mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
+
+                    if (useLocalClearKey && clearKeyBytes != null) {
+                        val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
+                        val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                            .build(localMediaDrmCallback)
+                        mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
                     }
                 }
 
-                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-            
-                if (useLocalClearKey && clearKeyBytes != null) {
-                    val localMediaDrmCallback = androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
-                    val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-                        .setUuidAndExoMediaDrmProvider(androidx.media3.common.C.CLEARKEY_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
-                        .build(localMediaDrmCallback)
-                    mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
-                }
+                val mediaItem = mediaItemBuilder.build()
+                val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+
+                exoPlayer.setMediaSource(mediaSource)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+            } else {
+                isLoading = exoPlayer.playbackState == Player.STATE_BUFFERING
             }
-
-            val mediaItem = mediaItemBuilder.build()
-            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
-
-            exoPlayer.setMediaSource(mediaSource)
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
-        } else {
-            isLoading = exoPlayer.playbackState == Player.STATE_BUFFERING
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Without this, an exception here would crash the whole app from inside the composition
+            e.printStackTrace()
+            isLoading = false
+            resolveFailed = true
         }
     }
 
@@ -442,20 +466,13 @@ fun VodPlayerScreen(
         }
     }
 
-    // Progress Tracker
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            currentPosition = exoPlayer.currentPosition
+    // Progress Tracker: runs always (also while paused/buffering) so the slider and duration
+    // stay correct. It's cheap: these states are only read while the overlay is visible.
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (!isDragging) currentPosition = exoPlayer.currentPosition
             bufferedPosition = exoPlayer.bufferedPosition
             duration = exoPlayer.duration.coerceAtLeast(0L)
-            delay(500)
-        }
-    }
-    
-    // Fallback for when paused but buffering
-    LaunchedEffect(isLoading) {
-        while (isLoading) {
-            bufferedPosition = exoPlayer.bufferedPosition
             delay(500)
         }
     }
@@ -498,18 +515,14 @@ fun VodPlayerScreen(
                         // D-Pad Left = Seek Back
                         android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
                             if (!showOverlay) {
-                                val newPos = (exoPlayer.currentPosition - seekAmount).coerceAtLeast(0)
-                                exoPlayer.seekTo(newPos)
-                                currentPosition = newPos
+                                currentPosition = seekBy(exoPlayer, -seekAmount)
                                 true
                             } else false
                         }
                         // D-Pad Right = Seek Forward
                         android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             if (!showOverlay) {
-                                val newPos = (exoPlayer.currentPosition + seekAmount).coerceAtMost(duration)
-                                exoPlayer.seekTo(newPos)
-                                currentPosition = newPos
+                                currentPosition = seekBy(exoPlayer, seekAmount)
                                 true
                             } else false
                         }
@@ -669,9 +682,7 @@ fun VodPlayerScreen(
                         // Seek Back -10s
                         TvIconButton(
                             onClick = {
-                                val newPos = (exoPlayer.currentPosition - seekAmount).coerceAtLeast(0)
-                                exoPlayer.seekTo(newPos)
-                                currentPosition = newPos
+                                currentPosition = seekBy(exoPlayer, -seekAmount)
                             },
                             modifier = Modifier
                                 .size(48.dp)
@@ -701,9 +712,7 @@ fun VodPlayerScreen(
                         // Seek Forward +10s
                         TvIconButton(
                             onClick = {
-                                val newPos = (exoPlayer.currentPosition + seekAmount).coerceAtMost(duration)
-                                exoPlayer.seekTo(newPos)
-                                currentPosition = newPos
+                                currentPosition = seekBy(exoPlayer, seekAmount)
                             },
                             modifier = Modifier
                                 .size(48.dp)
@@ -721,7 +730,8 @@ fun VodPlayerScreen(
                             .padding(horizontal = 24.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(formatVodTime(currentPosition), color = Color.White, fontSize = 12.sp)
+                        val shownPosition = if (isDragging) (dragFraction * duration).toLong() else currentPosition
+                        Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -729,6 +739,7 @@ fun VodPlayerScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             val bufferFraction = if (duration > 0) (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                            val playbackFraction = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
                             LinearProgressIndicator(
                                 progress = { bufferFraction },
                                 modifier = Modifier
@@ -740,9 +751,18 @@ fun VodPlayerScreen(
                                 trackColor = Color.Gray.copy(alpha = 0.3f)
                             )
                             Slider(
-                                value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                                value = if (isDragging) dragFraction else playbackFraction,
                                 onValueChange = { value ->
-                                    exoPlayer.seekTo((value * duration).toLong())
+                                    isDragging = true
+                                    dragFraction = value
+                                },
+                                onValueChangeFinished = {
+                                    if (duration > 0) {
+                                        val pos = (dragFraction * duration).toLong()
+                                        exoPlayer.seekTo(pos)
+                                        currentPosition = pos
+                                    }
+                                    isDragging = false
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = SliderDefaults.colors(
@@ -774,7 +794,7 @@ fun VodPlayerScreen(
                 color = Color.Red,
                 modifier = Modifier.align(Alignment.Center)
             )
-        } else if (playerError != null) {
+        } else if (playerError != null || resolveFailed) {
             Column(
                 modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -785,10 +805,13 @@ fun VodPlayerScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
+                        // Full retry: clear the failed media and resolve again (fresh tokens/redirects)
                         playerError = null
+                        resolveFailed = false
                         isLoading = true
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        retryToken++
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
                 ) {
@@ -807,6 +830,23 @@ fun VodPlayerScreen(
             onDismiss = { showTrackSelector = false }
         )
     }
+}
+
+/**
+ * Seeks relative to the current position and returns the new position.
+ * Reads the duration from the player directly (the UI state can still be 0 while the
+ * overlay is hidden), and handles unknown duration (e.g. live streams).
+ */
+private fun seekBy(player: ExoPlayer, deltaMs: Long): Long {
+    val duration = player.duration
+    val raw = player.currentPosition + deltaMs
+    val target = if (duration != C.TIME_UNSET && duration > 0) {
+        raw.coerceIn(0L, duration)
+    } else {
+        raw.coerceAtLeast(0L)
+    }
+    player.seekTo(target)
+    return target
 }
 
 private fun formatVodTime(ms: Long): String {
