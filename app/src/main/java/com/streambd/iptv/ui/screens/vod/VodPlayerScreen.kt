@@ -311,7 +311,7 @@ fun VodPlayerScreen(
             val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
             val shouldWrapMac = isMacUrl && !isTsUrl
 
-            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || shouldWrapMac)
+            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && shouldWrapMac
 
             if (shouldWrapInMasterPlaylist) {
                 val bandwidth = 2000000 // 2 Mbps hint helps ExoPlayer allocate adequate buffer size

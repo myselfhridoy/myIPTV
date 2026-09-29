@@ -620,6 +620,7 @@ object M3UParser {
                 }
             }
         }
+        
         return ParsedUrl(cleanUrl, headers, custom)
     }
 

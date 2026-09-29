@@ -394,7 +394,7 @@ return@withContext if (ok) sniffed else null
                         return@withContext ResolvedToken(
                             url = finalUrl,
                             headers = getStreamHeaders(baseUrl, headers, playRef),
-                            needsPlaylistWrap = true
+                            needsPlaylistWrap = false
                         )
                     }
 

@@ -276,7 +276,7 @@ object MediaResolver {
             val shouldWrapMac = isMacUrl && !isTsUrl
 
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
-                (resolved?.needsPlaylistWrap == true || isCrichd || shouldWrapMac)
+                (resolved?.needsPlaylistWrap == true || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
                 val bandwidth = 2000000 // 2 Mbps hint helps ExoPlayer allocate adequate buffer size
