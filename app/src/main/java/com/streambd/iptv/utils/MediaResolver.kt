@@ -501,10 +501,12 @@ val dataSourceFactory = androidx.media3.datasource.DataSource.Factory {
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10000)
-            .setMinOffsetMs(5000)
-            .setMaxOffsetMs(60000)
-            .build()
+    .setTargetOffsetMs(20000)
+    .setMinOffsetMs(10000)
+    .setMaxOffsetMs(60000)
+    .setMinPlaybackSpeed(1f)
+    .setMaxPlaybackSpeed(1f)
+    .build()
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
