@@ -236,7 +236,7 @@ object MediaResolver {
             // ---- Fall back to generic redirect / playlist sniffing ---------------
             if (resolved == null) {
     val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
-    val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
+    val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" || tokenLower == "crichd" ||
         Regex("""^[\\/]?\d+$""").matches(tokenLower)
     // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
     if (mustUseResolver) return@withContext null
@@ -256,13 +256,12 @@ object MediaResolver {
                 return@withContext null
             }
 
-            // ---- Crichd-style wrap: many CRICHD endpoints return a bare stream URL
-            //      without an #EXTM3U header; wrap it in a tiny master playlist.
-            val isCrichd = currentTokenUrl?.equals("crichd", ignoreCase = true) == true ||
-                rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
-                finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
-
-            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
+            // ---- Crichd-style wrap: শুধুমাত্র TokenParser পুরনো obfuscation প্যাটার্নে
+            //      বেয়ার স্ট্রিম URL (কোনো #EXTM3U হেডার ছাড়া) খুঁজে পেলে (needsPlaylistWrap=true)
+            //      তখনই ছোট্ট একটা master playlist-এ wrap করা হয়। অন্য কোনো ক্ষেত্রে নয়,
+            //      নইলে raw HTML পেজকেও ভুলভাবে wrap করে ExoPlayer-কে দিয়ে দিত।
+            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
+                resolved?.needsPlaylistWrap == true
 
             if (shouldWrapInMasterPlaylist) {
                 val bandwidth = 220000
