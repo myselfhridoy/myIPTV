@@ -52,17 +52,24 @@ fun AppNavigation(
     val trackSelector = remember { DefaultTrackSelector(context) }
     
     val loadControl = remember {
-        androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 30000,       // 30s min buffer (was 15s)
-                /* maxBufferMs = */ 300000,       // 5 min max buffer for 4K streams (was 120s)
-                /* bufferForPlaybackMs = */ 500, // Fast zapping: start playback after 500ms
-                /* bufferForPlaybackAfterRebufferMs = */ 1000 // After rebuffer, wait 1s
-            )
-            .setBackBuffer(60000, true) // Keep 60s back-buffer, evict when needed
-            .setPrioritizeTimeOverSizeThresholds(false) // Allow larger buffers for 4K
-            .build()
-    }
+    val am = context.getSystemService(android.app.ActivityManager::class.java)
+    val lowRam = am.isLowRamDevice || am.memoryClass < 256
+
+    androidx.media3.exoplayer.DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            30000,
+            if (lowRam) 90000 else 300000,   // কম RAM-এ ১.৫ মিনিট
+            500,
+            1000
+        )
+        .setTargetBufferBytes(
+            if (lowRam) 48 * 1024 * 1024      // কম RAM-এ ৪৮MB সীমা
+            else androidx.media3.common.C.LENGTH_UNSET
+        )
+        .setBackBuffer(if (lowRam) 20000 else 60000, true)
+        .setPrioritizeTimeOverSizeThresholds(false)
+        .build()
+}
     
     val renderersFactory = remember {
         androidx.media3.exoplayer.DefaultRenderersFactory(context)
