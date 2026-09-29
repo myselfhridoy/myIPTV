@@ -479,7 +479,18 @@ if (!finalUrl.startsWith("data:", ignoreCase = true) &&
         val mimeType = params.mimeType
         val finalDrm = params.drm
 
-        val httpDataSourceFactory = OkHttpDataSource.Factory(sharedOkHttpClient)
+        val okHttpClient = sharedOkHttpClient.newBuilder().apply {
+            addNetworkInterceptor { chain ->
+                val originalReq = chain.request()
+                val builder = originalReq.newBuilder()
+                finalHeaders.forEach { (k, v) ->
+                    builder.header(k, v)
+                }
+                chain.proceed(builder.build())
+            }
+        }.build()
+
+        val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setDefaultRequestProperties(finalHeaders)
         val baseDataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 val dataSourceFactory = androidx.media3.datasource.DataSource.Factory {
