@@ -18,7 +18,8 @@ data class ResolvedToken(
     val headers: Map<String, String>? = null,
     val drm: DrmConfig? = null,
     val mimeType: String? = null,
-    val isMasterPlaylist: Boolean = false
+    val isMasterPlaylist: Boolean = false,
+    val needsPlaylistWrap: Boolean = false
 )
 
 object TokenParser {
