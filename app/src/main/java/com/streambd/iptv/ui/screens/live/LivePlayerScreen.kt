@@ -271,12 +271,20 @@ fun LivePlayerScreen(
         val window = activity?.window
 
         if (window != null) {
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.systemBarsBehavior =
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+    insetsController.systemBarsBehavior =
+        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    // নতুন: কাটআউটের নিচেও আঁকো
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+    }
+}
 
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
@@ -289,10 +297,18 @@ fun LivePlayerScreen(
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
             if (window != null) {
-                val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
+    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    // নতুন: বেরিয়ে গেলে আগের অবস্থায় ফেরাও
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+        }
+    }
+}
         }
     }
 
