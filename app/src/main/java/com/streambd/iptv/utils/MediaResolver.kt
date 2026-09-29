@@ -219,18 +219,25 @@ object MediaResolver {
                 rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
             // ---- Try the token/page resolver first ------------------------------
+            // withTimeoutOrNull: resolver যাই করুক (regex, network call, ইত্যাদি), ১৫ সেকেন্ডের
+            // বেশি কখনো আটকে থাকবে না — টাইমআউট হলে resolved = null, "resolve failed" দেখাবে।
             var resolved: ResolvedToken? = null
             if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal || YouTubeExtractor.isYouTubeUrl(rawSourceUrl)) {
-                resolved = TokenParser.resolveTokenForUrl(
-                    context = context,
-                    baseUrl = rawSourceUrl,
-                    tokenUrl = currentTokenUrl,
-                    tokenId = currentTokenId?.toString(),
-                    headers = initialHeaders,
-                    tokenMatch = currentTokenMatch,
-                    tokenReplace = currentTokenReplace,
-                    playRef = currentPlayRef
-                )
+                resolved = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                    TokenParser.resolveTokenForUrl(
+                        context = context,
+                        baseUrl = rawSourceUrl,
+                        tokenUrl = currentTokenUrl,
+                        tokenId = currentTokenId?.toString(),
+                        headers = initialHeaders,
+                        tokenMatch = currentTokenMatch,
+                        tokenReplace = currentTokenReplace,
+                        playRef = currentPlayRef
+                    )
+                }
+                if (resolved == null) {
+                    android.util.Log.w("MediaResolver", "TokenParser resolve timed out or failed for $rawSourceUrl")
+                }
             }
 
             // ---- Fall back to generic redirect / playlist sniffing ---------------
