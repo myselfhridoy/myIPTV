@@ -359,7 +359,10 @@ val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.h
 return@withContext if (ok) sniffed else null
         }
 
-        // ─── crichd (specific JS-obfuscation pattern) ─────────────────────────
+        // ─── crichd-family embed pages ─────────────────────────────────────────
+        // আগে শুধু পুরনো crichd array-join প্যাটার্ন ধরত। নতুন embed.php/atofplay.php
+        // টাইপ পেজে এই প্যাটার্ন না মিললে iframe + সরাসরি m3u8 regex, তারপর
+        // WebViewSniffer ফলব্যাক হিসেবে চলবে।
         if (lowerTokenUrl == "crichd") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
@@ -369,6 +372,8 @@ return@withContext if (ok) sniffed else null
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
                     val html = res.body?.string() ?: ""
+
+                    // ১) পুরনো obfuscation প্যাটার্ন
                     val funcRegex = Regex("function\\s+([a-zA-Z0-9_]+)\\s*\\(\\)\\s*\\{\\s*return\\s*\\(\\s*\\[(.*?)\\]\\.join", RegexOption.IGNORE_CASE)
                     val allFuncs = funcRegex.findAll(html).toList()
                     val targetFunc = allFuncs.find { match ->
@@ -380,10 +385,71 @@ return@withContext if (ok) sniffed else null
                         val chars = Regex("[\"']([^\"']*)[\"']").findAll(arr).map { it.groupValues[1] }.joinToString("").replace("\\/", "/")
                         var finalUrl = chars
                         if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
-                        return@withContext ResolvedToken(url = finalUrl, headers = getStreamHeaders(baseUrl, headers, playRef))
+                        android.util.Log.d("TokenParser", "crichd: obfuscation pattern matched -> $finalUrl")
+                        return@withContext ResolvedToken(
+                            url = finalUrl,
+                            headers = getStreamHeaders(baseUrl, headers, playRef),
+                            needsPlaylistWrap = true
+                        )
+                    }
+
+                    val normalized = html
+                        .replace("\\/", "/")
+                        .replace("\\u002F", "/", true)
+                        .replace("&amp;", "&")
+
+                    // ২) পেজে সরাসরি .m3u8 লিংক
+                    val directM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").find(normalized)?.value
+                    if (directM3u8 != null) {
+                        var finalUrl = directM3u8
+                        if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
+                        val hdrs = getStreamHeaders(baseUrl, headers, playRef)
+                        if (validateStreamUrl(finalUrl, hdrs)) {
+                            android.util.Log.d("TokenParser", "crichd: direct m3u8 found -> $finalUrl")
+                            return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
+                        }
+                    }
+
+                    // ৩) iframe থাকলে সেটার ভেতরে m3u8 খোঁজা
+                    val iframeMatch = Regex("<iframe[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
+                    if (iframeMatch != null) {
+                        var iframeUrl = iframeMatch.groupValues[1]
+                        if (!iframeUrl.startsWith("http")) {
+                            try {
+                                val parsed = URL(baseUrl)
+                                val base = "${parsed.protocol}://${parsed.host}"
+                                iframeUrl = base + (if (iframeUrl.startsWith("/")) "" else "/") + iframeUrl
+                            } catch (e: Exception) {}
+                        }
+                        try {
+                            val iframeReq = Request.Builder().url(iframeUrl).apply {
+                                header("User-Agent", USER_AGENT)
+                                header("Referer", baseUrl)
+                                headers?.forEach { (k, v) -> if (!k.equals("Referer", true)) header(k, v) }
+                            }.build()
+                            val iframeRes = client.newCall(iframeReq).execute()
+                            if (iframeRes.isSuccessful) {
+                                val iframeHtml = (iframeRes.body?.string() ?: "")
+                                    .replace("\\/", "/")
+                                    .replace("\\u002F", "/", true)
+                                    .replace("&amp;", "&")
+                                val iframeM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").find(iframeHtml)?.value
+                                if (iframeM3u8 != null) {
+                                    var finalUrl = iframeM3u8
+                                    if (tokenMatch != null && tokenReplace != null) finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
+                                    val hdrs = getStreamHeaders(iframeUrl, headers, playRef)
+                                    if (validateStreamUrl(finalUrl, hdrs)) {
+                                        android.util.Log.d("TokenParser", "crichd: iframe m3u8 found -> $finalUrl")
+                                        return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
+
+            android.util.Log.d("TokenParser", "crichd: no stream found for $baseUrl")
             return@withContext null
         }
 
