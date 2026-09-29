@@ -368,7 +368,11 @@ return@withContext if (ok) sniffed else null
             try {
                 val req = Request.Builder().url(baseUrl).apply {
                     header("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> header(k, v) }
+                    headers?.forEach { (k, v) -> 
+                        if (!k.equals("User-Agent", ignoreCase = true)) {
+                            header(k, v) 
+                        }
+                    }
                 }.build()
                 val res = client.newCall(req).execute()
                 if (res.isSuccessful) {
