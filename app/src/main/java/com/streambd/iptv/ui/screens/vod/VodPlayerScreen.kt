@@ -301,10 +301,14 @@ fun VodPlayerScreen(
                 stream.url.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
-            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && isCrichd
+            val isMacUrl = stream.url.contains("mac=", ignoreCase = true) || finalUrl.contains("mac=", ignoreCase = true)
+            val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
+            val shouldWrapMac = isMacUrl && !isTsUrl
+
+            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (isCrichd || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = 220000
+                val bandwidth = 2000000 // 2 Mbps hint helps ExoPlayer allocate adequate buffer size
                 val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
                 finalUrl = "data:application/x-mpegURL;base64," +
                     android.util.Base64.encodeToString(masterPlaylist.toByteArray(), android.util.Base64.NO_WRAP)

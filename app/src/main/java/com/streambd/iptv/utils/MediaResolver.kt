@@ -267,11 +267,19 @@ object MediaResolver {
             //      বেয়ার স্ট্রিম URL (কোনো #EXTM3U হেডার ছাড়া) খুঁজে পেলে (needsPlaylistWrap=true)
             //      তখনই ছোট্ট একটা master playlist-এ wrap করা হয়। অন্য কোনো ক্ষেত্রে নয়,
             //      নইলে raw HTML পেজকেও ভুলভাবে wrap করে ExoPlayer-কে দিয়ে দিত।
+            val isCrichd = currentTokenUrl?.trim()?.lowercase() == "crichd" ||
+                rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
+                finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
+
+            val isMacUrl = rawSourceUrl.contains("mac=", ignoreCase = true) || finalUrl.contains("mac=", ignoreCase = true)
+            val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
+            val shouldWrapMac = isMacUrl && !isTsUrl
+
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
-                resolved?.needsPlaylistWrap == true
+                (resolved?.needsPlaylistWrap == true || isCrichd || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = 220000
+                val bandwidth = 2000000 // 2 Mbps hint helps ExoPlayer allocate adequate buffer size
                 val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
                 finalUrl = "data:application/x-mpegURL;base64," +
                     Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
