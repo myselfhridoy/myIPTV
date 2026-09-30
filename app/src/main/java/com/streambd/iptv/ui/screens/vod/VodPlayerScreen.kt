@@ -120,20 +120,28 @@ fun VodPlayerScreen(
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
         val originalOrientation = activity?.requestedOrientation
+        backgroundval originalBackground = activity?.window?.decorView?.background
         val window = activity?.window
 
         if (window != null) {
-            val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                window.attributes = window.attributes.apply {
-    layoutInDisplayCutoutMode =
-        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-}
-            }
+    // নতুন: কনটেন্টকে সিস্টেম বার ও কাটআউটের নিচে আঁকতে দাও
+    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+    // নতুন: উইন্ডো ব্যাকগ্রাউন্ড কালো
+    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+
+    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+    insetsController.systemBarsBehavior =
+        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+    }
+}
 
         // Set landscape immediately
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -146,16 +154,21 @@ fun VodPlayerScreen(
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
             if (window != null) {
-                val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-                insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    window.attributes = window.attributes.apply {
-    layoutInDisplayCutoutMode =
-        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+    // নতুন: আগের অবস্থায় ফেরাও
+    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
+    window.setBackgroundDrawable(originalBackground)
+
+    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+        }
+    }
 }
-                }
-            }
         }
     }
 
@@ -601,7 +614,12 @@ fun VodPlayerScreen(
 
         // Overlay UI
         if (showOverlay && !isInPiP) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
+            Box(
+    modifier = Modifier
+        .fillMaxSize()
+        .background(Color.Black.copy(alpha = 0.5f))
+        .windowInsetsPadding(WindowInsets.displayCutout)
+) {
                 if (isLocked) {
                     TvIconButton(
                         onClick = { isLocked = false },
