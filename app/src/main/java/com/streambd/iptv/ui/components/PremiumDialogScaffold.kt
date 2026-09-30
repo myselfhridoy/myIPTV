@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -60,12 +61,24 @@ import com.streambd.iptv.ui.theme.TvFocusedBorder
 import com.streambd.iptv.ui.theme.WhiteText
 
 /**
+ * Returns `true` when the current screen is a phone-sized window.
+ * Threshold: 600dp is Android's standard phone/tablet breakpoint
+ * (matches `WindowSizeClass.Compact`).
+ */
+@Composable
+fun rememberIsCompactLayout(): Boolean {
+    val config = LocalConfiguration.current
+    return config.screenWidthDp < 600
+}
+
+/**
  * Shared shell for every dialog.
  *
- *  - Uses `HorizontalDivider` (no Box+background).
- *  - Content slot has a bounded scroll area (`contentMaxHeight`) so long dialogs
- *    don't overflow off-screen on TV.
- *  - Focus borders use the softer `TvFocusedBorder` tone.
+ * Responsive:
+ *  - On phones (<600dp wide) the dialog shrinks: narrower width, tighter
+ *    paddings, smaller title, capped content height — so it doesn't dominate
+ *    the screen.
+ *  - On TV / tablet (>=600dp) it keeps the original premium size.
  */
 @Composable
 fun PremiumDialogScaffold(
@@ -79,15 +92,34 @@ fun PremiumDialogScaffold(
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val isCompact = rememberIsCompactLayout()
+
+    // ── Responsive dimensions ──
+    val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 380.dp) else maxWidth
+    val effectiveContentMaxHeight =
+        if (isCompact) minOf(contentMaxHeight, 300.dp) else contentMaxHeight
+    val outerPadding = if (isCompact) 12.dp else 16.dp
+    val headerStart = if (isCompact) 16.dp else 20.dp
+    val headerEnd = if (isCompact) 16.dp else 20.dp
+    val headerTop = if (isCompact) 14.dp else 18.dp
+    val headerBottom = if (isCompact) 10.dp else 12.dp
+    val accentWidth = if (isCompact) 3.dp else 4.dp
+    val accentHeight = if (isCompact) 22.dp else 26.dp
+    val titleStyle = if (isCompact)
+        MaterialTheme.typography.titleMedium
+    else
+        MaterialTheme.typography.titleLarge
+
+    val shape = RoundedCornerShape(if (isCompact) 16.dp else 20.dp)
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Column(
             modifier = modifier
-                .padding(16.dp)
-                .widthIn(max = maxWidth)
+                .padding(outerPadding)
+                .widthIn(max = effectiveMaxWidth)
                 .fillMaxWidth()
                 .clip(shape)
                 .background(Brush.verticalGradient(listOf(BioCardLight, DarkNavySurface)))
@@ -97,22 +129,27 @@ fun PremiumDialogScaffold(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 12.dp),
+                    .padding(
+                        start = headerStart,
+                        end = headerEnd,
+                        top = headerTop,
+                        bottom = headerBottom
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .width(4.dp)
-                        .height(26.dp)
+                        .width(accentWidth)
+                        .height(accentHeight)
                         .clip(RoundedCornerShape(2.dp))
                         .background(BioAccent)
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         color = WhiteText,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = titleStyle,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -133,9 +170,9 @@ fun PremiumDialogScaffold(
             val contentModifier = if (scrollContent)
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = contentMaxHeight)
+                    .heightIn(max = effectiveContentMaxHeight)
                     .verticalScroll(rememberScrollState())
-                else Modifier.fillMaxWidth()
+            else Modifier.fillMaxWidth()
 
             Column(modifier = contentModifier, content = content)
 
@@ -148,7 +185,10 @@ fun PremiumDialogScaffold(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = if (isCompact) 10.dp else 14.dp,
+                        vertical = if (isCompact) 8.dp else 10.dp
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -160,9 +200,7 @@ fun PremiumDialogScaffold(
 
 /**
  * Focusable base surface for TV + touch.
- *
- * Uses `tvTouchClick` (focusable + D-pad ENTER + tap) instead of raw `clickable`,
- * and `hasFocus` so nested focusable children still light up the parent.
+ * Uses `tvTouchClick` (focusable + D-pad ENTER + tap) instead of raw `clickable`.
  */
 @Composable
 fun TvFocusableItem(
@@ -220,25 +258,36 @@ fun PremiumOptionRow(
     badge: String? = null,
     focusRequester: FocusRequester? = null
 ) {
+    val isCompact = rememberIsCompactLayout()
+    val rowPadding = if (isCompact)
+        PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+    else
+        PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+    val titleStyle = if (isCompact)
+        MaterialTheme.typography.bodyLarge
+    else
+        MaterialTheme.typography.titleMedium
+
     TvFocusableItem(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         focusRequester = focusRequester,
+        contentPadding = rowPadding,
         restBackground = if (selected) BioAccent.copy(alpha = 0.08f) else Color.Transparent
     ) {
         Box(
             modifier = Modifier
                 .width(3.dp)
-                .height(28.dp)
+                .height(if (isCompact) 22.dp else 28.dp)
                 .clip(RoundedCornerShape(2.dp))
                 .background(if (selected) BioAccent else Color.Transparent)
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 color = if (selected) BioAccent else WhiteText,
-                style = MaterialTheme.typography.titleMedium,
+                style = titleStyle,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -255,14 +304,14 @@ fun PremiumOptionRow(
         }
         if (badge != null) {
             PremiumBadge(badge)
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
         }
         if (selected) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Selected",
                 tint = BioAccent,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
             )
         }
     }
@@ -290,13 +339,19 @@ fun PremiumButton(
     primary: Boolean = false,
     focusRequester: FocusRequester? = null
 ) {
+    val isCompact = rememberIsCompactLayout()
+    val padding = if (isCompact)
+        PaddingValues(horizontal = 18.dp, vertical = 8.dp)
+    else
+        PaddingValues(horizontal = 22.dp, vertical = 10.dp)
+
     TvFocusableItem(
         onClick = onClick,
         modifier = modifier,
         focusRequester = focusRequester,
         shape = RoundedCornerShape(10.dp),
         restBackground = if (primary) BioAccent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f),
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
+        contentPadding = padding,
         horizontalArrangement = Arrangement.Center
     ) {
         Text(
