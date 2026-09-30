@@ -614,12 +614,7 @@ fun VodPlayerScreen(
 
         // Overlay UI
         if (showOverlay && !isInPiP) {
-            Box(
-    modifier = Modifier
-        .fillMaxSize()
-        .background(Color.Black.copy(alpha = 0.5f))
-        .windowInsetsPadding(WindowInsets.displayCutout)
-) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                 if (isLocked) {
                     TvIconButton(
                         onClick = { isLocked = false },
@@ -634,11 +629,12 @@ fun VodPlayerScreen(
                 } else {
                     // ── Top Bar ──
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+    modifier = Modifier
+        .fillMaxWidth()
+        .windowInsetsPadding(WindowInsets.displayCutout)
+        .padding(16.dp),
+    verticalAlignment = Alignment.CenterVertically
+) {
                         TvIconButton(
                             onClick = {
                                 val activity = context as? ComponentActivity
@@ -758,12 +754,13 @@ fun VodPlayerScreen(
 
                     // ── Bottom Bar ──
                     Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+    modifier = Modifier
+        .align(Alignment.BottomCenter)
+        .fillMaxWidth()
+        .windowInsetsPadding(WindowInsets.displayCutout)
+        .padding(horizontal = 24.dp, vertical = 16.dp),
+    verticalAlignment = Alignment.CenterVertically
+) {
                         val shownPosition = if (isDragging) (dragFraction * duration).toLong() else currentPosition
                         Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
                         Box(
