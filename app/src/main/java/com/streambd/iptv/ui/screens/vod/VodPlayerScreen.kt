@@ -855,12 +855,11 @@ fun VodPlayerScreen(
     }
 
     if (showTrackSelector) {
-        TrackSelectionDialog(
-            trackSelector = trackSelector,
-            currentTracks = exoPlayer.currentTracks,
-            onDismiss = { showTrackSelector = false }
-        )
-    }
+    TrackSelectionDialog(
+        player = exoPlayer,
+        onDismiss = { showTrackSelector = false }
+    )
+}
 }
 
 /**
