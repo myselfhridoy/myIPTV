@@ -326,7 +326,7 @@ fun VodPlayerScreen(
                 stream.url.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
-            val isMacUrl = stream.url.contains("mac=", ignoreCase = true) || finalUrl.contains("mac=", ignoreCase = true)
+            val isMacUrl = MediaResolver.isStalkerMacUrl(stream.url) || MediaResolver.isStalkerMacUrl(finalUrl)
             val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
             val shouldWrapMac = isMacUrl && !isTsUrl
 
