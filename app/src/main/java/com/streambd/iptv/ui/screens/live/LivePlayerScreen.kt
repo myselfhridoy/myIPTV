@@ -267,17 +267,22 @@ fun LivePlayerScreen(
         }
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
-        val originalOrientation = activity?.requestedOrientation
+        val originalOrientation = activity?.রেকুএস্তেদোরিএন্তাতিওন
+        val originalBackground = activity?.window?.decorView?.background
         val window = activity?.window
 
         if (window != null) {
+    // নতুন: কনটেন্টকে সিস্টেম বার ও কাটআউটের নিচে আঁকতে দাও
+    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+    // নতুন: উইন্ডো ব্যাকগ্রাউন্ড কালো
+    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+
     val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
     insetsController.systemBarsBehavior =
         androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-    // নতুন: কাটআউটের নিচেও আঁকো
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode =
@@ -297,11 +302,14 @@ fun LivePlayerScreen(
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
             if (window != null) {
+    // নতুন: আগের অবস্থায় ফেরাও
+    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
+    window.setBackgroundDrawable(originalBackground)
+
     val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
     insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-    // নতুন: বেরিয়ে গেলে আগের অবস্থায় ফেরাও
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode =
