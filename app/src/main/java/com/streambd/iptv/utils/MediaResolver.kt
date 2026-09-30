@@ -105,6 +105,14 @@ object MediaResolver {
     // Max bytes read when sniffing a response body. Playlists / JSON are small; this
     // stops a live stream that reports a text-like content type from being read forever.
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
+    /** Stalker MAC প্যারামিটার: ?mac=00:1A:79:46:06:F3 (কোলন, %3A বা ড্যাশ চলবে) */
+private val STALKER_MAC_REGEX = Regex(
+    "[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)",
+    RegexOption.IGNORE_CASE
+)
+
+fun isStalkerMacUrl(url: String?): Boolean =
+    !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
 
     // Use a single OkHttpClient instance for better performance and resource management.
     val sharedOkHttpClient: OkHttpClient by lazy {
@@ -271,7 +279,7 @@ object MediaResolver {
                 rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
-            val isMacUrl = rawSourceUrl.contains("mac=", ignoreCase = true) || finalUrl.contains("mac=", ignoreCase = true)
+            val isMacUrl = isStalkerMacUrl(rawSourceUrl) || isStalkerMacUrl(finalUrl)
             val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
             val shouldWrapMac = isMacUrl && !isTsUrl
 
