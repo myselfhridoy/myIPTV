@@ -12,7 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +46,31 @@ import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 
+// ─────────────────────────────────────────────────────────────
+// TODO: Move these to Theme.kt (consolidate hardcoded colors)
+// ─────────────────────────────────────────────────────────────
+private val BackgroundDeep = Color(0xFF0D1117)      // was Color(0xFF0D1117)
+private val SurfaceElevated = Color(0xFF151A25)     // was Color(0xFF151A25)
+private val SurfaceFocused = Color(0xFF1E2638)      // was Color(0xFF1E2638)
+private val SurfaceBorder = Color(0xFF2B3648)       // was Color(0xFF2B3648)
+private val IconMuted = Color(0xFF555555)           // was Color(0xFF555555)
+private val TealAccentDim = Color(0xFF008D94)       // was Color(0xFF008D94)
+
+// ─────────────────────────────────────────────────────────────
+// Quality rank — used for sorting streams (higher = better)
+// ─────────────────────────────────────────────────────────────
+private fun qualityRank(q: String?): Int {
+    val s = q?.lowercase() ?: return 0
+    return when {
+        s.contains("4k") || s.contains("2160") -> 100
+        s.contains("1080") || s.contains("fhd") -> 80
+        s.contains("720") || (s.contains("hd") && !s.contains("fhd")) -> 60
+        s.contains("480") || s.contains("sd") -> 40
+        s.contains("cam") -> 10
+        else -> 5
+    }
+}
+
 @Composable
 fun SourceSelectionScreen(
     mainViewModel: MainViewModel,
@@ -55,16 +80,20 @@ fun SourceSelectionScreen(
     val context = LocalContext.current
     val media by tmdbViewModel.selectedMedia.collectAsState()
     val isResolving by mainViewModel.isResolvingStreams.collectAsState()
-    val streams by mainViewModel.availableStreams.collectAsState()
+    val streamsRaw by mainViewModel.availableStreams.collectAsState()
 
     // Collect season/episode as state so LaunchedEffect key reacts to changes
     val selectedSeason by mainViewModel.selectedSeason.collectAsState()
     val selectedEpisode by mainViewModel.selectedEpisode.collectAsState()
 
-    if (media == null) {
-        navController.popBackStack()
-        return
+    // ── Fix #2: pop back inside LaunchedEffect, not during composition ──
+    LaunchedEffect(media) {
+        if (media == null) {
+            navController.popBackStack()
+        }
     }
+
+    if (media == null) return
 
     val m = media!!
 
@@ -80,31 +109,46 @@ fun SourceSelectionScreen(
         )
     }
 
+    // ── Improve #3: sort streams by quality, best first; tie-break by provider name ──
+    val streams = remember(streamsRaw) {
+        streamsRaw.sortedWith(
+            compareByDescending<StreamSource> { qualityRank(it.quality) }
+                .thenBy { it.provider.lowercase() }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D1117))
+            .background(BackgroundDeep)
     ) {
         // ── Top Bar ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = Color.White,
+            // Fix #5: 48dp touch target (was 36dp)
+            Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
+                    .background(SurfaceFocused, CircleShape)
                     .tvFocusBorder(CircleShape)
-                    .background(Color(0xFF1E2638), CircleShape)
-                    .clickable { navController.popBackStack() }
-                    .padding(6.dp)
-            )
+                    .clickable { navController.popBackStack() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
             Spacer(modifier = Modifier.width(16.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Select Source",
@@ -114,36 +158,40 @@ fun SourceSelectionScreen(
                 )
                 Text(
                     text = m.displayTitle,
-                    color = Color.Gray,
+                    // Fix: Color.Gray → higher-contrast white alpha
+                    color = Color.White.copy(alpha = 0.6f),
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            IconButton(
-                onClick = {
-                    val type = if (m.isMovie) "movie" else "tv"
-                    mainViewModel.fetchVodStreams(
-                        context = context,
-                        type = type,
-                        tmdbId = m.id,
-                        season = selectedSeason,
-                        episode = selectedEpisode,
-                        forceRefresh = true
-                    )
-                },
+            // Fix #5: 48dp touch target (was 36dp). Manual Box instead of IconButton
+            // so we keep the same visual pill + border styling.
+            Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
+                    .background(SurfaceFocused, CircleShape)
                     .tvFocusBorder(CircleShape)
-                    .background(Color(0xFF1E2638), CircleShape)
+                    .clickable {
+                        val type = if (m.isMovie) "movie" else "tv"
+                        mainViewModel.fetchVodStreams(
+                            context = context,
+                            type = type,
+                            tmdbId = m.id,
+                            season = selectedSeason,
+                            episode = selectedEpisode,
+                            forceRefresh = true
+                        )
+                    },
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Refresh Sources",
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -155,7 +203,11 @@ fun SourceSelectionScreen(
                 .height(1.dp)
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(Color.Transparent, TealAccent.copy(alpha = 0.3f), Color.Transparent)
+                        colors = listOf(
+                            Color.Transparent,
+                            TealAccent.copy(alpha = 0.3f),
+                            Color.Transparent
+                        )
                     )
                 )
         )
@@ -203,7 +255,7 @@ fun SourceSelectionScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "This may take a moment",
-                        color = Color.Gray,
+                        color = Color.White.copy(alpha = 0.6f),
                         fontSize = 13.sp
                     )
                 }
@@ -218,7 +270,7 @@ fun SourceSelectionScreen(
                     Icon(
                         Icons.Default.Source,
                         contentDescription = null,
-                        tint = Color(0xFF555555),
+                        tint = IconMuted,
                         modifier = Modifier.size(64.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -231,7 +283,7 @@ fun SourceSelectionScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Try a different title or check addons",
-                        color = Color.Gray,
+                        color = Color.White.copy(alpha = 0.6f),
                         fontSize = 14.sp
                     )
                 }
@@ -241,7 +293,11 @@ fun SourceSelectionScreen(
             val firstFocusRequester = remember { FocusRequester() }
 
             LaunchedEffect(streams) {
-                try { firstFocusRequester.requestFocus() } catch (_: Exception) {}
+                try {
+                    firstFocusRequester.requestFocus()
+                } catch (_: Exception) {
+                    // Ignore
+                }
             }
 
             LazyColumn(
@@ -251,16 +307,27 @@ fun SourceSelectionScreen(
             ) {
                 item {
                     Text(
-                        text = if (isResolving) "Found ${streams.size} source(s) so far... (Searching)" else "${streams.size} source${if (streams.size > 1) "s" else ""} available",
-                        color = Color.Gray,
+                        text = if (isResolving)
+                            "Found ${streams.size} source(s) so far... (Searching)"
+                        else
+                            "${streams.size} source${if (streams.size > 1) "s" else ""} available",
+                        color = Color.White.copy(alpha = 0.6f),
                         fontSize = 13.sp,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
-                itemsIndexed(streams) { index, stream ->
+
+                // Use key = provider+quality so focus/state stays stable when list re-sorts
+                items(
+                    items = streams,
+                    key = { "${it.provider}|${it.quality}|${it.type.orEmpty()}" }
+                ) { stream ->
+                    val index = streams.indexOf(stream)
                     StreamSourceCard(
                         stream = stream,
-                        modifier = if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier,
+                        modifier = if (index == 0)
+                            Modifier.focusRequester(firstFocusRequester)
+                        else Modifier,
                         onClick = {
                             mainViewModel.selectStream(stream)
                             navController.navigate(Routes.VOD_PLAYER)
@@ -304,9 +371,12 @@ fun StreamSourceCard(
     )
 
     val qualityColor = when {
-        stream.quality.contains("4K", ignoreCase = true) || stream.quality.contains("2160", ignoreCase = true) -> Color(0xFFFFD700)
-        stream.quality.contains("1080", ignoreCase = true) || stream.quality.contains("FHD", ignoreCase = true) -> Color(0xFF4CAF50)
-        stream.quality.contains("720", ignoreCase = true) || stream.quality.contains("HD", ignoreCase = true) -> TealAccent
+        stream.quality.contains("4K", ignoreCase = true) ||
+                stream.quality.contains("2160", ignoreCase = true) -> Color(0xFFFFD700)
+        stream.quality.contains("1080", ignoreCase = true) ||
+                stream.quality.contains("FHD", ignoreCase = true) -> Color(0xFF4CAF50)
+        stream.quality.contains("720", ignoreCase = true) ||
+                stream.quality.contains("HD", ignoreCase = true) -> TealAccent
         stream.quality.contains("CAM", ignoreCase = true) -> Color(0xFFFF5722)
         else -> TealAccent
     }
@@ -315,15 +385,15 @@ fun StreamSourceCard(
         modifier = modifier
             .fillMaxWidth()
             .scale(scale)
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) TealAccent else Color(0xFF2B3648),
+                color = if (isFocused) TealAccent else SurfaceBorder,
                 shape = RoundedCornerShape(14.dp)
-            ),
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() },
         colors = CardDefaults.cardColors(
-            containerColor = if (isFocused) Color(0xFF1E2638) else Color(0xFF151A25)
+            containerColor = if (isFocused) SurfaceFocused else SurfaceElevated
         ),
         shape = RoundedCornerShape(14.dp)
     ) {
@@ -340,7 +410,10 @@ fun StreamSourceCard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(TealAccent.copy(alpha = 0.2f), Color(0xFF008D94).copy(alpha = 0.1f))
+                            colors = listOf(
+                                TealAccent.copy(alpha = 0.2f),
+                                TealAccentDim.copy(alpha = 0.1f)
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -397,10 +470,33 @@ fun StreamSourceCard(
                     if (!stream.type.isNullOrEmpty()) {
                         Text(
                             text = stream.type.uppercase(),
-                            color = Color.Gray,
+                            color = Color.White.copy(alpha = 0.6f),
                             fontSize = 11.sp
                         )
                     }
+
+                    // ─────────────────────────────────────────────
+                    // TODO: File-size / language badges
+                    // Uncomment once StreamSource has these fields
+                    // (e.g. `size: String?`, `languages: List<String>?`).
+                    //
+                    // stream.size?.takeIf { it.isNotBlank() }?.let { size ->
+                    //     Text(
+                    //         text = size,
+                    //         color = Color.White.copy(alpha = 0.6f),
+                    //         fontSize = 11.sp
+                    //     )
+                    // }
+                    // stream.languages?.takeIf { it.isNotEmpty() }?.let { langs ->
+                    //     Text(
+                    //         text = langs.take(3).joinToString(", "),
+                    //         color = Color.White.copy(alpha = 0.6f),
+                    //         fontSize = 11.sp,
+                    //         maxLines = 1,
+                    //         overflow = TextOverflow.Ellipsis
+                    //     )
+                    // }
+                    // ─────────────────────────────────────────────
                 }
             }
 
@@ -408,7 +504,7 @@ fun StreamSourceCard(
             Icon(
                 Icons.Default.PlayCircle,
                 contentDescription = "Play",
-                tint = if (isFocused) TealAccent else Color(0xFF555555),
+                tint = if (isFocused) TealAccent else IconMuted,
                 modifier = Modifier.size(36.dp)
             )
         }
