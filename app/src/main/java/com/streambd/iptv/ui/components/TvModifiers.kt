@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
@@ -29,13 +30,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.theme.TvFocusedBorder
-import com.streambd.iptv.ui.theme.TvFocusedSurface
-import androidx.compose.foundation.gestures.detectTapGestures
 
 /**
  * Focus decoration modifier for TV + touch.
  *
- * FIXES vs. previous version:
+ * FIXES vs. the old version:
  *  - No `clip = true` on the graphics layer (it was cutting the scaled border).
  *  - Uses `TvFocusedBorder` (softer cyan) instead of the brighter `BioAccent`.
  *  - Only adds a border when focused — no `0.dp` border layout pass while idle.
@@ -81,8 +80,8 @@ fun Modifier.tvFocusBorder(
 /**
  * TV icon button with a focus ring.
  *
- * FIXES: previous version relied on `IconButton.onClick` alone — D-pad ENTER
- * isn't honored on every OEM. We add an explicit key handler via `tvTouchClick`.
+ * FIXES: adds an explicit D-pad ENTER handler via `tvTouchClick`, because
+ * `IconButton.onClick` alone isn't honored on every OEM.
  */
 @Composable
 fun TvIconButton(
@@ -109,11 +108,10 @@ fun TvIconButton(
 /**
  * Tap + D-pad ENTER handler.
  *
- * FIXES vs. previous version:
- *  - Adds `Modifier.focusable()` so `onKeyEvent` actually receives events
- *    (without focusable, the node never gets focus and keys never arrive).
- *  - Consumes only KeyUp for ENTER/CENTER to avoid double-fire with `clickable`.
- *  - Uses `rememberUpdatedState` so callers don't have to remember the lambda.
+ * FIXES vs. the old version:
+ *  - Adds `Modifier.focusable()` so `onKeyEvent` actually receives events.
+ *  - Consumes only KeyUp for ENTER/CENTER to avoid double-firing with `clickable`.
+ *  - Uses `rememberUpdatedState` so callers don't need to remember the lambda.
  */
 fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = composed {
     val currentOnClick by rememberUpdatedState(onClick)
