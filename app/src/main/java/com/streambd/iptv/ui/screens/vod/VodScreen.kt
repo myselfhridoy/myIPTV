@@ -1,10 +1,17 @@
 package com.streambd.iptv.ui.screens.vod
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +40,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,12 +61,34 @@ import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import androidx.activity.compose.BackHandler
 
+// ─────────────────────────────────────────────────────────────
+// TODO: Move these to Theme.kt (consolidate hardcoded colors)
+// ─────────────────────────────────────────────────────────────
+private val SearchHintText = Color(0xFF999999)          // was Color(0xFF999999)
+private val SearchContainerFocused = Color(0xFF333333)  // was Color(0xFF333333)
+private val SearchContainerIdle = Color(0xFF1E1E1E)     // was Color(0xFF1E1E1E)
+private val StarGold = Color(0xFFFFD700)                // was Color(0xFFFFD700)
+private val SkeletonBase = Color.White                   // shimmer uses this with alpha
+
+// ─────────────────────────────────────────────────────────────
+// Data class to eliminate copy-pasted row blocks (Improvement #7)
+// ─────────────────────────────────────────────────────────────
+private data class MediaRow(
+    val key: String,
+    val title: String,
+    val list: List<TmdbMedia>
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
 @Composable
-fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClick: (() -> Unit)? = null) {
+fun VodScreen(
+    viewModel: TmdbViewModel,
+    navController: NavController,
+    onMenuClick: (() -> Unit)? = null
+) {
     val trendingMovies by viewModel.trendingMovies.collectAsState()
     val trendingTv by viewModel.trendingTv.collectAsState()
-    
+
     val hindiMovies by viewModel.hindiMovies.collectAsState()
     val hindiTv by viewModel.hindiTv.collectAsState()
     val southMovies by viewModel.southMovies.collectAsState()
@@ -74,6 +105,9 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
+    // Fix #3: FocusRequester for the search field so D-pad users land there automatically
+    val searchFieldFocusRequester = remember { FocusRequester() }
+
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
             focusManager.clearFocus()
@@ -83,254 +117,320 @@ fun VodScreen(viewModel: TmdbViewModel, navController: NavController, onMenuClic
             viewModel.search("")
         }
     }
-    
+
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
+    val isTV = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(PrimaryDark)
-        ) {
-            if (isLoading && trendingMovies.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = TealAccent)
+    // Fix #3: request focus on search field when it opens
+    LaunchedEffect(isSearchExpanded) {
+        if (isSearchExpanded) {
+            try {
+                searchFieldFocusRequester.requestFocus()
+            } catch (_: Exception) {
+                // Ignore
             }
+        }
+    }
+
+    // Improvement #7: single source of truth for rows (avoids 8 copy-pasted blocks)
+    val mediaRows = remember(
+        trendingMovies, trendingTv,
+        hindiMovies, hindiTv,
+        southMovies, southTv,
+        banglaMovies, banglaTv
+    ) {
+        listOf(
+            MediaRow("trending_movies", "Trending Movies", trendingMovies),
+            MediaRow("trending_tv", "Trending TV Shows", trendingTv),
+            MediaRow("hindi_movies", "Bollywood Hits", hindiMovies),
+            MediaRow("hindi_tv", "Hindi TV Shows", hindiTv),
+            MediaRow("south_movies", "South Indian Blockbusters", southMovies),
+            MediaRow("south_tv", "South Indian TV Shows", southTv),
+            MediaRow("bangla_movies", "Bengali Movies", banglaMovies),
+            MediaRow("bangla_tv", "Bengali TV Shows", banglaTv)
+        ).filter { it.list.isNotEmpty() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PrimaryDark)
+    ) {
+        val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
+        val showEmptyNoResults = searchQuery.isNotEmpty() &&
+                searchResults.isEmpty() && !isLoading
+
+        if (showInitialSkeleton) {
+            // Improvement: skeleton rows instead of plain spinner (premium feel)
+            VodSkeleton(isTV = isTV)
         } else {
             val onMediaFocus: (TmdbMedia) -> Unit = {}
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                // 2. Scrollable Rows Overlay
-                androidx.compose.foundation.lazy.LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 32.dp)
-                ) {
-                    item {
-                        val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-                        Spacer(modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp))
-                    }
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
+                // Top spacer for the fixed nav bar
+                item(key = "top_spacer") {
+                    val isMobilePortrait =
+                        !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                    Spacer(
+                        modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp)
+                    )
+                }
 
-                    // Media Rows
-                    item {
-                        Column(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Gradient transition from transparent to background
+                // Gradient transition into rows
+                item(key = "gradient_transition") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(60.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, PrimaryDark)
+                                )
+                            )
+                    )
+                }
+
+                if (searchQuery.isNotEmpty()) {
+                    if (searchResults.isNotEmpty()) {
+                        item(key = "search_results") {
+                            MediaSection(
+                                title = "Search Results",
+                                mediaList = searchResults,
+                                onFocus = onMediaFocus
+                            ) { media ->
+                                viewModel.selectMedia(media)
+                                navController.navigate(Routes.TMDB_DETAILS)
+                            }
+                        }
+                    } else if (showEmptyNoResults) {
+                        item(key = "search_empty") {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(60.dp)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(Color.Transparent, PrimaryDark)
-                                        )
-                                    )
-                            )
-                            // Solid background for rows
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(PrimaryDark)
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                        // ── Content Sections ──
-                        if (searchQuery.isNotEmpty()) {
-                            if (searchResults.isNotEmpty()) {
-                                MediaSection(title = "Search Results", mediaList = searchResults, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            } else if (!isLoading) {
-                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                    Text("No results found for \"$searchQuery\"", color = Color.Gray, fontSize = 18.sp)
-                                }
-                            }
-                        } else {
-                            if (trendingMovies.isNotEmpty()) {
-                                MediaSection(
-                                    title = "Trending Movies",
-                                    mediaList = trendingMovies,
-                                    onFocus = onMediaFocus
-                                ) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            if (trendingTv.isNotEmpty()) {
-                                MediaSection(title = "Trending TV Shows", mediaList = trendingTv, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (hindiMovies.isNotEmpty()) {
-                                MediaSection(title = "Bollywood Hits", mediaList = hindiMovies, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (hindiTv.isNotEmpty()) {
-                                MediaSection(title = "Hindi TV Shows", mediaList = hindiTv, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (southMovies.isNotEmpty()) {
-                                MediaSection(title = "South Indian Blockbusters", mediaList = southMovies, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (southTv.isNotEmpty()) {
-                                MediaSection(title = "South Indian TV Shows", mediaList = southTv, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (banglaMovies.isNotEmpty()) {
-                                MediaSection(title = "Bengali Movies", mediaList = banglaMovies, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            if (banglaTv.isNotEmpty()) {
-                                MediaSection(title = "Bengali TV Shows", mediaList = banglaTv, onFocus = onMediaFocus) { media ->
-                                    viewModel.selectMedia(media)
-                                    navController.navigate(Routes.TMDB_DETAILS)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                        } // closes else-if
-                    } // closes inner Content Column
-                    } // closes outer Column
-                    } // closes item
-                } // closes Scrollable Column
-
-                // ── Overlay Top Navigation Bar (Fixed on Top) ──
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = {
-                                searchQuery = it
-                                viewModel.search(it)
-                            },
-                            placeholder = { Text("Search movies, TV shows...", color = Color(0xFF999999), fontSize = 16.sp) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null, tint = if (isSearchFocused) Color.White else Color(0xFF999999), modifier = Modifier.size(24.dp))
-                            },
-                            trailingIcon = {
-                                val closeSearch = {
-                                    isSearchExpanded = false
-                                    searchQuery = ""
-                                    viewModel.search("")
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .tvFocusBorder(CircleShape)
-                                        .tvTouchClick(closeSearch)
-                                        .clickable { closeSearch() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                                }
-                            },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color.White,
-                                unfocusedBorderColor = Color.Transparent,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                cursorColor = Color.White,
-                                focusedContainerColor = Color(0xFF333333).copy(alpha = 0.9f),
-                                unfocusedContainerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onFocusChanged { isSearchFocused = it.isFocused }
-                        )
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (onMenuClick != null) {
-                                androidx.compose.material3.IconButton(onClick = { onMenuClick() }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Menu,
-                                        contentDescription = "Menu",
-                                        tint = Color.White,
-                                        modifier = Modifier
-                                            .tvFocusBorder(CircleShape)
-                                            .background(Color.Transparent, CircleShape)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                            }
-                            Text(
-                                text = "Media",
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
-                            )
-                            androidx.compose.material3.IconButton(onClick = { isSearchExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = Color.White,
-                                    modifier = Modifier
-                                        .tvFocusBorder(CircleShape)
-                                        .background(Color.Transparent, CircleShape)
-                                        .padding(8.dp)
+                                Text(
+                                    text = "No results found for \"$searchQuery\"",
+                                    // Fix: contrast — was Color.Gray
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 18.sp
                                 )
                             }
                         }
                     }
-                }
+                } else {
+                    // Fix #2: each row is its own LazyColumn item → true lazy loading
+                    mediaRows.forEach { row ->
+                        item(key = "row_${row.key}") {
+                            MediaSection(
+                                title = row.title,
+                                mediaList = row.list,
+                                onFocus = onMediaFocus
+                            ) { media ->
+                                viewModel.selectMedia(media)
+                                navController.navigate(Routes.TMDB_DETAILS)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
 
-        } // closes Hero Box
-    } // closes else
-    } // closes Background Box
-        
-} // closes Root Box
-} // closes VodScreen
+                    item(key = "bottom_padding") {
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
+            }
+        }
+
+        // ── Overlay Top Navigation Bar (Fixed on Top) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            if (isSearchExpanded || searchQuery.isNotEmpty()) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = {
+                        searchQuery = it
+                        viewModel.search(it)
+                    },
+                    placeholder = {
+                        Text(
+                            "Search movies, TV shows...",
+                            color = SearchHintText,
+                            fontSize = 16.sp
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = if (isSearchFocused) Color.White else SearchHintText,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        val closeSearch = {
+                            isSearchExpanded = false
+                            searchQuery = ""
+                            viewModel.search("")
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .tvFocusBorder(CircleShape)
+                                .tvTouchClick(closeSearch)
+                                .clickable { closeSearch() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White,
+                        focusedContainerColor = SearchContainerFocused.copy(alpha = 0.9f),
+                        unfocusedContainerColor = SearchContainerIdle.copy(alpha = 0.9f)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // Fix #3: attach the focus requester
+                        .focusRequester(searchFieldFocusRequester)
+                        .onFocusChanged { isSearchFocused = it.isFocused }
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onMenuClick != null) {
+                        androidx.compose.material3.IconButton(onClick = { onMenuClick() }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "Menu",
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .tvFocusBorder(CircleShape)
+                                    .background(Color.Transparent, CircleShape)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                    }
+                    Text(
+                        text = "Media",
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    androidx.compose.material3.IconButton(onClick = { isSearchExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .tvFocusBorder(CircleShape)
+                                .background(Color.Transparent, CircleShape)
+                                .padding(8.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Skeleton / Shimmer (Improvement: premium loading experience)
+// ─────────────────────────────────────────────────────────────
+@Composable
+private fun VodSkeleton(isTV: Boolean) {
+    val isMobilePortrait = !isTV && LocalConfiguration.current.orientation ==
+            Configuration.ORIENTATION_PORTRAIT
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = if (isMobilePortrait) 16.dp else 100.dp)
+    ) {
+        repeat(3) {
+            SkeletonRow(isMobilePortrait = isMobilePortrait)
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun SkeletonRow(isMobilePortrait: Boolean) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shimmerAlpha"
+    )
+
+    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
+    val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
+    val spacing = if (isMobilePortrait) 12.dp else 24.dp
+
+    Column {
+        // Section header placeholder
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .width(160.dp)
+                .height(22.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SkeletonBase.copy(alpha = alpha * 0.5f))
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(spacing),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            userScrollEnabled = false
+        ) {
+            items(6) {
+                Box(
+                    modifier = Modifier
+                        .width(cardWidth)
+                        .height(cardHeight)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SkeletonBase.copy(alpha = alpha))
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia) -> Unit = {}, onClick: (TmdbMedia) -> Unit) {
+fun MediaSection(
+    title: String,
+    mediaList: List<TmdbMedia>,
+    onFocus: (TmdbMedia) -> Unit = {},
+    onClick: (TmdbMedia) -> Unit
+) {
     val configuration = LocalConfiguration.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
+    val isTV = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     val spacing = if (isMobilePortrait) 12.dp else 24.dp
     val verticalPadding = if (isMobilePortrait) 8.dp else 20.dp
@@ -364,7 +464,10 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
         ) {
             items(items = mediaList, key = { it.id }) { media ->
-                TmdbMediaCard(media, onFocus = { onFocus(media) }) { onClick(media) }
+                TmdbMediaCard(
+                    media = media,
+                    onFocus = { onFocus(media) }
+                ) { onClick(media) }
             }
         }
     }
@@ -372,10 +475,16 @@ fun MediaSection(title: String, mediaList: List<TmdbMedia>, onFocus: (TmdbMedia)
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Unit) {
+fun TmdbMediaCard(
+    media: TmdbMedia,
+    onFocus: () -> Unit = {},
+    onClick: () -> Unit
+) {
     val configuration = LocalConfiguration.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember { context.packageManager.hasSystemFeature("android.software.leanback") }
+    val isTV = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
     val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
@@ -386,15 +495,19 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
             .width(cardWidth)
             .height(cardHeight)
             .onFocusChanged { if (it.isFocused) onFocus() }
+            // tvTouchClick ensures phone touch works too; Card.onClick handles TV OK.
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = SurfaceDark,
-            focusedContainerColor = SurfaceDark // For images, background color change is less important
+            focusedContainerColor = SurfaceDark
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
         scale = CardDefaults.scale(focusedScale = 1.1f),
         glow = CardDefaults.glow(
-            focusedGlow = Glow(elevationColor = Color.Black.copy(alpha = 0.6f), elevation = 24.dp)
+            focusedGlow = Glow(
+                elevationColor = Color.Black.copy(alpha = 0.6f),
+                elevation = 24.dp
+            )
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -439,7 +552,7 @@ fun TmdbMediaCard(media: TmdbMedia, onFocus: () -> Unit = {}, onClick: () -> Uni
                     Icon(
                         Icons.Default.Star,
                         contentDescription = null,
-                        tint = Color(0xFFFFD700),
+                        tint = StarGold,
                         modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(2.dp))
