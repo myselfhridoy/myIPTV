@@ -1,5 +1,6 @@
 package com.streambd.iptv.utils
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -52,15 +53,20 @@ object YouTubeExtractor {
                         else -> reqBuilder.get()
                     }
 
-                    val response = okHttpClient.newCall(reqBuilder.build()).execute()
-                    val code = response.code
-                    val message = response.message
-                    val respHeaders = response.headers.toMultimap()
-                    val bodyStr = response.body?.string() ?: ""
-
-                    return Response(code, message, respHeaders, bodyStr, response.request.url.toString())
+                    // response.use { ... } → কানেকশন লিক হবে না
+                    okHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+                        val bodyStr = response.body?.string() ?: ""
+                        return Response(
+                            response.code,
+                            response.message,
+                            response.headers.toMultimap(),
+                            bodyStr,
+                            response.request.url.toString()
+                        )
+                    }
                 }
-            }, org.schabi.newpipe.extractor.localization.Localization.DEFAULT, org.schabi.newpipe.extractor.localization.ContentCountry.DEFAULT)
+            }, org.schabi.newpipe.extractor.localization.Localization.DEFAULT,
+                org.schabi.newpipe.extractor.localization.ContentCountry.DEFAULT)
             isInitialized = true
         }
     }
@@ -70,25 +76,35 @@ object YouTubeExtractor {
             initIfNeeded()
             val service = ServiceList.YouTube
             var targetUrl = url
+
             if (!targetUrl.contains("watch?v=") && !targetUrl.contains("youtu.be/")) {
                 try {
                     val req = okhttp3.Request.Builder()
                         .url(targetUrl)
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        )
                         .build()
-                    val html = okHttpClient.newCall(req).execute().body?.string() ?: ""
-                    val canonicalMatch = Regex("canonical.*?href=[\"']https://www\\.youtube\\.com/watch\\?v=([a-zA-Z0-9_-]+)").find(html)
-                        ?: Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"").find(html)
+                    val html = okHttpClient.newCall(req).execute().use {
+                        it.body?.string() ?: ""
+                    }
+                    val canonicalMatch =
+                        Regex("canonical.*?href=[\"']https://www\\.youtube\\.com/watch\\?v=([a-zA-Z0-9_-]+)").find(html)
+                            ?: Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"").find(html)
                     canonicalMatch?.groupValues?.getOrNull(1)?.let { vid ->
                         targetUrl = "https://www.youtube.com/watch?v=$vid"
                     }
-                } catch (e: Exception) {
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
                     e.printStackTrace()
                 }
             }
+
             val streamInfo = StreamInfo.getInfo(service, targetUrl)
 
-            // 1. Try HLS live stream URL first
+            // 1. HLS live stream URL
             val hlsUrl = streamInfo.hlsUrl
             if (!hlsUrl.isNullOrEmpty()) {
                 return@withContext ResolvedToken(
@@ -100,7 +116,7 @@ object YouTubeExtractor {
                 )
             }
 
-            // 2. Try DASH live stream URL
+            // 2. DASH live stream URL
             val dashUrl = streamInfo.dashMpdUrl
             if (!dashUrl.isNullOrEmpty()) {
                 return@withContext ResolvedToken(
@@ -112,11 +128,12 @@ object YouTubeExtractor {
                 )
             }
 
-            // 3. Try video streams (HLS/DASH/Progressive)
+            // 3. Video streams (HLS/DASH/Progressive) — best resolution
             val videoStreams = streamInfo.videoStreams
             if (!videoStreams.isNullOrEmpty()) {
-                val bestStream = videoStreams.maxByOrNull { it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0 }
-                    ?: videoStreams.first()
+                val bestStream = videoStreams.maxByOrNull {
+                    it.resolution?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 0
+                } ?: videoStreams.first()
                 val streamUrl = bestStream.content
                 if (!streamUrl.isNullOrEmpty()) {
                     return@withContext ResolvedToken(
@@ -128,7 +145,11 @@ object YouTubeExtractor {
                 }
             }
             null
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            // coroutine cancel হলে অবশ্যই rethrow করতে হবে, warna silent swallow হবে
+            throw e
+        } catch (e: Throwable) {
+            // NoSuchMethodError সহ সব Error ধরা পড়বে → আর অ্যাপ ক্র্যাশ করবে না
             e.printStackTrace()
             null
         }
@@ -139,16 +160,19 @@ object YouTubeExtractor {
         return lower.contains("youtube.com") || lower.contains("youtu.be")
     }
 
-    suspend fun extractPlaylistChannels(url: String): List<com.streambd.iptv.data.models.Channel> = withContext(Dispatchers.IO) {
+    suspend fun extractPlaylistChannels(
+        url: String
+    ): List<com.streambd.iptv.data.models.Channel> = withContext(Dispatchers.IO) {
         try {
             initIfNeeded()
             val service = ServiceList.YouTube
-            val playlistInfo = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(service, url)
+            val playlistInfo =
+                org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(service, url)
             val playlistName = playlistInfo.name ?: "YouTube Playlist"
-            
+
             val channels = mutableListOf<com.streambd.iptv.data.models.Channel>()
-            
-            // Add first page items
+
+            // প্রথম পেজের আইটেম
             playlistInfo.relatedItems.forEach { item ->
                 if (item is StreamInfoItem) {
                     channels.add(
@@ -161,12 +185,13 @@ object YouTubeExtractor {
                     )
                 }
             }
-            
-            // Paginate through remaining pages
+
+            // বাকি পেজগুলো paginate করো
             var nextPage = playlistInfo.nextPage
             while (nextPage != null) {
                 try {
-                    val moreItems = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getMoreItems(service, url, nextPage)
+                    val moreItems = org.schabi.newpipe.extractor.playlist.PlaylistInfo
+                        .getMoreItems(service, url, nextPage)
                     moreItems.items.forEach { item ->
                         if (item is StreamInfoItem) {
                             channels.add(
@@ -180,21 +205,26 @@ object YouTubeExtractor {
                         }
                     }
                     nextPage = moreItems.nextPage
-                } catch (e: Exception) {
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
                     e.printStackTrace()
                     break
                 }
             }
-            
+
             channels
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             e.printStackTrace()
             emptyList()
         }
     }
-    
+
     fun isYouTubePlaylistUrl(url: String): Boolean {
         val lower = url.lowercase()
-        return (lower.contains("youtube.com") || lower.contains("youtu.be")) && lower.contains("list=")
+        return (lower.contains("youtube.com") || lower.contains("youtu.be")) &&
+                lower.contains("list=")
     }
 }
