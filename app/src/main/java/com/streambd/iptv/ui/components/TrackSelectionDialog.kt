@@ -33,7 +33,6 @@ import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -48,9 +47,10 @@ private data class TrackOption(
 )
 
 /**
- * Takes the [Player] itself (not a snapshot of tracks), so the list updates live when
- * tracks load or change. Selection is applied through player.trackSelectionParameters,
- * which works with the ExoPlayer's track selector.
+ * Playback settings dialog: Video / Audio / Subtitles.
+ *
+ * Takes the [Player] itself (not a snapshot), so the list stays live.
+ * Selection is applied through `player.trackSelectionParameters`.
  */
 @Composable
 fun TrackSelectionDialog(
@@ -63,8 +63,8 @@ fun TrackSelectionDialog(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(newTracks: Tracks) { tracks = newTracks }
-            override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
-                params = parameters
+            override fun onTrackSelectionParametersChanged(p: TrackSelectionParameters) {
+                params = p
             }
         }
         // Catch anything that changed between first composition and registration.
@@ -87,7 +87,8 @@ fun TrackSelectionDialog(
     PremiumDialogScaffold(
         title = "Playback settings",
         subtitle = "Video, audio and subtitles",
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        scrollContent = false  // the LazyColumn below handles its own scroll
     ) {
         if (activeTab == null) {
             Text(
@@ -99,7 +100,7 @@ fun TrackSelectionDialog(
             return@PremiumDialogScaffold
         }
 
-        // Tabs
+        // ── Tabs ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -111,7 +112,8 @@ fun TrackSelectionDialog(
                     onClick = { selectedTab = type },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
-                    restBackground = if (type == activeTab) BioAccent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
+                    restBackground = if (type == activeTab)
+                        BioAccent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
                     contentPadding = PaddingValues(vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -132,20 +134,23 @@ fun TrackSelectionDialog(
         val isText = activeTab == C.TRACK_TYPE_TEXT
         val defaultSelected = if (isText) options.none { it.selected }
         else params.overrides.values.none { it.type == activeTab }
-        val focusIndex = if (defaultSelected) 0 else options.indexOfFirst { it.selected } + 1
+
+        // FIX: guard against -1 when nothing is selected (edge case with unsupported overrides).
+        val selectedIndex = options.indexOfFirst { it.selected }
+        val focusIndex = if (defaultSelected) 0
+        else (if (selectedIndex >= 0) selectedIndex + 1 else 0)
 
         val listState = rememberLazyListState()
         val listFocus = remember { FocusRequester() }
 
-        // Put focus on the current choice once, when the dialog opens (D-pad users).
-        LaunchedEffect(Unit) {
-            delay(100)
+        // Put focus on the current choice once. Re-run when the tab changes.
+        LaunchedEffect(activeTab) {
+            delay(80)
             try {
                 listState.scrollToItem(focusIndex)
-                delay(50)
+                delay(40)
                 listFocus.requestFocus()
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) {}
         }
 
         LazyColumn(
@@ -183,7 +188,9 @@ fun TrackSelectionDialog(
                         player.trackSelectionParameters = player.trackSelectionParameters
                             .buildUpon()
                             .setTrackTypeDisabled(activeTab, false)
-                            .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index))
+                            .setOverrideForType(
+                                TrackSelectionOverride(option.group.mediaTrackGroup, option.index)
+                            )
                             .build()
                         onDismiss()
                     }
@@ -210,7 +217,7 @@ private fun buildOptions(type: Int, tracks: Tracks, params: TrackSelectionParame
         }
     }
 
-    // Same title twice (e.g. two English audio tracks) gets a number suffix.
+    // Same title twice (e.g. two English audio tracks) → add a number suffix.
     val counts = raw.groupingBy { it.title }.eachCount()
     val seen = mutableMapOf<String, Int>()
     return raw.map { option ->
@@ -231,7 +238,8 @@ private fun describe(group: Tracks.Group, index: Int, type: Int, selected: Boole
             val hasSize = format.width > 0 && format.height > 0
             val parts = listOfNotNull(
                 format.frameRate.takeIf { it > 0f }?.let { "${it.roundToInt()} fps" },
-                format.bitrate.takeIf { it > 0 }?.let { String.format(Locale.US, "%.1f Mbps", it / 1_000_000.0) },
+                format.bitrate.takeIf { it > 0 }
+                    ?.let { String.format(Locale.US, "%.1f Mbps", it / 1_000_000.0) },
                 codecName(format.sampleMimeType)
             )
             TrackOption(
@@ -247,7 +255,8 @@ private fun describe(group: Tracks.Group, index: Int, type: Int, selected: Boole
             val parts = listOfNotNull(
                 label?.takeIf { it != title },
                 codecName(format.sampleMimeType),
-                format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }
+                format.bitrate.takeIf { it > 0 }
+                    ?.let { String.format(Locale.US, "%.0f kbps", it / 1000.0) }
             )
             TrackOption(
                 group, index,
@@ -273,7 +282,21 @@ private fun describe(group: Tracks.Group, index: Int, type: Int, selected: Boole
 private fun languageName(format: Format): String? {
     val lang = format.language
     if (lang.isNullOrBlank() || lang == C.LANGUAGE_UNDETERMINED) return null
-    val name = Locale.forLanguageTag(lang).getDisplayLanguage(Locale.getDefault())
+    // Handles common 3-letter codes that Locale.forLanguageTag misses.
+    val normalized = when (lang.lowercase()) {
+        "eng" -> "en"
+        "ben" -> "bn"
+        "hin" -> "hi"
+        "ara" -> "ar"
+        "spa" -> "es"
+        "fra", "fre" -> "fr"
+        "deu", "ger" -> "de"
+        "jpn" -> "ja"
+        "kor" -> "ko"
+        "zho", "chi" -> "zh"
+        else -> lang
+    }
+    val name = Locale.forLanguageTag(normalized).getDisplayLanguage(Locale.getDefault())
     return name.takeIf { it.isNotBlank() } ?: lang
 }
 
