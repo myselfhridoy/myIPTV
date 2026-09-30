@@ -75,15 +75,15 @@ fun SourceSelectionDialog(
             ) { index, (name, url) ->
                 val isSelected = url == currentSourceUrl
                 PremiumOptionRow(
-                    title = name.ifBlank { "Source ${index + 1}" },
-                    subtitle = url.take(80) + if (url.length > 80) "…" else "",
-                    selected = isSelected,
-                    focusRequester = if (index == (if (selectedIndex >= 0) selectedIndex else 0)) listFocus else null,
-                    onClick = {
-                        onSourceSelected(name, url)
-                        onDismiss()
-                    }
-                )
+    title = name.ifBlank { "Source ${index + 1}" },
+    subtitle = null,   // URL লুকানো
+    selected = isSelected,
+    focusRequester = if (index == (if (selectedIndex >= 0) selectedIndex else 0)) listFocus else null,
+    onClick = {
+        onSourceSelected(name, url)
+        onDismiss()
+    }
+)
             }
         }
     }
