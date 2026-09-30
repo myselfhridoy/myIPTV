@@ -14,7 +14,7 @@ import androidx.core.util.Consumer
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.appcompat.app.AppCompatDelegate
+
 
 /**
  * Applies the standard "fullscreen player" window configuration on the host
