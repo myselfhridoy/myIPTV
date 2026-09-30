@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,16 +14,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.theme.GrayText
 import kotlinx.coroutines.delay
 
 /**
- * Source picker used from the live player. Rebuilt on top of the shared
- * `PremiumDialogScaffold` so all dialogs in the app feel the same.
+ * Source picker shown from the live player.
  *
- * Signature kept identical to the previous version so no call-site change is needed.
+ * FIX: The old version used the source URL as the LazyColumn key. IPTV
+ * channels frequently have two or more named sources that share the same
+ * URL (e.g. "HD" and "FHD" pointing to the same CDN edge), which made
+ * Compose throw a duplicate-key crash the moment the dialog opened.
+ * Now the key is index-based, which is guaranteed unique. Items never
+ * reorder inside a single dialog session, so index keys are safe here.
  */
 @Composable
 fun SourceSelectionDialog(
@@ -33,6 +35,7 @@ fun SourceSelectionDialog(
     onSourceSelected: (String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Snapshot the map once; it doesn't change while the dialog is open.
     val items = remember(sources) {
         sources.entries.map { it.key to it.value }
     }
@@ -42,7 +45,10 @@ fun SourceSelectionDialog(
 
     PremiumDialogScaffold(
         title = "Select Source",
-        subtitle = if (items.isEmpty()) "No alternative sources" else "${items.size} source${if (items.size > 1) "s" else ""}",
+        subtitle = if (items.isEmpty())
+            "No alternative sources"
+        else
+            "${items.size} source${if (items.size > 1) "s" else ""}",
         onDismiss = onDismiss,
         scrollContent = false
     ) {
@@ -69,21 +75,24 @@ fun SourceSelectionDialog(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // ── FIX: index-based key is guaranteed unique even when two
+            //         different source names share the same URL. ──
             itemsIndexed(
                 items = items,
-                key = { _, item -> item.second }
+                key = { index, item -> "$index|${item.first}" }
             ) { index, (name, url) ->
                 val isSelected = url == currentSourceUrl
+                val fallbackFocusIndex = if (selectedIndex >= 0) selectedIndex else 0
                 PremiumOptionRow(
-    title = name.ifBlank { "Source ${index + 1}" },
-    subtitle = null,   // URL লুকানো
-    selected = isSelected,
-    focusRequester = if (index == (if (selectedIndex >= 0) selectedIndex else 0)) listFocus else null,
-    onClick = {
-        onSourceSelected(name, url)
-        onDismiss()
-    }
-)
+                    title = name.ifBlank { "Source ${index + 1}" },
+                    subtitle = null,
+                    selected = isSelected,
+                    focusRequester = if (index == fallbackFocusIndex) listFocus else null,
+                    onClick = {
+                        onSourceSelected(name, url)
+                        onDismiss()
+                    }
+                )
             }
         }
     }
