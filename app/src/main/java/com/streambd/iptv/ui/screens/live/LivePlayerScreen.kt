@@ -544,7 +544,12 @@ fun LivePlayerScreen(
         }
 
         if (showOverlay && !isInPiP) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
+            Box(
+    modifier = Modifier
+        .fillMaxSize()
+        .background(Color.Black.copy(alpha = 0.5f))
+        .windowInsetsPadding(WindowInsets.displayCutout)
+) {
                 if (isLocked) {
                     TvIconButton(
                         onClick = { isLocked = false },
