@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -39,7 +40,7 @@ object Routes {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun AppNavigation(
-    mainViewModel: MainViewModel, 
+    mainViewModel: MainViewModel,
     tmdbViewModel: TmdbViewModel,
     playlistViewModel: PlaylistViewModel,
     playlistChannelsViewModel: PlaylistChannelsViewModel,
@@ -47,36 +48,38 @@ fun AppNavigation(
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    
-    // Global Player Instance with Optimized IPTV / Live Stream settings
-    val trackSelector = remember { DefaultTrackSelector(context) }
-    
-    val loadControl = remember {
-    val am = context.getSystemService(android.app.ActivityManager::class.java)
-    val lowRam = am.isLowRamDevice || am.memoryClass < 256
 
-    androidx.media3.exoplayer.DefaultLoadControl.Builder()
-        .setBufferDurationsMs(
-            30000,
-            if (lowRam) 90000 else 300000,   // কম RAM-এ ১.৫ মিনিট
-            500,
-            1000
-        )
-        .setTargetBufferBytes(
-            if (lowRam) 48 * 1024 * 1024      // কম RAM-এ ৪৮MB সীমা
-            else androidx.media3.common.C.LENGTH_UNSET
-        )
-        .setBackBuffer(if (lowRam) 20000 else 60000, true)
-        .setPrioritizeTimeOverSizeThresholds(false)
-        .build()
-}
-    
+    // ── Global player (single instance shared across Live + VOD players) ──
+    val trackSelector = remember { DefaultTrackSelector(context) }
+
+    val loadControl = remember {
+        val am = context.getSystemService(android.app.ActivityManager::class.java)
+        val lowRam = am.isLowRamDevice || am.memoryClass < 256
+
+        androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                30000,
+                if (lowRam) 90000 else 300000,
+                500,
+                1000
+            )
+            .setTargetBufferBytes(
+                if (lowRam) 48 * 1024 * 1024
+                else androidx.media3.common.C.LENGTH_UNSET
+            )
+            .setBackBuffer(if (lowRam) 20000 else 60000, true)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .build()
+    }
+
     val renderersFactory = remember {
         androidx.media3.exoplayer.DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            .setExtensionRendererMode(
+                androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            )
     }
-    
+
     val audioAttributes = remember {
         androidx.media3.common.AudioAttributes.Builder()
             .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -95,8 +98,28 @@ fun AppNavigation(
     }
 
     DisposableEffect(Unit) {
+        onDispose { globalExoPlayer.release() }
+    }
+
+    // ── Safety net: if the user leaves a player route by any means other
+    //    than the in-screen Back handler (deep link, programmatic nav,
+    //    config change…), stop playback so audio doesn't bleed into the
+    //    next screen. ──
+    DisposableEffect(navController) {
+        val playerRoutes = setOf(Routes.LIVE_PLAYER, Routes.VOD_PLAYER)
+        val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+            if (destination.route !in playerRoutes) {
+                if (globalExoPlayer.isPlaying || globalExoPlayer.playbackState !=
+                    androidx.media3.common.Player.STATE_IDLE
+                ) {
+                    globalExoPlayer.stop()
+                    globalExoPlayer.clearMediaItems()
+                }
+            }
+        }
+        navController.addOnDestinationChangedListener(listener)
         onDispose {
-            globalExoPlayer.release()
+            navController.removeOnDestinationChangedListener(listener)
         }
     }
 
@@ -105,7 +128,7 @@ fun AppNavigation(
             composable(Routes.SPLASH) {
                 val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
                 val selectedChannel by mainViewModel.selectedChannel.collectAsState()
-                
+
                 com.streambd.iptv.ui.screens.splash.SplashScreen(
                     onTimeout = {
                         if (isTvModeEnabled && selectedChannel != null) {
@@ -120,31 +143,42 @@ fun AppNavigation(
                     }
                 )
             }
+
             composable(Routes.MAIN) {
                 MainScreen(
-                    mainViewModel = mainViewModel, 
-                    tmdbViewModel = tmdbViewModel, 
+                    mainViewModel = mainViewModel,
+                    tmdbViewModel = tmdbViewModel,
                     navController = navController,
                     onCheckUpdate = onCheckUpdate
                 )
             }
+
             composable(Routes.LIVE_CATEGORY_CHANNELS) {
-                LiveCategoryChannelsScreen(viewModel = mainViewModel, navController = navController)
+                LiveCategoryChannelsScreen(
+                    viewModel = mainViewModel,
+                    navController = navController
+                )
             }
+
             composable(Routes.LIVE_PLAYER) {
                 LivePlayerScreen(
-                    viewModel = mainViewModel, 
+                    viewModel = mainViewModel,
                     navController = navController,
                     exoPlayer = globalExoPlayer,
-                    trackSelector = trackSelector,
                     onEnterPiP = {
-                        // Handled natively inside LivePlayerScreen
+                        // Handled natively inside LivePlayerScreen via PlayerWindowEffect
                     }
                 )
             }
+
             composable(Routes.TMDB_DETAILS) {
-                TmdbDetailsScreen(mainViewModel = mainViewModel, tmdbViewModel = tmdbViewModel, navController = navController)
+                TmdbDetailsScreen(
+                    mainViewModel = mainViewModel,
+                    tmdbViewModel = tmdbViewModel,
+                    navController = navController
+                )
             }
+
             composable(Routes.SOURCE_SELECTION) {
                 SourceSelectionScreen(
                     mainViewModel = mainViewModel,
@@ -152,22 +186,34 @@ fun AppNavigation(
                     navController = navController
                 )
             }
+
             composable(Routes.VOD_PLAYER) {
                 VodPlayerScreen(
                     mainViewModel = mainViewModel,
                     tmdbViewModel = tmdbViewModel,
                     navController = navController,
-                    exoPlayer = globalExoPlayer,
-                    trackSelector = trackSelector
+                    exoPlayer = globalExoPlayer
                 )
             }
+
             composable(Routes.PLAYLISTS) {
-                PlaylistsScreen(playlistViewModel = playlistViewModel, navController = navController)
+                PlaylistsScreen(
+                    playlistViewModel = playlistViewModel,
+                    navController = navController
+                )
             }
+
             composable(Routes.PLAYLIST_CHANNELS) { backStackEntry ->
                 val title = backStackEntry.arguments?.getString("title") ?: "Playlist"
-                val url = backStackEntry.arguments?.getString("url")?.let { URLDecoder.decode(it, "UTF-8") } ?: ""
-                
+                val url = backStackEntry.arguments?.getString("url")
+                    ?.let {
+                        try {
+                            URLDecoder.decode(it, "UTF-8")
+                        } catch (_: Exception) {
+                            it
+                        }
+                    } ?: ""
+
                 PlaylistChannelsScreen(
                     playlistTitle = title,
                     playlistUrl = url,
@@ -176,8 +222,11 @@ fun AppNavigation(
                     navController = navController
                 )
             }
+
             composable(Routes.ADMIN_CONVERTER) {
-                com.streambd.iptv.ui.screens.admin.AdminConverterScreen(navController = navController)
+                com.streambd.iptv.ui.screens.admin.AdminConverterScreen(
+                    navController = navController
+                )
             }
         }
     }
