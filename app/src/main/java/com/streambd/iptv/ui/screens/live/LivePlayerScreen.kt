@@ -267,7 +267,7 @@ fun LivePlayerScreen(
         }
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
-        val originalOrientation = activity?.রেকুএস্তেদোরিএন্তাতিওন
+        val originalOrientation = activity?.requestedOrientation
         val originalBackground = activity?.window?.decorView?.background
         val window = activity?.window
 
