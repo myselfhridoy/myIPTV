@@ -29,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -63,7 +62,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 
     var selectedGroup by rememberSaveable { mutableStateOf("All") }
     var isGroupsModalExpanded by rememberSaveable { mutableStateOf(false) }
-    
+
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -87,7 +86,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     // always captures the LATEST filteredChannels, even when Compose skips
     // recomposition of items whose Channel data hasn't changed.
     val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
-    
+
     BackHandler(enabled = isSearchActive) {
         if (isSearchFocused) {
             focusManager.clearFocus()
@@ -109,12 +108,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { 
+            IconButton(onClick = {
                 if (isSearchActive) {
                     isSearchActive = false
                     searchQuery = ""
                 } else {
-                    navController.popBackStack() 
+                    navController.popBackStack()
                 }
             }) {
                 Icon(
@@ -125,7 +124,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
-            
+
             if (isSearchActive) {
                 OutlinedTextField(
                     value = searchQuery,
@@ -184,7 +183,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         onClick = { isGroupsModalExpanded = true }
                     )
                 }
-                
+
                 items(validGroups.take(10)) { group ->
                     FilterChipItem(
                         text = group,
@@ -315,10 +314,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 ) {
                     item {
                         Text(
-                            text = "Select Group", 
-                            color = WhiteText, 
-                            fontSize = 20.sp, 
-                            fontWeight = FontWeight.Bold, 
+                            text = "Select Group",
+                            color = WhiteText,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
                     }
