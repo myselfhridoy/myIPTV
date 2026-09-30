@@ -9,6 +9,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -54,6 +55,7 @@ import com.streambd.iptv.ui.theme.SurfaceDark
 import com.streambd.iptv.ui.theme.TealAccent
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
@@ -61,6 +63,8 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     val tvModePlaylists by viewModel.tvModePlaylists.collectAsState()
     val categories by viewModel.liveCategories.collectAsState()
     val isLoading by viewModel.isLoadingLive.collectAsState()
+    val allChannelsMap by viewModel.categoryChannels.collectAsState()
+    val loadProgress by viewModel.searchLoadProgress.collectAsState()
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -76,20 +80,46 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
     }
 
     var searchQuery by remember { mutableStateOf("") }
+    var debouncedQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-    val displayedCategories = remember(searchQuery, categories) {
-        if (searchQuery.isBlank()) categories
-        else categories.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    // Debounce only the FILTER input, not the text field — typed characters must show instantly.
+    // Blank is applied immediately so clearing the search hides results right away.
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isBlank()) {
+            debouncedQuery = ""
+        } else {
+            delay(250)
+            debouncedQuery = searchQuery
+        }
+    }
+
+    val displayedCategories = remember(debouncedQuery, categories) {
+        if (debouncedQuery.isBlank()) categories
+        else categories.filter { it.name.contains(debouncedQuery, ignoreCase = true) }
+    }
+
+    // Sequence-based so take(100) short-circuits before building the full list.
+    val matchedChannels = remember(debouncedQuery, allChannelsMap) {
+        if (debouncedQuery.isBlank()) emptyList()
+        else allChannelsMap.values.asSequence()
+            .flatten()
+            .filter { it.name.contains(debouncedQuery, ignoreCase = true) }
+            .distinctBy { it.name + it.url }
+            .take(100)
+            .toList()
     }
 
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
-            kotlinx.coroutines.delay(100)
+            delay(100)
             try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
+            // Kick off background category loading for the search index.
+            // No-op if already running, all loaded, or never searched.
+            viewModel.loadAllCategoriesForSearch()
         }
     }
 
@@ -185,28 +215,40 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
             }
         }
 
-
-
-        // Search result count hint
-        AnimatedVisibility(visible = isSearchActive && searchQuery.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
-            Text(
-                text = "${displayedCategories.size} result(s) for \"$searchQuery\"",
-                color = Color.Gray,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp)
-            )
+        // Search result count hint + background load progress
+        AnimatedVisibility(visible = isSearchActive, enter = fadeIn(), exit = fadeOut()) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+            ) {
+                if (debouncedQuery.isNotBlank()) {
+                    Text(
+                        text = "${displayedCategories.size} categories, ${matchedChannels.size} channels for \"$debouncedQuery\"",
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
+                loadProgress?.let { (done, total) ->
+                    Text(
+                        text = "চ্যানেল লোড হচ্ছে… $done/$total",
+                        color = TealAccent,
+                        fontSize = 12.sp
+                    )
+                }
+            }
         }
 
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = TealAccent)
             }
-        } else if (displayedCategories.isEmpty() && searchQuery.isNotBlank()) {
+        } else if (displayedCategories.isEmpty() && matchedChannels.isEmpty() && debouncedQuery.isNotBlank()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("No results found for \"$searchQuery\"", color = Color.Gray, fontSize = 14.sp)
+                    Text("No results found for \"$debouncedQuery\"", color = Color.Gray, fontSize = 14.sp)
                 }
             }
         } else {
@@ -216,11 +258,44 @@ fun LiveTvScreen(viewModel: MainViewModel, navController: NavController, onMenuC
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
+                // CATEGORIES section header (only while searching)
+                if (debouncedQuery.isNotBlank() && displayedCategories.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = "CATEGORIES",
+                            color = Color.Gray,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 items(displayedCategories) { category ->
                     CategoryCard(category = category) {
                         viewModel.selectCategory(category)
                         navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
                             launchSingleTop = true
+                        }
+                    }
+                }
+
+                // CHANNELS section (only while searching)
+                if (debouncedQuery.isNotBlank() && matchedChannels.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            text = "CHANNELS",
+                            color = Color.Gray,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    items(matchedChannels) { channel ->
+                        ChannelCard(channel = channel) {
+                            viewModel.setCurrentPlaylist(matchedChannels)
+                            viewModel.selectChannel(channel)
+                            navController.navigate(Routes.LIVE_PLAYER) {
+                                launchSingleTop = true
+                            }
                         }
                     }
                 }
@@ -267,9 +342,9 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
                 )
             }
         }
-        
+
         Spacer(modifier = Modifier.width(10.dp))
-        
+
         Text(
             text = category.name,
             color = WhiteText,
