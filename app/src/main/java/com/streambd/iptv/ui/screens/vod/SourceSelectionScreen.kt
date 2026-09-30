@@ -12,7 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -109,12 +109,18 @@ fun SourceSelectionScreen(
         )
     }
 
-    // ── Improve #3: sort streams by quality, best first; tie-break by provider name ──
+    // ─────────────────────────────────────────────────────────────
+    // FIX (duplicate key crash):
+    //   1) distinctBy — same provider + quality + type + url ⇒ dedupe
+    //   2) sortedWith — best quality first, tie-break by provider name
+    // ─────────────────────────────────────────────────────────────
     val streams = remember(streamsRaw) {
-        streamsRaw.sortedWith(
-            compareByDescending<StreamSource> { qualityRank(it.quality) }
-                .thenBy { it.provider.lowercase() }
-        )
+        streamsRaw
+            .distinctBy { "${it.provider}|${it.quality}|${it.type.orEmpty()}|${it.url}" }
+            .sortedWith(
+                compareByDescending<StreamSource> { qualityRank(it.quality) }
+                    .thenBy { it.provider.lowercase() }
+            )
     }
 
     Column(
@@ -317,12 +323,18 @@ fun SourceSelectionScreen(
                     )
                 }
 
-                // Use key = provider+quality so focus/state stays stable when list re-sorts
-                items(
+                // ─────────────────────────────────────────────────────────────
+                // FIX: was `items(key = provider|quality|type)` → crash when the
+                // addon returned two streams with the same provider/quality/type.
+                // Now `itemsIndexed` — index is guaranteed unique, so duplicate
+                // keys can never happen even if upstream data repeats.
+                // ─────────────────────────────────────────────────────────────
+                itemsIndexed(
                     items = streams,
-                    key = { "${it.provider}|${it.quality}|${it.type.orEmpty()}" }
-                ) { stream ->
-                    val index = streams.indexOf(stream)
+                    key = { index, stream ->
+                        "$index|${stream.provider}|${stream.quality}|${stream.type.orEmpty()}"
+                    }
+                ) { index, stream ->
                     StreamSourceCard(
                         stream = stream,
                         modifier = if (index == 0)
