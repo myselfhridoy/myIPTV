@@ -544,12 +544,7 @@ fun LivePlayerScreen(
         }
 
         if (showOverlay && !isInPiP) {
-            Box(
-    modifier = Modifier
-        .fillMaxSize()
-        .background(Color.Black.copy(alpha = 0.5f))
-        .windowInsetsPadding(WindowInsets.displayCutout)
-) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                 if (isLocked) {
                     TvIconButton(
                         onClick = { isLocked = false },
@@ -564,9 +559,12 @@ fun LivePlayerScreen(
                 } else {
                     // Top bar
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+    modifier = Modifier
+        .fillMaxWidth()
+        .windowInsetsPadding(WindowInsets.displayCutout)
+        .padding(16.dp),
+    verticalAlignment = Alignment.CenterVertically
+) {
                         TvIconButton(
                             onClick = { exitPlayer() },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
@@ -671,12 +669,13 @@ fun LivePlayerScreen(
 
                     // Bottom bar (seekbar kept as-is per request)
                     Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+    modifier = Modifier
+        .align(Alignment.BottomCenter)
+        .fillMaxWidth()
+        .windowInsetsPadding(WindowInsets.displayCutout)
+        .padding(horizontal = 24.dp, vertical = 16.dp),
+    verticalAlignment = Alignment.CenterVertically
+) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
                         Box(
                             modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
