@@ -62,8 +62,7 @@ import com.streambd.iptv.ui.theme.WhiteText
 
 /**
  * Returns `true` when the current screen is a phone-sized window.
- * Threshold: 600dp is Android's standard phone/tablet breakpoint
- * (matches `WindowSizeClass.Compact`).
+ * 600dp matches Android's standard phone/tablet breakpoint.
  */
 @Composable
 fun rememberIsCompactLayout(): Boolean {
@@ -74,11 +73,16 @@ fun rememberIsCompactLayout(): Boolean {
 /**
  * Shared shell for every dialog.
  *
- * Responsive:
- *  - On phones (<600dp wide) the dialog shrinks: narrower width, tighter
- *    paddings, smaller title, capped content height — so it doesn't dominate
- *    the screen.
- *  - On TV / tablet (>=600dp) it keeps the original premium size.
+ * Design:
+ *  - Responsive: compact on phones, premium-size on TV/tablet.
+ *  - Height-aware: content slot is capped to whatever vertical space is left
+ *    after header + footer, so the dialog NEVER overflows the screen.
+ *  - No default Close button: the footer only appears when the caller supplies
+ *    `actions`. Tap-outside still dismisses via `onDismissRequest`.
+ *
+ * Usage:
+ *  - Simple info dialogs → just pass content; no footer.
+ *  - Confirm/action dialogs → pass `actions = { PremiumButton(...) }`.
  */
 @Composable
 fun PremiumDialogScaffold(
@@ -92,23 +96,44 @@ fun PremiumDialogScaffold(
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val isCompact = rememberIsCompactLayout()
+    val config = LocalConfiguration.current
+    val isCompact = config.screenWidthDp < 600
+    val isShortScreen = config.screenHeightDp < 480   // landscape phone
 
-    // ── Responsive dimensions ──
+    // ── Responsive width / padding ──
     val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 380.dp) else maxWidth
-    val effectiveContentMaxHeight =
-        if (isCompact) minOf(contentMaxHeight, 300.dp) else contentMaxHeight
-    val outerPadding = if (isCompact) 12.dp else 16.dp
+    val outerPadding = when {
+        isCompact && isShortScreen -> 6.dp
+        isCompact -> 12.dp
+        else -> 16.dp
+    }
     val headerStart = if (isCompact) 16.dp else 20.dp
     val headerEnd = if (isCompact) 16.dp else 20.dp
-    val headerTop = if (isCompact) 14.dp else 18.dp
-    val headerBottom = if (isCompact) 10.dp else 12.dp
+    val headerTop = if (isCompact) 12.dp else 18.dp
+    val headerBottom = if (isCompact) 8.dp else 12.dp
     val accentWidth = if (isCompact) 3.dp else 4.dp
     val accentHeight = if (isCompact) 22.dp else 26.dp
     val titleStyle = if (isCompact)
         MaterialTheme.typography.titleMedium
     else
         MaterialTheme.typography.titleLarge
+
+    // ── Responsive HEIGHT: leave room for header + (optional) footer ──
+    // Approximate chrome cost in dp:
+    //   header row ~56dp, footer row ~50dp, plus outer padding on both sides.
+    val chromeHeight = when {
+        isCompact && isShortScreen -> 110.dp   // tight landscape: header only + outer
+        isCompact -> 150.dp                     // header + small footer margin
+        else -> 180.dp
+    }
+    val screenBoundedContent = (config.screenHeightDp.dp - chromeHeight)
+        .coerceAtLeast(100.dp)
+
+    // The content cap respects both the caller's preference AND the screen.
+    val effectiveContentMaxHeight = minOf(
+        if (isCompact) minOf(contentMaxHeight, 320.dp) else contentMaxHeight,
+        screenBoundedContent
+    )
 
     val shape = RoundedCornerShape(if (isCompact) 16.dp else 20.dp)
 
@@ -166,7 +191,7 @@ fun PremiumDialogScaffold(
                 }
             }
 
-            // ── Content ──
+            // ── Content (bounded to whatever space remains) ──
             val contentModifier = if (scrollContent)
                 Modifier
                     .fillMaxWidth()
@@ -176,23 +201,25 @@ fun PremiumDialogScaffold(
 
             Column(modifier = contentModifier, content = content)
 
-            // ── Footer ──
-            HorizontalDivider(
-                modifier = Modifier.fillMaxWidth(),
-                thickness = 1.dp,
-                color = Color.White.copy(alpha = 0.06f)
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = if (isCompact) 10.dp else 14.dp,
-                        vertical = if (isCompact) 8.dp else 10.dp
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (actions != null) actions() else PremiumButton("Close", onDismiss)
+            // ── Footer (only when the caller supplies actions) ──
+            if (actions != null) {
+                HorizontalDivider(
+                    modifier = Modifier.fillMaxWidth(),
+                    thickness = 1.dp,
+                    color = Color.White.copy(alpha = 0.06f)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = if (isCompact) 10.dp else 14.dp,
+                            vertical = if (isCompact) 8.dp else 10.dp
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    actions()
+                }
             }
         }
     }
