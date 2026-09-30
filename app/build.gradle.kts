@@ -43,6 +43,8 @@ android {
         }
     }
     compileOptions {
+        // নতুন: Java 11+ API (যেমন URLDecoder.decode(String, Charset)) পুরনো Android-এ চালানোর জন্য
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -60,6 +62,9 @@ android {
 }
 
 dependencies {
+    // নতুন: desugaring লাইব্রেরি
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
