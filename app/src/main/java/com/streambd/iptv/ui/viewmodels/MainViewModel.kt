@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -78,6 +81,13 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     private var enrichJob: Job? = null
     private var vodJob: Job? = null
     private var categoryFetchInFlight = mutableSetOf<String>()
+
+    // ==== Search-time background loader state (only used while search is active) ====
+    private val _searchLoadProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    val searchLoadProgress: StateFlow<Pair<Int, Int>?> = _searchLoadProgress.asStateFlow()
+
+    private var searchLoadJob: Job? = null
+    // ================================================================================
 
     fun initTvMode(context: Context) {
         val prefs = context.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
@@ -501,5 +511,67 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
                 categoryFetchInFlight.remove(categoryName)
             }
         }
+    }
+
+    /**
+     * সার্চের জন্য এখনো লোড না হওয়া ক্যাটেগরিগুলো সর্বোচ্চ ৩টা করে একসাথে লোড করে।
+     * ব্যর্থ ক্যাটেগরি ক্যাশ হয় না, পরে আবার চেষ্টা হবে।
+     * সার্চ না করলে এটি কখনো কল হয় না, তাই সাধারণ ব্রাউজিং-এ কোনো বাড়তি লোড নেই।
+     */
+    fun loadAllCategoriesForSearch() {
+        if (searchLoadJob?.isActive == true) return
+
+        val pending = _liveCategories.value.filter {
+            !_categoryChannels.value.containsKey(it.name)
+        }
+        if (pending.isEmpty()) return
+
+        searchLoadJob = viewModelScope.launch {
+            val total = pending.size
+            var done = 0
+            _searchLoadProgress.value = 0 to total
+            val semaphore = Semaphore(3)
+
+            try {
+                coroutineScope {
+                    pending.map { category ->
+                        async {
+                            semaphore.withPermit {
+                                // অন্য কেউ (ক্যাটেগরি খোলা) ইতিমধ্যে লোড করছে বা করে ফেলেছে
+                                if (_categoryChannels.value.containsKey(category.name) ||
+                                    !categoryFetchInFlight.add(category.name)
+                                ) {
+                                    return@withPermit
+                                }
+                                try {
+                                    val channels = withTimeoutOrNull(15_000L) {
+                                        liveRepository.getChannelsForCategory(appContext, category.url)
+                                    }
+                                    if (channels != null) {
+                                        _categoryChannels.update { it + (category.name to channels) }
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                } finally {
+                                    categoryFetchInFlight.remove(category.name)
+                                }
+                            }
+                            done++
+                            _searchLoadProgress.value = done to total
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                _searchLoadProgress.value = null
+            }
+        }
+    }
+
+    /** সার্চ বন্ধ হলে ব্যাকগ্রাউন্ড লোড থামাতে চাইলে */
+    fun cancelSearchLoad() {
+        searchLoadJob?.cancel()
+        searchLoadJob = null
     }
 }
