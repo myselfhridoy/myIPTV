@@ -1,6 +1,6 @@
 package com.streambd.iptv.ui.screens.live
 
-import android.content.pm.ActivityInfo
+import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -11,7 +11,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -41,26 +39,21 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.TealAccent
+import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
-import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -73,23 +66,13 @@ enum class VideoScaleMode(val title: String) {
 
 // ---------- top-level helpers ----------------------------------------------
 
-/** UI-only error holder — `PlaybackException`'s constructor is `protected` in Media3. */
 private data class UiPlaybackError(
     val message: String,
     val causeMessage: String?,
     val isHlsFormat: Boolean = false
 )
 
-/**
- * Rejects only URLs we *know* are pages, not media.
- *
- * Uses generic marker tokens (not provider names), so the same guard works for
- * any IPTV provider whose URL patterns match common page conventions:
- *   - our own `tokenUrl=` / `streamPlay` / `streambd` markers
- *   - generic Stalker portal endpoints
- *   - literal `.html`/`.htm` files
- * Deliberately does NOT block `.php` / `.asp` / `.jsp` — those can serve HLS too.
- */
+/** Rejects only URLs we *know* are pages, not media. */
 private fun isKnownPageUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val lower = url.lowercase()
@@ -105,10 +88,6 @@ private fun isKnownPageUrl(url: String?): Boolean {
     return false
 }
 
-/**
- * Media3-first error classifier. Uses `errorCode` when possible, falls back to
- * string matching only for codes we haven't explicitly mapped.
- */
 private fun isHlsFormatError(error: PlaybackException): Boolean {
     when (error.errorCode) {
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
@@ -122,23 +101,17 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED -> return false
     }
-    // Unknown / unmapped — fall back to string sniffing.
     val text = buildString {
         append(error.message.orEmpty())
         append(' ')
         append(error.cause?.message.orEmpty())
     }.lowercase()
     return text.contains("#extm3u") ||
-           text.contains("ext-x-") ||
-           text.contains("contentismalformed") ||
-           text.contains("does not start with the #extm3u")
+        text.contains("ext-x-") ||
+        text.contains("contentismalformed") ||
+        text.contains("does not start with the #extm3u")
 }
 
-/**
- * indexOf() with a fallback: the selected channel (restored from saved JSON, or
- * enriched with extra sources) is often not equals() to the instance in the loaded
- * playlist.
- */
 private fun List<com.streambd.iptv.data.models.Channel>.indexOfChannel(
     channel: com.streambd.iptv.data.models.Channel
 ): Int {
@@ -168,7 +141,6 @@ fun LivePlayerScreen(
         androidx.lifecycle.viewmodel.compose.viewModel(),
     navController: NavController,
     exoPlayer: ExoPlayer,
-    trackSelector: DefaultTrackSelector,
     onEnterPiP: () -> Unit
 ) {
     val context = LocalContext.current
@@ -193,13 +165,12 @@ fun LivePlayerScreen(
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
 
-    // Fix #1: start from sources[0] if available, not channel.url.
-    // This makes onPlayerError fallback work even when channel.url is the failing one.
+    // Start from sources[0] if available, not channel.url, so fallback works.
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
     }
 
-    // Fix #1 (continued): track URLs that already failed for this channel so each is tried once.
+    // URLs that already failed for this channel — one attempt each per session.
     var failedSourceUrls by remember(channelKey) {
         mutableStateOf(setOf<String>())
     }
@@ -216,8 +187,6 @@ fun LivePlayerScreen(
     val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
-
-    // Fix #5: derive mute from player state instead of a local snapshot that can go stale.
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
 
     var backPressedTime by remember { mutableStateOf(0L) }
@@ -229,95 +198,43 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    // Fix #4: single exit path — orientation restore is handled by DisposableEffect.onDispose.
+    // ── Window: orientation, insets, cutout, PiP ──
+    PlayerWindowEffect { inPip ->
+        isInPiP = inPip
+        if (inPip) showOverlay = false
+    }
+
+    // ── Prefetch cleanup only ──
+    DisposableEffect(playerViewModel) {
+        onDispose { playerViewModel.stopPrefetch() }
+    }
+
     val exitPlayer: () -> Unit = {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         navController.popBackStack()
     }
 
-    LaunchedEffect(Unit) {
-        snapshotFlow { channelNumberInput }
-            .filter { it.isNotEmpty() }
-            .debounce(2000L)
-            .collect { input ->
-                viewModel.tuneToChannelNumber(input)
-                channelNumberInput = ""
-            }
+    // ── Numeric channel input (2s timeout) ──
+    LaunchedEffect(channelNumberInput) {
+        if (channelNumberInput.isNotEmpty()) {
+            delay(2000L)
+            viewModel.tuneToChannelNumber(channelNumberInput)
+            channelNumberInput = ""
+        }
     }
 
+    // Request focus once on entry.
     LaunchedEffect(Unit) {
         delay(100)
-        try { mainFocusRequester.requestFocus() } catch (e: Exception) {}
+        try { mainFocusRequester.requestFocus() } catch (_: Exception) {}
     }
 
+    // Channel info overlay on channel change.
     LaunchedEffect(channel) {
         showChannelInfoOverlay = true
         delay(4000L)
         showChannelInfoOverlay = false
-    }
-
-    // Lock Screen Orientation to Landscape, hide system UI, PiP listener
-    DisposableEffect(Unit) {
-        val activity = context as? ComponentActivity
-
-        val pipObserver = androidx.core.util.Consumer<androidx.core.app.PictureInPictureModeChangedInfo> { info ->
-            isInPiP = info.isInPictureInPictureMode
-            if (isInPiP) showOverlay = false
-        }
-        activity?.addOnPictureInPictureModeChangedListener(pipObserver)
-
-        val originalOrientation = activity?.requestedOrientation
-        val originalBackground = activity?.window?.decorView?.background
-        val window = activity?.window
-
-        if (window != null) {
-    // নতুন: কনটেন্টকে সিস্টেম বার ও কাটআউটের নিচে আঁকতে দাও
-    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-    // নতুন: উইন্ডো ব্যাকগ্রাউন্ড কালো
-    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
-
-    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-    insetsController.systemBarsBehavior =
-        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-        window.attributes = window.attributes.apply {
-            layoutInDisplayCutoutMode =
-                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-    }
-}
-
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-
-        onDispose {
-            playerViewModel.stopPrefetch()
-            activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
-            if (originalOrientation != null) {
-                activity?.requestedOrientation = originalOrientation
-            } else {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
-            if (window != null) {
-    // নতুন: আগের অবস্থায় ফেরাও
-    androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
-    window.setBackgroundDrawable(originalBackground)
-
-    val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-    insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-        window.attributes = window.attributes.apply {
-            layoutInDisplayCutoutMode =
-                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
-        }
-    }
-}
-        }
     }
 
     // Reset per-channel state and kick off resolution.
@@ -329,12 +246,11 @@ fun LivePlayerScreen(
         playerViewModel.resolveChannel(channel, currentSourceUrl)
     }
 
-    // Media Source updates — guarded so page URLs never reach ExoPlayer.
+    // Apply resolved MediaSource — never hand a page URL to ExoPlayer.
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
 
-        // Guard: resolver returned a page URL rather than a real stream.
         if (isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
                 message = "Stream resolver returned a page URL instead of a video stream.",
@@ -350,7 +266,7 @@ fun LivePlayerScreen(
         exoPlayer.playWhenReady = true
     }
 
-    // Prefetch neighbours
+    // Prefetch neighbours.
     LaunchedEffect(channel, currentPlaylist) {
         val index = currentPlaylist.indexOfChannel(channel)
         if (index != -1) {
@@ -358,7 +274,7 @@ fun LivePlayerScreen(
         }
     }
 
-    // Player listener
+    // ── Player listener ──
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -366,9 +282,8 @@ fun LivePlayerScreen(
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
                     lastHlsError = false
-                    // Source worked — clear the failed set so a transient glitch doesn't
-                    // permanently disqualify a URL for this session.
-                    failedSourceUrls = emptySet()
+                    // failedSourceUrls intentionally NOT reset here —
+                    // keep it so we don't re-try known-dead URLs during this session.
                 }
             }
 
@@ -376,23 +291,18 @@ fun LivePlayerScreen(
                 isPlaying = isPlayingState
             }
 
-            // Fix #5: keep mute UI in sync with player volume (external changes included).
             override fun onVolumeChanged(volume: Float) {
                 isMuted = volume == 0f
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 val hls = isHlsFormatError(error)
-
-                // Fix #1: build the full candidate list, don't rely on currentSourceUrl being
-                // present in channel.sources.
                 val allUrls = (listOf(channel.url) + channel.sources.values.toList())
                     .filter { it.isNotBlank() }
                     .distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
 
                 if (remaining.isNotEmpty()) {
-                    // Advance to the next candidate.
                     failedSourceUrls = failedSourceUrls + currentSourceUrl
                     currentSourceUrl = remaining.first()
                     isBuffering = true
@@ -413,7 +323,7 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // Fix #6: progress tracker — `while (isActive)` for clarity.
+    // Progress tracker.
     LaunchedEffect(exoPlayer) {
         while (currentCoroutineContext().isActive) {
             currentPosition = exoPlayer.currentPosition
@@ -423,14 +333,14 @@ fun LivePlayerScreen(
         }
     }
 
-    // Overlay auto-hide & focus management
+    // Overlay auto-hide + focus.
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
             try {
                 if (isLocked) unlockFocusRequester.requestFocus()
                 else playPauseFocusRequester.requestFocus()
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
         if (showOverlay && isPlaying) {
             delay(5000)
@@ -438,7 +348,7 @@ fun LivePlayerScreen(
         }
     }
 
-    // Back handler
+    // Back handler.
     BackHandler {
         if (isLocked) {
             showOverlay = true
@@ -448,7 +358,11 @@ fun LivePlayerScreen(
                 (context as? ComponentActivity)?.finishAndRemoveTask()
             } else {
                 backPressedTime = now
-                android.widget.Toast.makeText(context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    context,
+                    "Press back again to exit app",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
         } else {
             exitPlayer()
@@ -465,12 +379,17 @@ fun LivePlayerScreen(
                         android.view.KeyEvent.KEYCODE_DPAD_UP -> {
                             if (!showOverlay) { viewModel.tuneToNextChannel(); true } else false
                         }
-                        android.view.KeyEvent.KEYCODE_CHANNEL_UP -> { viewModel.tuneToNextChannel(); true }
+                        android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                            viewModel.tuneToNextChannel(); true
+                        }
                         android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (!showOverlay) { viewModel.tuneToPrevChannel(); true } else false
                         }
-                        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> { viewModel.tuneToPrevChannel(); true }
-                        android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
+                        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                            viewModel.tuneToPrevChannel(); true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                        android.view.KeyEvent.KEYCODE_ENTER -> {
                             if (!showOverlay) { showOverlay = true; true } else false
                         }
                         in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
@@ -513,8 +432,9 @@ fun LivePlayerScreen(
             contentAlignment = Alignment.Center
         ) {
             AndroidView(
-                modifier = if (isCinema) Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
-                           else Modifier.fillMaxSize(),
+                modifier = if (isCinema)
+                    Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
+                else Modifier.fillMaxSize(),
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         player = exoPlayer
@@ -538,7 +458,7 @@ fun LivePlayerScreen(
             )
         }
 
-        // ---- Static noise background on error / resolution failure ----
+        // Static noise on error / resolution failure.
         if (playerError != null || isResolutionFailed) {
             StaticNoiseBackground(Modifier.fillMaxSize())
         }
@@ -557,18 +477,20 @@ fun LivePlayerScreen(
                         Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
                     }
                 } else {
-                    // Top bar
+                    // ── Top bar ──
                     Row(
-    modifier = Modifier
-        .fillMaxWidth()
-        .windowInsetsPadding(WindowInsets.displayCutout)
-        .padding(16.dp),
-    verticalAlignment = Alignment.CenterVertically
-) {
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.displayCutout)
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         TvIconButton(
                             onClick = { exitPlayer() },
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                        }
                         Spacer(Modifier.width(12.dp))
 
                         Box(
@@ -594,15 +516,22 @@ fun LivePlayerScreen(
                             if (isTvModeEnabled) {
                                 TvIconButton(onClick = {
                                     viewModel.toggleTvMode(false)
-                                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                                    val intent = context.packageManager
+                                        .getLaunchIntentForPackage(context.packageName)
                                     intent?.addFlags(
-                                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                                            Intent.FLAG_ACTIVITY_CLEAR_TASK
                                     )
                                     if (intent != null) context.startActivity(intent)
                                     (context as? ComponentActivity)?.finishAndRemoveTask()
-                                }) { Icon(Icons.Default.PowerSettingsNew, "Turn Off TV Mode", tint = TealAccent) }
+                                }) {
+                                    Icon(
+                                        Icons.Default.PowerSettingsNew,
+                                        "Turn Off TV Mode",
+                                        tint = BioAccent
+                                    )
+                                }
                             }
                             if (channel.sources.isNotEmpty()) {
                                 TvIconButton(onClick = { showSourceSelector = true }) {
@@ -616,8 +545,12 @@ fun LivePlayerScreen(
                                 val modes = VideoScaleMode.entries.toTypedArray()
                                 val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
                                 scaleMode = modes[nextIndex]
-                                android.widget.Toast.makeText(context, scaleMode.title, android.widget.Toast.LENGTH_SHORT).show()
-                            }) { Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White) }
+                                android.widget.Toast.makeText(
+                                    context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }) {
+                                Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
+                            }
 
                             TvIconButton(onClick = {
                                 val activity = context as? ComponentActivity
@@ -627,7 +560,9 @@ fun LivePlayerScreen(
                                 } else {
                                     onEnterPiP()
                                 }
-                            }) { Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White) }
+                            }) {
+                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
+                            }
 
                             TvIconButton(onClick = { showTrackSelector = true }) {
                                 Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
@@ -635,7 +570,7 @@ fun LivePlayerScreen(
                         }
                     }
 
-                    // Center controls
+                    // ── Center controls ──
                     Row(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -643,13 +578,22 @@ fun LivePlayerScreen(
                     ) {
                         TvIconButton(
                             onClick = { viewModel.tuneToPrevChannel() },
-                            modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Prev Channel", tint = Color.White, modifier = Modifier.size(28.dp))
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                "Prev Channel",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                         TvIconButton(
                             onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                            modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                                 .focusRequester(playPauseFocusRequester)
                         ) {
                             Icon(
@@ -661,36 +605,48 @@ fun LivePlayerScreen(
                         }
                         TvIconButton(
                             onClick = { viewModel.tuneToNextChannel() },
-                            modifier = Modifier.size(48.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next Channel", tint = Color.White, modifier = Modifier.size(28.dp))
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                "Next Channel",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                     }
 
-                    // Bottom bar (seekbar kept as-is per request)
+                    // ── Bottom bar ──
                     Row(
-    modifier = Modifier
-        .align(Alignment.BottomCenter)
-        .fillMaxWidth()
-        .windowInsetsPadding(WindowInsets.displayCutout)
-        .padding(horizontal = 24.dp, vertical = 16.dp),
-    verticalAlignment = Alignment.CenterVertically
-) {
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.displayCutout)
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
                         Box(
                             modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            val bufferFraction =
-                                if (duration > 0) (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                            val bufferFraction = if (duration > 0)
+                                (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
                             LinearProgressIndicator(
                                 progress = { bufferFraction },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(4.dp).clip(CircleShape),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp)
+                                    .height(4.dp)
+                                    .clip(CircleShape),
                                 color = Color.White.copy(alpha = 0.4f),
                                 trackColor = Color.Gray.copy(alpha = 0.3f)
                             )
                             Slider(
-                                value = (if (duration > 0) currentPosition.toFloat() / duration else 0f).coerceIn(0f, 1f),
+                                value = (if (duration > 0) currentPosition.toFloat() / duration else 0f)
+                                    .coerceIn(0f, 1f),
                                 onValueChange = { value -> exoPlayer.seekTo((value * duration).toLong()) },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = SliderDefaults.colors(
@@ -705,10 +661,10 @@ fun LivePlayerScreen(
                         TvIconButton(onClick = {
                             val newMuted = !isMuted
                             exoPlayer.volume = if (newMuted) 0f else 1f
-                            // isMuted will update via onVolumeChanged.
                         }) {
                             Icon(
-                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
+                                else Icons.AutoMirrored.Filled.VolumeUp,
                                 contentDescription = "Volume",
                                 tint = Color.White
                             )
@@ -718,14 +674,14 @@ fun LivePlayerScreen(
             }
         }
 
-        // ---------------------------------------------------------------
-        // Status overlays: spinner OR error card OR nothing.
-        // Consumes BOTH playerError AND resolution-failed signals from the VM.
-        // ---------------------------------------------------------------
+        // ── Status overlays: spinner OR error card ──
         val showError = playerError != null || isResolutionFailed
 
         if (!showError && (isResolving || isBuffering) && !isLocked) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.Red)
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Red
+            )
         } else if (showError) {
             Column(
                 modifier = Modifier
@@ -741,13 +697,13 @@ fun LivePlayerScreen(
 
                 val primaryText = when {
                     playerError != null -> playerError?.message ?: "Unknown error"
-                    isResolutionFailed -> "Stream resolver could not extract a playable URL.\n" +
-                        "The provider page may be unreachable, blocked, or behind a captcha."
+                    isResolutionFailed ->
+                        "Stream resolver could not extract a playable URL.\n" +
+                            "The provider page may be unreachable, blocked, or behind a captcha."
                     else -> "Unknown error"
                 }
                 Text(primaryText, color = Color.White, fontSize = 12.sp)
 
-                // Universal hint — no longer names a specific provider or file.
                 if (lastHlsError || isResolutionFailed) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -769,7 +725,6 @@ fun LivePlayerScreen(
                         playerError = null
                         lastHlsError = false
                         isBuffering = true
-                        // Reset failed set and start over from the first source.
                         failedSourceUrls = emptySet()
                         val retryUrl = channel.sources.values.firstOrNull() ?: channel.url
                         if (currentSourceUrl != retryUrl) {
@@ -778,7 +733,7 @@ fun LivePlayerScreen(
                             playerViewModel.retryResolution(channel, currentSourceUrl)
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = TealAccent)
+                    colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
                 ) {
                     Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
                     Spacer(Modifier.width(8.dp))
@@ -787,10 +742,13 @@ fun LivePlayerScreen(
             }
         }
 
+        // Channel info toast.
         androidx.compose.animation.AnimatedVisibility(
             visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+            enter = androidx.compose.animation.fadeIn() +
+                androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+            exit = androidx.compose.animation.fadeOut() +
+                androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
             modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
         ) {
             Row(
@@ -818,6 +776,7 @@ fun LivePlayerScreen(
             }
         }
 
+        // Channel-number input overlay.
         androidx.compose.animation.AnimatedVisibility(
             visible = channelNumberInput.isNotEmpty(),
             enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
@@ -826,7 +785,7 @@ fun LivePlayerScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .background(TealAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .background(BioAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 24.dp, vertical = 12.dp)
             ) {
                 Text(
@@ -840,18 +799,17 @@ fun LivePlayerScreen(
     }
 
     if (showTrackSelector) {
-    TrackSelectionDialog(
-        player = exoPlayer,
-        onDismiss = { showTrackSelector = false }
-    )
-}
+        TrackSelectionDialog(
+            player = exoPlayer,
+            onDismiss = { showTrackSelector = false }
+        )
+    }
 
     if (showSourceSelector) {
         SourceSelectionDialog(
             sources = channel.sources,
             currentSourceUrl = currentSourceUrl,
             onSourceSelected = { _, url ->
-                // Manual source pick — reset failed set and switch immediately.
                 failedSourceUrls = emptySet()
                 currentSourceUrl = url
             },
@@ -862,11 +820,6 @@ fun LivePlayerScreen(
 
 // ---------- Static noise background ---------------------------------------
 
-/**
- * ঝিরঝির সাদা-কালো নয়েজ। কোনো ভিডিও/অডিও ফাইল লাগে না — প্রতি ৭০ms-এ
- * ৯৬×৫৪ পিক্সেল বিটম্যাপ র্যান্ডম ডেটায় ভরে পুরো স্ক্রিনে স্কেল-আপ করা হয়।
- * TV Box-এ হালকা চলে কারণ বিটম্যাপ ছোট এবং Nearest-neighbor (FilterQuality.None)।
- */
 @Composable
 private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
     val w = 96
@@ -891,7 +844,6 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
     }
 
     androidx.compose.foundation.Canvas(modifier) {
-        // `frame` রিড করলে প্রতি ফ্রেমে রিড্র হয়
         @Suppress("UNUSED_EXPRESSION")
         frame
         drawImage(
