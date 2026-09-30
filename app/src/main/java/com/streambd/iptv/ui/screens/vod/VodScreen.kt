@@ -1,5 +1,7 @@
 package com.streambd.iptv.ui.screens.vod
 
+import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -10,7 +12,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,24 +33,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import android.content.res.Configuration
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
 import androidx.compose.material3.Text
-import androidx.tv.material3.Glow
-import androidx.tv.material3.Border
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,30 +57,39 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.tv.material3.Border
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Glow
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.components.tvFocusBorder
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.*
+import com.streambd.iptv.ui.theme.BioAccent
+import com.streambd.iptv.ui.theme.DarkNavyBackground
+import com.streambd.iptv.ui.theme.GrayText
+import com.streambd.iptv.ui.theme.SurfaceDark
+import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
-import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
-// TODO: Move these to Theme.kt (consolidate hardcoded colors)
+// Shared palette for this screen only (keep theme pristine)
 // ─────────────────────────────────────────────────────────────
-private val SearchHintText = Color(0xFF999999)          // was Color(0xFF999999)
-private val SearchContainerFocused = Color(0xFF333333)  // was Color(0xFF333333)
-private val SearchContainerIdle = Color(0xFF1E1E1E)     // was Color(0xFF1E1E1E)
-private val StarGold = Color(0xFFFFD700)                // was Color(0xFFFFD700)
-private val SkeletonBase = Color.White                   // shimmer uses this with alpha
+private val SearchHintText = Color(0xFF999999)
+private val SearchContainerFocused = Color(0xFF1E2638)
+private val SearchContainerIdle = Color(0xFF141A24)
+private val StarGold = Color(0xFFFFC43D)
+private val SkeletonBase = Color.White
 
 // ─────────────────────────────────────────────────────────────
 // Data class to eliminate copy-pasted row blocks
@@ -107,28 +126,17 @@ fun VodScreen(
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-    // Fix #3: FocusRequester for the search field so D-pad users land there automatically
     val searchFieldFocusRequester = remember { FocusRequester() }
-
-    // Option A: focus requesters for two-step back navigation
     val resultsFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
-    // "results" or "home" — where focus should go next
     var pendingFocus by remember { mutableStateOf<String?>(null) }
 
-    // ─────────────────────────────────────────────────────────────
-    // BackHandler (Option A): two-step back, but each step lands
-    // the focus somewhere meaningful.
-    //   1st back (typing)  → first search-result card
-    //   2nd back (search)  → first home-row card
-    // ─────────────────────────────────────────────────────────────
+    // ── Back handler: two-step (typing → results card → home) ──
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
-            // 1st back: end typing, move focus to first result card
             focusManager.clearFocus()
             pendingFocus = "results"
         } else {
-            // 2nd back: close search, restore focus to home
             isSearchExpanded = false
             searchQuery = ""
             viewModel.search("")
@@ -136,40 +144,24 @@ fun VodScreen(
         }
     }
 
-    // Fix #3: request focus on search field when it opens
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
-            try {
-                searchFieldFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                // Ignore
-            }
+            try { searchFieldFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
-    // Option A: apply pending focus when list state changes.
-    // Note: after search closes, the home rows need to compose before we can
-    // request focus on them — hence the small delay.
     LaunchedEffect(pendingFocus, searchResults) {
         when (pendingFocus) {
             "results" -> {
                 if (searchResults.isNotEmpty()) {
-                    delay(50) // let the card compose
-                    try {
-                        resultsFocusRequester.requestFocus()
-                    } catch (_: Exception) {
-                        // Ignore
-                    }
+                    delay(50)
+                    try { resultsFocusRequester.requestFocus() } catch (_: Exception) {}
                 }
                 pendingFocus = null
             }
             "home" -> {
-                delay(100) // home rows re-compose after search closes
-                try {
-                    firstRowFocusRequester.requestFocus()
-                } catch (_: Exception) {
-                    // Ignore
-                }
+                delay(100)
+                try { firstRowFocusRequester.requestFocus() } catch (_: Exception) {}
                 pendingFocus = null
             }
             else -> Unit
@@ -177,13 +169,13 @@ fun VodScreen(
     }
 
     val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val isTV = remember {
         context.packageManager.hasSystemFeature("android.software.leanback")
     }
+    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
-    // Improvement: single source of truth for rows (avoids 8 copy-pasted blocks)
+    // ── Single source of truth for rows ──
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -205,26 +197,21 @@ fun VodScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PrimaryDark)
+            .background(DarkNavyBackground)
     ) {
         val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
         val showEmptyNoResults = searchQuery.isNotEmpty() &&
                 searchResults.isEmpty() && !isLoading
 
         if (showInitialSkeleton) {
-            // Skeleton rows instead of plain spinner (premium feel)
-            VodSkeleton(isTV = isTV)
+            VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
-            val onMediaFocus: (TmdbMedia) -> Unit = {}
-
-            androidx.compose.foundation.lazy.LazyColumn(
+            LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 // Top spacer for the fixed nav bar
                 item(key = "top_spacer") {
-                    val isMobilePortrait =
-                        !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
                     Spacer(
                         modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp)
                     )
@@ -235,10 +222,10 @@ fun VodScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .height(50.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, PrimaryDark)
+                                    colors = listOf(Color.Transparent, DarkNavyBackground)
                                 )
                             )
                     )
@@ -249,10 +236,10 @@ fun VodScreen(
                         item(key = "search_results") {
                             MediaSection(
                                 title = "Search Results",
+                                count = searchResults.size,
                                 mediaList = searchResults,
-                                // Option A: first result gets focus when 1st back pressed
                                 firstItemModifier = Modifier.focusRequester(resultsFocusRequester),
-                                onFocus = onMediaFocus
+                                isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
                                 navController.navigate(Routes.TMDB_DETAILS)
@@ -260,38 +247,25 @@ fun VodScreen(
                         }
                     } else if (showEmptyNoResults) {
                         item(key = "search_empty") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No results found for \"$searchQuery\"",
-                                    // Contrast: was Color.Gray
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    fontSize = 18.sp
-                                )
-                            }
+                            EmptySearchState(query = searchQuery)
                         }
                     }
                 } else {
-                    // Each row is its own LazyColumn item → true lazy loading
                     mediaRows.forEachIndexed { rowIndex, row ->
                         item(key = "row_${row.key}") {
                             MediaSection(
                                 title = row.title,
+                                count = row.list.size,
                                 mediaList = row.list,
-                                // Option A: only first row gets the "home" focus requester
                                 firstItemModifier = if (rowIndex == 0)
                                     Modifier.focusRequester(firstRowFocusRequester)
                                 else Modifier,
-                                onFocus = onMediaFocus
+                                isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
                                 navController.navigate(Routes.TMDB_DETAILS)
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                         }
                     }
 
@@ -302,118 +276,198 @@ fun VodScreen(
             }
         }
 
-        // ── Overlay Top Navigation Bar (Fixed on Top) ──
+        // ── Fixed top bar ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            DarkNavyBackground.copy(alpha = 0.98f),
+                            DarkNavyBackground.copy(alpha = 0.85f),
+                            Color.Transparent
+                        )
+                    )
+                )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = {
+                SearchField(
+                    query = searchQuery,
+                    onQueryChange = {
                         searchQuery = it
                         viewModel.search(it)
                     },
-                    placeholder = {
-                        Text(
-                            "Search movies, TV shows...",
-                            color = SearchHintText,
-                            fontSize = 16.sp
-                        )
+                    isFocused = isSearchFocused,
+                    onFocusChange = { isSearchFocused = it },
+                    onClose = {
+                        isSearchExpanded = false
+                        searchQuery = ""
+                        viewModel.search("")
                     },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = if (isSearchFocused) Color.White else SearchHintText,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    trailingIcon = {
-                        val closeSearch = {
-                            isSearchExpanded = false
-                            searchQuery = ""
-                            viewModel.search("")
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .tvFocusBorder(CircleShape)
-                                .tvTouchClick(closeSearch)
-                                .clickable { closeSearch() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                        }
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.White,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color.White,
-                        focusedContainerColor = SearchContainerFocused.copy(alpha = 0.9f),
-                        unfocusedContainerColor = SearchContainerIdle.copy(alpha = 0.9f)
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // Fix #3: attach the focus requester
-                        .focusRequester(searchFieldFocusRequester)
-                        .onFocusChanged { isSearchFocused = it.isFocused }
+                    focusRequester = searchFieldFocusRequester
                 )
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (onMenuClick != null) {
-                        androidx.compose.material3.IconButton(onClick = { onMenuClick() }) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Menu",
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .tvFocusBorder(CircleShape)
-                                    .background(Color.Transparent, CircleShape)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                    }
-                    Text(
-                        text = "Media",
-                        color = Color.White,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    androidx.compose.material3.IconButton(onClick = { isSearchExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = Color.White,
-                            modifier = Modifier
-                                .tvFocusBorder(CircleShape)
-                                .background(Color.Transparent, CircleShape)
-                                .padding(8.dp)
-                        )
-                    }
-                }
+                VodTopBar(
+                    onMenuClick = onMenuClick,
+                    onSearchClick = { isSearchExpanded = true }
+                )
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Skeleton / Shimmer (premium loading experience)
+// Top bar
 // ─────────────────────────────────────────────────────────────
 @Composable
-private fun VodSkeleton(isTV: Boolean) {
-    val isMobilePortrait = !isTV && LocalConfiguration.current.orientation ==
-            Configuration.ORIENTATION_PORTRAIT
+private fun VodTopBar(
+    onMenuClick: (() -> Unit)?,
+    onSearchClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onMenuClick != null) {
+            IconButton(onClick = onMenuClick) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Menu",
+                    tint = WhiteText,
+                    modifier = Modifier
+                        .tvFocusBorder(CircleShape)
+                        .background(Color.Transparent, CircleShape)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+        }
+        Text(
+            text = "Media",
+            color = WhiteText,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onSearchClick) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = WhiteText,
+                modifier = Modifier
+                    .tvFocusBorder(CircleShape)
+                    .background(Color.Transparent, CircleShape)
+                    .padding(8.dp)
+            )
+        }
+    }
+}
 
+// ─────────────────────────────────────────────────────────────
+// Search field
+// ─────────────────────────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    isFocused: Boolean,
+    onFocusChange: (Boolean) -> Unit,
+    onClose: () -> Unit,
+    focusRequester: FocusRequester
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = {
+            Text(
+                "Search movies, TV shows…",
+                color = SearchHintText,
+                fontSize = 16.sp
+            )
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = if (isFocused) WhiteText else SearchHintText,
+                modifier = Modifier.size(24.dp)
+            )
+        },
+        trailingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .tvFocusBorder(CircleShape)
+                    .tvTouchClick(onClose)
+                    .clickable { onClose() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = WhiteText
+                )
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = WhiteText,
+            unfocusedBorderColor = Color.Transparent,
+            focusedTextColor = WhiteText,
+            unfocusedTextColor = WhiteText,
+            cursorColor = WhiteText,
+            focusedContainerColor = SearchContainerFocused.copy(alpha = 0.9f),
+            unfocusedContainerColor = SearchContainerIdle.copy(alpha = 0.9f)
+        ),
+        shape = RoundedCornerShape(10.dp),
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .onFocusChanged { onFocusChange(it.isFocused) }
+    )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Empty state
+// ─────────────────────────────────────────────────────────────
+@Composable
+private fun EmptySearchState(query: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 60.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = GrayText.copy(alpha = 0.4f),
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "No results for \"$query\"",
+                color = WhiteText.copy(alpha = 0.85f),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Try a different title or check your spelling.",
+                color = GrayText.copy(alpha = 0.7f),
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Skeleton (shimmer)
+// ─────────────────────────────────────────────────────────────
+@Composable
+private fun VodSkeleton(isMobilePortrait: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -444,7 +498,6 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
     val spacing = if (isMobilePortrait) 12.dp else 24.dp
 
     Column {
-        // Section header placeholder
         Box(
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -471,39 +524,36 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Section
+// ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MediaSection(
     title: String,
+    count: Int,
     mediaList: List<TmdbMedia>,
-    // Option A: applied to the first card only, so callers can attach a FocusRequester
     firstItemModifier: Modifier = Modifier,
-    onFocus: (TmdbMedia) -> Unit = {},
+    isMobilePortrait: Boolean,
     onClick: (TmdbMedia) -> Unit
 ) {
-    val configuration = LocalConfiguration.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember {
-        context.packageManager.hasSystemFeature("android.software.leanback")
-    }
-    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     val spacing = if (isMobilePortrait) 12.dp else 24.dp
-    val verticalPadding = if (isMobilePortrait) 8.dp else 20.dp
+    val verticalPadding = if (isMobilePortrait) 8.dp else 16.dp
 
     Column {
-        // Section Header
+        // ── Section header: accent bar + title + subtle count ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height(22.dp)
+                    .width(3.dp)
+                    .height(20.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(TealAccent)
+                    .background(BioAccent)
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
@@ -512,41 +562,46 @@ fun MediaSection(
                 fontSize = if (isMobilePortrait) 17.sp else 19.sp,
                 fontWeight = FontWeight.Bold
             )
+            if (count > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = count.toString(),
+                    color = GrayText.copy(alpha = 0.55f),
+                    fontSize = if (isMobilePortrait) 12.sp else 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(spacing),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
         ) {
-            // Option A: itemsIndexed so the first card can receive firstItemModifier
             itemsIndexed(
                 items = mediaList,
                 key = { _, media -> media.id }
             ) { index, media ->
                 TmdbMediaCard(
                     media = media,
-                    modifier = if (index == 0) firstItemModifier else Modifier,
-                    onFocus = { onFocus(media) }
+                    isMobilePortrait = isMobilePortrait,
+                    modifier = if (index == 0) firstItemModifier else Modifier
                 ) { onClick(media) }
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Card
+// ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TmdbMediaCard(
     media: TmdbMedia,
+    isMobilePortrait: Boolean,
     modifier: Modifier = Modifier,
-    onFocus: () -> Unit = {},
     onClick: () -> Unit
 ) {
-    val configuration = LocalConfiguration.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember {
-        context.packageManager.hasSystemFeature("android.software.leanback")
-    }
-    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
     val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
     val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
 
@@ -554,25 +609,22 @@ fun TmdbMediaCard(
         onClick = onClick,
         modifier = modifier
             .width(cardWidth)
-            .height(cardHeight)
-            .onFocusChanged { if (it.isFocused) onFocus() }
-            // tvTouchClick ensures phone touch works too; Card.onClick handles TV OK.
-            .tvTouchClick(onClick),
+            .height(cardHeight),
         colors = CardDefaults.colors(
             containerColor = SurfaceDark,
             focusedContainerColor = SurfaceDark
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.1f),
+        scale = CardDefaults.scale(focusedScale = 1.08f),
         glow = CardDefaults.glow(
             focusedGlow = Glow(
-                elevationColor = Color.Black.copy(alpha = 0.6f),
-                elevation = 24.dp
+                elevationColor = Color.Black.copy(alpha = 0.55f),
+                elevation = 22.dp
             )
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, Color.White),
+                border = androidx.compose.foundation.BorderStroke(2.dp, BioAccent),
                 inset = 0.dp,
                 shape = RoundedCornerShape(12.dp)
             )
@@ -586,27 +638,31 @@ fun TmdbMediaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Bottom gradient
+            // Bottom gradient — stays compact so the poster breathes
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(100.dp)
+                    .height(80.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.35f),
+                                Color.Black.copy(alpha = 0.85f)
+                            )
                         )
                     )
             )
 
-            // Rating Badge
+            // Rating chip — subtle, gold star + score
             if (media.vote_average != null && media.vote_average > 0) {
                 Row(
                     modifier = Modifier
                         .padding(6.dp)
                         .align(Alignment.TopEnd)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.7f))
+                        .background(Color.Black.copy(alpha = 0.65f))
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -614,29 +670,28 @@ fun TmdbMediaCard(
                         Icons.Default.Star,
                         contentDescription = null,
                         tint = StarGold,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
+                    Spacer(Modifier.width(3.dp))
                     Text(
                         text = String.format("%.1f", media.vote_average),
-                        color = Color.White,
+                        color = WhiteText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Title
+            // Title — bold, 2 lines, ellipsis
             Text(
                 text = media.displayTitle,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
+                color = WhiteText,
+                fontSize = if (isMobilePortrait) 12.sp else 13.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.BottomStart)
                     .padding(horizontal = 8.dp, vertical = 8.dp)
                     .fillMaxWidth()
             )
