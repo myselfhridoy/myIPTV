@@ -5,92 +5,122 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.*
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import coil.compose.AsyncImage
-import com.streambd.iptv.ui.components.tvFocusBorder
-import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.PremiumDialogScaffold
+import com.streambd.iptv.ui.components.PremiumOptionRow
+import com.streambd.iptv.ui.components.TvFocusableItem
+import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.*
+import com.streambd.iptv.ui.theme.BioAccent
+import com.streambd.iptv.ui.theme.DarkNavyBackground
+import com.streambd.iptv.ui.theme.GrayText
+import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
-// TODO: Move these to Theme.kt (consolidate hardcoded colors)
+// Local palette (kept here until we consolidate into Theme.kt)
 // ─────────────────────────────────────────────────────────────
-private val BackgroundDeep = Color(0xFF090D14)      // was Color(0xFF090D14)
-private val SurfaceElevated = Color(0xFF151A25)     // was Color(0xFF151A25)
-private val SurfaceChip = Color(0xFF1E2633)         // was Color(0xFF1E2633)
-private val TealAccentFocused = Color(0xFF008D94)   // was focusedContainerColor
+private val SurfaceElevated = Color(0xFF151A25)
+private val SurfaceChip = Color(0xFF1E2633)
+private val BioAccentDim = Color(0xFF008D94)
+private val StarGold = Color(0xFFFFC43D)
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TmdbDetailsScreen(
-    @Suppress("UNUSED_PARAMETER") mainViewModel: MainViewModel,
+    mainViewModel: MainViewModel,
     tmdbViewModel: TmdbViewModel,
     navController: NavController
 ) {
     val media by tmdbViewModel.selectedMedia.collectAsState()
-
-    val backButtonFocusRequester = remember { FocusRequester() }
-    val watchButtonFocusRequester = remember { FocusRequester() }
     val tvDetails by tmdbViewModel.selectedTvDetails.collectAsState()
     val movieDetails by tmdbViewModel.selectedMovieDetails.collectAsState()
 
     val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val isTv = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val isCompact = configuration.screenWidthDp < 600 && !isTv
+
+    // ── Focus targets ──
+    val backButtonFocusRequester = remember { FocusRequester() }
+    val watchButtonFocusRequester = remember { FocusRequester() }
 
     // ── Hoisted selection state, keyed by media id ──
-    // Fix #1 & #2: remember(mediaId) ensures switching media resets selection.
     val mediaId = media?.id
     var localSeason by remember(mediaId) { mutableStateOf<Int?>(null) }
     var localEpisode by remember(mediaId) { mutableStateOf<Int?>(null) }
     var expandedSeason by remember(mediaId) { mutableStateOf(false) }
     var expandedEpisode by remember(mediaId) { mutableStateOf(false) }
 
-    // ── Dialog list states & focus requesters (Fix #4) ──
+    // ── Dialog list states ──
     val seasonListState = rememberLazyListState()
     val seasonItemFocusRequester = remember { FocusRequester() }
     val episodeListState = rememberLazyListState()
@@ -98,11 +128,7 @@ fun TmdbDetailsScreen(
 
     LaunchedEffect(media) {
         if (media != null) {
-            try {
-                watchButtonFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                // Ignore
-            }
+            try { watchButtonFocusRequester.requestFocus() } catch (_: Exception) {}
             if (media?.isMovie == true) {
                 tmdbViewModel.fetchMovieDetails(media!!.id)
             } else {
@@ -119,7 +145,7 @@ fun TmdbDetailsScreen(
     val runtime = movieDetails?.runtime
     val totalSeasons = tvDetails?.number_of_seasons
 
-    // ── Derived selection (Fix #1: no state writes during composition) ──
+    // ── Derived selection ──
     val validSeasons = remember(tvDetails, m.isMovie) {
         if (!m.isMovie && tvDetails != null) {
             tvDetails!!.seasons.filter { it.season_number > 0 }
@@ -132,76 +158,62 @@ fun TmdbDetailsScreen(
         ?.takeIf { it in 1..(selectedSeasonObj?.episode_count ?: 0) }
         ?: 1
 
-    // Fix #4: Focus + scroll to selected item when season dialog opens.
+    // Focus + scroll to selected item when the season dialog opens.
     LaunchedEffect(expandedSeason) {
         if (expandedSeason && validSeasons.isNotEmpty()) {
             val idx = validSeasons
                 .indexOfFirst { it.season_number == effectiveSeason }
                 .coerceAtLeast(0)
-            try {
-                seasonListState.scrollToItem(idx)
-            } catch (_: Exception) {
-                // Ignore
-            }
-            delay(80) // let the item compose before requesting focus
-            try {
-                seasonItemFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                // Ignore
-            }
+            try { seasonListState.scrollToItem(idx) } catch (_: Exception) {}
+            delay(80)
+            try { seasonItemFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
-    // Fix #4: Focus + scroll to selected item when episode dialog opens.
+    // Focus + scroll to selected item when the episode dialog opens.
     LaunchedEffect(expandedEpisode, selectedSeasonObj?.season_number) {
         if (expandedEpisode && selectedSeasonObj != null) {
             val idx = (effectiveEpisode - 1).coerceAtLeast(0)
-            try {
-                episodeListState.scrollToItem(idx)
-            } catch (_: Exception) {
-                // Ignore
-            }
+            try { episodeListState.scrollToItem(idx) } catch (_: Exception) {}
             delay(80)
-            try {
-                episodeItemFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                // Ignore
-            }
+            try { episodeItemFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BackgroundDeep) // Deep Navy Background
+            .background(DarkNavyBackground)
     ) {
-        // ── Immersive Full-Screen Backdrop ──
+        // ── Full-screen backdrop ──
         AsyncImage(
             model = m.backdropUrl.ifEmpty { m.posterUrl },
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.8f) // Cover top 80%
+                .fillMaxHeight(0.8f)
                 .align(Alignment.TopCenter)
         )
-        // Strong Gradient to blend backdrop into background and darken for text
+
+        // Vertical gradient into the background.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            BackgroundDeep.copy(alpha = 0.2f),
-                            BackgroundDeep.copy(alpha = 0.6f),
-                            BackgroundDeep.copy(alpha = 0.95f),
-                            BackgroundDeep
+                            DarkNavyBackground.copy(alpha = 0.15f),
+                            DarkNavyBackground.copy(alpha = 0.6f),
+                            DarkNavyBackground.copy(alpha = 0.95f),
+                            DarkNavyBackground
                         ),
                         startY = 0f
                     )
                 )
         )
-        // Left gradient for text readability (only prominent in landscape)
+
+        // Left gradient for text readability in landscape.
         if (!isPortrait) {
             Box(
                 modifier = Modifier
@@ -209,8 +221,8 @@ fun TmdbDetailsScreen(
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(
-                                BackgroundDeep.copy(alpha = 0.9f),
-                                BackgroundDeep.copy(alpha = 0.4f),
+                                DarkNavyBackground.copy(alpha = 0.9f),
+                                DarkNavyBackground.copy(alpha = 0.4f),
                                 Color.Transparent
                             ),
                             endX = 1000f
@@ -219,23 +231,29 @@ fun TmdbDetailsScreen(
             )
         }
 
-        // ── Scrollable Content ──
+        // ── Scrollable content ──
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
             Spacer(
-                modifier = Modifier.height(if (isPortrait) 100.dp else 180.dp)
-            ) // Push content down over the backdrop
+                modifier = Modifier.height(
+                    when {
+                        isCompact -> 60.dp
+                        isPortrait -> 100.dp
+                        else -> 180.dp
+                    }
+                )
+            )
 
             val posterContent: @Composable () -> Unit = {
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 24.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 20.dp),
                     modifier = Modifier
-                        .width(if (isPortrait) 160.dp else 180.dp)
-                        .height(if (isPortrait) 240.dp else 270.dp)
+                        .width(if (isPortrait || isCompact) 160.dp else 180.dp)
+                        .height(if (isPortrait || isCompact) 240.dp else 270.dp)
                         .border(
                             1.dp,
                             Color.White.copy(alpha = 0.1f),
@@ -256,23 +274,27 @@ fun TmdbDetailsScreen(
                     modifier = modifier.padding(top = if (isPortrait) 0.dp else 16.dp),
                     horizontalAlignment = if (isPortrait) Alignment.CenterHorizontally else Alignment.Start
                 ) {
-                    // Title
+                    // ── Title ──
                     Text(
                         text = m.displayTitle,
-                        color = Color.White,
-                        fontSize = if (isPortrait) 30.sp else 36.sp,
+                        color = WhiteText,
+                        fontSize = when {
+                            isCompact -> 24.sp
+                            isPortrait -> 30.sp
+                            else -> 36.sp
+                        },
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Tagline
+                    // ── Tagline ──
                     if (!tagline.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "\"$tagline\"",
-                            color = TealAccent.copy(alpha = 0.8f),
+                            color = BioAccent.copy(alpha = 0.85f),
                             fontSize = 15.sp,
                             fontStyle = FontStyle.Italic,
                             fontWeight = FontWeight.Medium,
@@ -282,8 +304,7 @@ fun TmdbDetailsScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Metadata Row
-                    @OptIn(ExperimentalLayoutApi::class)
+                    // ── Metadata row ──
                     FlowRow(
                         horizontalArrangement = if (isPortrait)
                             Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
@@ -296,13 +317,13 @@ fun TmdbDetailsScreen(
                                 Icon(
                                     Icons.Default.Star,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFD700),
+                                    tint = StarGold,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = String.format("%.1f", m.vote_average),
-                                    color = Color(0xFFFFD700),
+                                    color = StarGold,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -313,58 +334,57 @@ fun TmdbDetailsScreen(
                         if (m.displayDate.isNotEmpty()) {
                             Text(
                                 text = m.displayDate.take(4),
-                                color = Color.White.copy(alpha = 0.7f),
+                                color = WhiteText.copy(alpha = 0.75f),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
 
-                        // Runtime or Seasons
+                        // Runtime / Seasons
                         if (m.isMovie && runtime != null && runtime > 0) {
                             Text(
                                 text = "${runtime / 60}h ${runtime % 60}m",
-                                color = Color.White.copy(alpha = 0.7f),
+                                color = WhiteText.copy(alpha = 0.75f),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         } else if (!m.isMovie && totalSeasons != null && totalSeasons > 0) {
                             Text(
                                 text = "$totalSeasons Seasons",
-                                color = Color.White.copy(alpha = 0.7f),
+                                color = WhiteText.copy(alpha = 0.75f),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
 
-                        // Type Badge
+                        // Type chip
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color.White.copy(alpha = 0.15f))
+                                .background(Color.White.copy(alpha = 0.12f))
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = if (m.isMovie) Icons.Default.Movie else Icons.Default.Tv,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = WhiteText.copy(alpha = 0.9f),
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = if (m.isMovie) "Movie" else "TV Show",
-                                color = Color.White,
+                                color = WhiteText.copy(alpha = 0.9f),
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Genres Row
+                    // ── Genres ──
                     if (!genres.isNullOrEmpty()) {
-                        @OptIn(ExperimentalLayoutApi::class)
                         FlowRow(
                             horizontalArrangement = if (isPortrait)
                                 Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
@@ -375,7 +395,7 @@ fun TmdbDetailsScreen(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(50.dp))
-                                        .background(SurfaceChip.copy(alpha = 0.8f))
+                                        .background(SurfaceChip.copy(alpha = 0.85f))
                                         .border(
                                             1.dp,
                                             Color.White.copy(alpha = 0.1f),
@@ -385,7 +405,7 @@ fun TmdbDetailsScreen(
                                 ) {
                                     Text(
                                         text = genre.name,
-                                        color = Color.White.copy(alpha = 0.9f),
+                                        color = WhiteText.copy(alpha = 0.92f),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -394,26 +414,25 @@ fun TmdbDetailsScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // ── Action Row Section ──
+                    // ── Action row ──
                     var watchBtnFocused by remember { mutableStateOf(false) }
                     val buttonScale by animateFloatAsState(
-                        targetValue = if (watchBtnFocused) 1.05f else 1f,
+                        targetValue = if (watchBtnFocused) 1.04f else 1f,
                         animationSpec = tween(durationMillis = 180),
                         label = "watchBtnScale"
                     )
 
-                    @OptIn(ExperimentalLayoutApi::class)
                     FlowRow(
                         horizontalArrangement = if (isPortrait)
-                            Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
-                        else Arrangement.spacedBy(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                            Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)
+                        else Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Watch Now Button
-                        androidx.tv.material3.Button(
+                        // ── Play button ──
+                        Button(
                             onClick = {
                                 mainViewModel.setSelectedSeason(effectiveSeason)
                                 mainViewModel.setSelectedEpisode(effectiveEpisode)
@@ -423,284 +442,86 @@ fun TmdbDetailsScreen(
                                 .focusRequester(watchButtonFocusRequester)
                                 .focusProperties {
                                     up = backButtonFocusRequester
-                                }
-                                .tvTouchClick {
-                                    mainViewModel.setSelectedSeason(effectiveSeason)
-                                    mainViewModel.setSelectedEpisode(effectiveEpisode)
-                                    navController.navigate(Routes.SOURCE_SELECTION)
                                 },
-                            colors = androidx.tv.material3.ButtonDefaults.colors(
-                                containerColor = TealAccent,
-                                focusedContainerColor = TealAccentFocused
+                            colors = ButtonDefaults.colors(
+                                containerColor = BioAccent,
+                                focusedContainerColor = BioAccentDim
                             ),
-                            shape = androidx.tv.material3.ButtonDefaults.shape(RoundedCornerShape(50.dp)),
-                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp)
+                            shape = ButtonDefaults.shape(RoundedCornerShape(50.dp)),
+                            contentPadding = PaddingValues(
+                                horizontal = if (isCompact) 22.dp else 28.dp,
+                                vertical = if (isCompact) 12.dp else 14.dp
+                            )
                         ) {
                             Icon(
                                 Icons.Default.PlayArrow,
                                 contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                tint = Color.Black,
+                                modifier = Modifier.size(22.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 "Play",
-                                color = Color.White,
+                                color = Color.Black,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
+                                letterSpacing = 0.3.sp
                             )
                         }
 
-                        // Glassmorphic Season Pill
+                        // ── Season + Episode pills (TV only) ──
                         if (!m.isMovie && validSeasons.isNotEmpty()) {
-                            var seasonPillFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .onFocusChanged { seasonPillFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(50.dp))
-                                    .background(Color.White.copy(alpha = if (seasonPillFocused) 0.25f else 0.1f))
-                                    .border(
-                                        1.dp,
-                                        if (seasonPillFocused) Color.White else Color.White.copy(alpha = 0.15f),
-                                        RoundedCornerShape(50.dp)
-                                    )
-                                    .clickable { expandedSeason = true }
-                                    .tvFocusBorder(RoundedCornerShape(50.dp))
-                                    .padding(horizontal = 20.dp, vertical = 14.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Season ${effectiveSeason ?: 1}",
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        Icons.Default.ArrowDropDown,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            if (expandedSeason) {
-                                Dialog(onDismissRequest = { expandedSeason = false }) {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 400.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                            Text(
-                                                "Select Season",
-                                                color = Color.White,
-                                                fontSize = 18.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                textAlign = TextAlign.Center
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            LazyColumn(
-                                                state = seasonListState,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                items(
-                                                    items = validSeasons,
-                                                    key = { it.season_number }
-                                                ) { season ->
-                                                    val isSelected =
-                                                        effectiveSeason == season.season_number
-                                                    ListItem(
-                                                        selected = isSelected,
-                                                        onClick = {
-                                                            localSeason = season.season_number
-                                                            localEpisode = 1
-                                                            expandedSeason = false
-                                                        },
-                                                        headlineContent = {
-                                                            Text(
-                                                                text = "Season ${season.season_number}",
-                                                                color = if (isSelected) TealAccent else Color.White,
-                                                                fontSize = 16.sp,
-                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                                modifier = Modifier.fillMaxWidth(),
-                                                                textAlign = TextAlign.Center
-                                                            )
-                                                        },
-                                                        colors = ListItemDefaults.colors(
-                                                            containerColor = if (isSelected)
-                                                                TealAccent.copy(alpha = 0.12f)
-                                                            else Color.Transparent,
-                                                            focusedContainerColor = TealAccent.copy(alpha = 0.2f)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(horizontal = 8.dp)
-                                                            // Fix #4: only the currently selected item carries the focus requester
-                                                            .then(
-                                                                if (isSelected) Modifier.focusRequester(seasonItemFocusRequester)
-                                                                else Modifier
-                                                            )
-                                                            .tvTouchClick {
-                                                                localSeason = season.season_number
-                                                                localEpisode = 1
-                                                                expandedSeason = false
-                                                            }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Glassmorphic Episode pill
-                            var episodePillFocused by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .onFocusChanged { episodePillFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(50.dp))
-                                    .background(Color.White.copy(alpha = if (episodePillFocused) 0.25f else 0.1f))
-                                    .border(
-                                        1.dp,
-                                        if (episodePillFocused) Color.White else Color.White.copy(alpha = 0.15f),
-                                        RoundedCornerShape(50.dp)
-                                    )
-                                    .clickable { expandedEpisode = true }
-                                    .tvFocusBorder(RoundedCornerShape(50.dp))
-                                    .padding(horizontal = 20.dp, vertical = 14.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Ep $effectiveEpisode",
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        Icons.Default.ArrowDropDown,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            if (expandedEpisode && selectedSeasonObj != null) {
-                                Dialog(onDismissRequest = { expandedEpisode = false }) {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 400.dp)
-                                    ) {
-                                        Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                                            Text(
-                                                "Select Episode",
-                                                color = Color.White,
-                                                fontSize = 18.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                textAlign = TextAlign.Center
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            LazyColumn(
-                                                state = episodeListState,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                items(
-                                                    items = (1..selectedSeasonObj.episode_count).toList(),
-                                                    key = { it }
-                                                ) { ep ->
-                                                    val isSelected = effectiveEpisode == ep
-                                                    ListItem(
-                                                        selected = isSelected,
-                                                        onClick = {
-                                                            localEpisode = ep
-                                                            expandedEpisode = false
-                                                        },
-                                                        headlineContent = {
-                                                            Text(
-                                                                text = "Episode $ep",
-                                                                color = if (isSelected) TealAccent else Color.White,
-                                                                fontSize = 16.sp,
-                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                                modifier = Modifier.fillMaxWidth(),
-                                                                textAlign = TextAlign.Center
-                                                            )
-                                                        },
-                                                        colors = ListItemDefaults.colors(
-                                                            containerColor = if (isSelected)
-                                                                TealAccent.copy(alpha = 0.12f)
-                                                            else Color.Transparent,
-                                                            focusedContainerColor = TealAccent.copy(alpha = 0.2f)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .padding(horizontal = 8.dp)
-                                                            // Fix #4: only the currently selected item carries the focus requester
-                                                            .then(
-                                                                if (isSelected) Modifier.focusRequester(episodeItemFocusRequester)
-                                                                else Modifier
-                                                            )
-                                                            .tvTouchClick {
-                                                                localEpisode = ep
-                                                                expandedEpisode = false
-                                                            }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            SeasonPill(
+                                label = "Season ${effectiveSeason ?: 1}",
+                                isCompact = isCompact,
+                                onClick = { expandedSeason = true }
+                            )
+                            EpisodePill(
+                                label = "Ep $effectiveEpisode",
+                                isCompact = isCompact,
+                                onClick = { expandedEpisode = true }
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
 
-                    // ── Overview Section ──
+                    // ── Overview ──
                     if (!m.overview.isNullOrEmpty()) {
                         Text(
                             text = "Overview",
-                            color = Color.White,
+                            color = WhiteText,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = m.overview.orEmpty(),
-                            // Fix (contrast): use white with alpha instead of hard Color.Gray
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = WhiteText.copy(alpha = 0.7f),
                             fontSize = 15.sp,
-                            lineHeight = 24.sp,
+                            lineHeight = 23.sp,
                             textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
                             modifier = if (isPortrait) Modifier.fillMaxWidth()
                             else Modifier.padding(end = 32.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(60.dp)) // Bottom padding
+                    Spacer(modifier = Modifier.height(60.dp))
                 }
             }
 
-            // Decide layout based on orientation
+            // ── Layout by orientation ──
             if (isPortrait) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     posterContent()
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
                     infoContent(Modifier.fillMaxWidth())
                 }
             } else {
@@ -716,26 +537,154 @@ fun TmdbDetailsScreen(
             }
         }
 
-        // Fixed Back Button on Top Left
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = Color.White,
+        // ── Back button (top-left) ──
+        TvIconButton(
+            onClick = { navController.popBackStack() },
             modifier = Modifier
-                .padding(if (isPortrait) 16.dp else 32.dp)
-                .size(if (isPortrait) 40.dp else 48.dp)
+                .padding(if (isPortrait) 16.dp else 28.dp)
+                .size(if (isPortrait) 44.dp else 48.dp)
                 .align(Alignment.TopStart)
-                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
                 .focusRequester(backButtonFocusRequester)
                 .focusProperties {
                     down = watchButtonFocusRequester
                     right = watchButtonFocusRequester
                 }
-                .tvFocusBorder(CircleShape)
-                .background(Color.Black.copy(alpha = 0.3f), CircleShape)
-                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                .clickable { navController.popBackStack() }
-                .padding(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = WhiteText,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+
+    // ── Season selection dialog ──
+    if (expandedSeason && validSeasons.isNotEmpty()) {
+        PremiumDialogScaffold(
+            title = "Select Season",
+            subtitle = "${validSeasons.size} season${if (validSeasons.size > 1) "s" else ""}",
+            onDismiss = { expandedSeason = false },
+            scrollContent = false
+        ) {
+            LazyColumn(
+                state = seasonListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(
+                    items = validSeasons,
+                    key = { it.season_number }
+                ) { season ->
+                    val isSelected = effectiveSeason == season.season_number
+                    PremiumOptionRow(
+                        title = "Season ${season.season_number}",
+                        subtitle = if (season.episode_count > 0)
+                            "${season.episode_count} episode${if (season.episode_count > 1) "s" else ""}"
+                        else null,
+                        selected = isSelected,
+                        focusRequester = if (isSelected) seasonItemFocusRequester else null,
+                        onClick = {
+                            localSeason = season.season_number
+                            localEpisode = 1
+                            expandedSeason = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // ── Episode selection dialog ──
+    if (expandedEpisode && selectedSeasonObj != null) {
+        PremiumDialogScaffold(
+            title = "Select Episode",
+            subtitle = "Season ${selectedSeasonObj.season_number}",
+            onDismiss = { expandedEpisode = false },
+            scrollContent = false
+        ) {
+            LazyColumn(
+                state = episodeListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(
+                    items = (1..selectedSeasonObj.episode_count).toList(),
+                    key = { it }
+                ) { ep ->
+                    val isSelected = effectiveEpisode == ep
+                    PremiumOptionRow(
+                        title = "Episode $ep",
+                        selected = isSelected,
+                        focusRequester = if (isSelected) episodeItemFocusRequester else null,
+                        onClick = {
+                            localEpisode = ep
+                            expandedEpisode = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Glassmorphic pill buttons for Season / Episode
+// ─────────────────────────────────────────────────────────────
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SeasonPill(
+    label: String,
+    isCompact: Boolean,
+    onClick: () -> Unit
+) {
+    PillBase(label = label, isCompact = isCompact, onClick = onClick)
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun EpisodePill(
+    label: String,
+    isCompact: Boolean,
+    onClick: () -> Unit
+) {
+    PillBase(label = label, isCompact = isCompact, onClick = onClick)
+}
+
+@Composable
+private fun PillBase(
+    label: String,
+    isCompact: Boolean,
+    onClick: () -> Unit
+) {
+    TvFocusableItem(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        restBackground = Color.White.copy(alpha = 0.08f),
+        contentPadding = PaddingValues(
+            horizontal = if (isCompact) 16.dp else 20.dp,
+            vertical = if (isCompact) 10.dp else 14.dp
+        )
+    ) {
+        Text(
+            text = label,
+            color = WhiteText,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Icon(
+            Icons.Default.ArrowDropDown,
+            contentDescription = null,
+            tint = WhiteText.copy(alpha = 0.8f),
+            modifier = Modifier.size(20.dp)
         )
     }
 }
