@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +61,7 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.*
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
 // TODO: Move these to Theme.kt (consolidate hardcoded colors)
@@ -71,7 +73,7 @@ private val StarGold = Color(0xFFFFD700)                // was Color(0xFFFFD700)
 private val SkeletonBase = Color.White                   // shimmer uses this with alpha
 
 // ─────────────────────────────────────────────────────────────
-// Data class to eliminate copy-pasted row blocks (Improvement #7)
+// Data class to eliminate copy-pasted row blocks
 // ─────────────────────────────────────────────────────────────
 private data class MediaRow(
     val key: String,
@@ -108,21 +110,30 @@ fun VodScreen(
     // Fix #3: FocusRequester for the search field so D-pad users land there automatically
     val searchFieldFocusRequester = remember { FocusRequester() }
 
+    // Option A: focus requesters for two-step back navigation
+    val resultsFocusRequester = remember { FocusRequester() }
+    val firstRowFocusRequester = remember { FocusRequester() }
+    // "results" or "home" — where focus should go next
+    var pendingFocus by remember { mutableStateOf<String?>(null) }
+
+    // ─────────────────────────────────────────────────────────────
+    // BackHandler (Option A): two-step back, but each step lands
+    // the focus somewhere meaningful.
+    //   1st back (typing)  → first search-result card
+    //   2nd back (search)  → first home-row card
+    // ─────────────────────────────────────────────────────────────
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
+            // 1st back: end typing, move focus to first result card
             focusManager.clearFocus()
+            pendingFocus = "results"
         } else {
+            // 2nd back: close search, restore focus to home
             isSearchExpanded = false
             searchQuery = ""
             viewModel.search("")
+            pendingFocus = "home"
         }
-    }
-
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val isTV = remember {
-        context.packageManager.hasSystemFeature("android.software.leanback")
     }
 
     // Fix #3: request focus on search field when it opens
@@ -136,7 +147,43 @@ fun VodScreen(
         }
     }
 
-    // Improvement #7: single source of truth for rows (avoids 8 copy-pasted blocks)
+    // Option A: apply pending focus when list state changes.
+    // Note: after search closes, the home rows need to compose before we can
+    // request focus on them — hence the small delay.
+    LaunchedEffect(pendingFocus, searchResults) {
+        when (pendingFocus) {
+            "results" -> {
+                if (searchResults.isNotEmpty()) {
+                    delay(50) // let the card compose
+                    try {
+                        resultsFocusRequester.requestFocus()
+                    } catch (_: Exception) {
+                        // Ignore
+                    }
+                }
+                pendingFocus = null
+            }
+            "home" -> {
+                delay(100) // home rows re-compose after search closes
+                try {
+                    firstRowFocusRequester.requestFocus()
+                } catch (_: Exception) {
+                    // Ignore
+                }
+                pendingFocus = null
+            }
+            else -> Unit
+        }
+    }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isTV = remember {
+        context.packageManager.hasSystemFeature("android.software.leanback")
+    }
+
+    // Improvement: single source of truth for rows (avoids 8 copy-pasted blocks)
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -165,7 +212,7 @@ fun VodScreen(
                 searchResults.isEmpty() && !isLoading
 
         if (showInitialSkeleton) {
-            // Improvement: skeleton rows instead of plain spinner (premium feel)
+            // Skeleton rows instead of plain spinner (premium feel)
             VodSkeleton(isTV = isTV)
         } else {
             val onMediaFocus: (TmdbMedia) -> Unit = {}
@@ -203,6 +250,8 @@ fun VodScreen(
                             MediaSection(
                                 title = "Search Results",
                                 mediaList = searchResults,
+                                // Option A: first result gets focus when 1st back pressed
+                                firstItemModifier = Modifier.focusRequester(resultsFocusRequester),
                                 onFocus = onMediaFocus
                             ) { media ->
                                 viewModel.selectMedia(media)
@@ -219,7 +268,7 @@ fun VodScreen(
                             ) {
                                 Text(
                                     text = "No results found for \"$searchQuery\"",
-                                    // Fix: contrast — was Color.Gray
+                                    // Contrast: was Color.Gray
                                     color = Color.White.copy(alpha = 0.6f),
                                     fontSize = 18.sp
                                 )
@@ -227,12 +276,16 @@ fun VodScreen(
                         }
                     }
                 } else {
-                    // Fix #2: each row is its own LazyColumn item → true lazy loading
-                    mediaRows.forEach { row ->
+                    // Each row is its own LazyColumn item → true lazy loading
+                    mediaRows.forEachIndexed { rowIndex, row ->
                         item(key = "row_${row.key}") {
                             MediaSection(
                                 title = row.title,
                                 mediaList = row.list,
+                                // Option A: only first row gets the "home" focus requester
+                                firstItemModifier = if (rowIndex == 0)
+                                    Modifier.focusRequester(firstRowFocusRequester)
+                                else Modifier,
                                 onFocus = onMediaFocus
                             ) { media ->
                                 viewModel.selectMedia(media)
@@ -354,7 +407,7 @@ fun VodScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Skeleton / Shimmer (Improvement: premium loading experience)
+// Skeleton / Shimmer (premium loading experience)
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun VodSkeleton(isTV: Boolean) {
@@ -423,6 +476,8 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
 fun MediaSection(
     title: String,
     mediaList: List<TmdbMedia>,
+    // Option A: applied to the first card only, so callers can attach a FocusRequester
+    firstItemModifier: Modifier = Modifier,
     onFocus: (TmdbMedia) -> Unit = {},
     onClick: (TmdbMedia) -> Unit
 ) {
@@ -463,9 +518,14 @@ fun MediaSection(
             horizontalArrangement = Arrangement.spacedBy(spacing),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
         ) {
-            items(items = mediaList, key = { it.id }) { media ->
+            // Option A: itemsIndexed so the first card can receive firstItemModifier
+            itemsIndexed(
+                items = mediaList,
+                key = { _, media -> media.id }
+            ) { index, media ->
                 TmdbMediaCard(
                     media = media,
+                    modifier = if (index == 0) firstItemModifier else Modifier,
                     onFocus = { onFocus(media) }
                 ) { onClick(media) }
             }
@@ -477,6 +537,7 @@ fun MediaSection(
 @Composable
 fun TmdbMediaCard(
     media: TmdbMedia,
+    modifier: Modifier = Modifier,
     onFocus: () -> Unit = {},
     onClick: () -> Unit
 ) {
@@ -491,7 +552,7 @@ fun TmdbMediaCard(
 
     Card(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
             .onFocusChanged { if (it.isFocused) onFocus() }
