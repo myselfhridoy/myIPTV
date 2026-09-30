@@ -1,287 +1,309 @@
 package com.streambd.iptv.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.media3.common.C
 import androidx.media3.common.Format
-import androidx.media3.common.TrackGroup
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import com.streambd.iptv.ui.theme.DarkNavySurface
-import com.streambd.iptv.ui.theme.TealAccent
+import com.streambd.iptv.ui.theme.BioAccent
+import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
+import kotlinx.coroutines.delay
+import java.util.Locale
+import kotlin.math.roundToInt
 
+private data class TrackOption(
+    val group: Tracks.Group,
+    val index: Int,
+    val title: String,
+    val subtitle: String?,
+    val badge: String?,
+    val selected: Boolean
+)
+
+/**
+ * Takes the [Player] itself (not a snapshot of tracks), so the list updates live when
+ * tracks load or change. Selection is applied through player.trackSelectionParameters,
+ * which works with the ExoPlayer's track selector.
+ */
 @Composable
 fun TrackSelectionDialog(
-    trackSelector: DefaultTrackSelector,
-    currentTracks: Tracks,
+    player: Player,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(C.TRACK_TYPE_VIDEO) }
+    var tracks by remember { mutableStateOf(player.currentTracks) }
+    var params by remember { mutableStateOf(player.trackSelectionParameters) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2230)),
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(newTracks: Tracks) { tracks = newTracks }
+            override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
+                params = parameters
+            }
+        }
+        // Catch anything that changed between first composition and registration.
+        tracks = player.currentTracks
+        params = player.trackSelectionParameters
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    val availableTabs = listOf(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT)
+        .filter { type -> tracks.groups.any { it.type == type } }
+
+    var selectedTab by remember { mutableStateOf(C.TRACK_TYPE_VIDEO) }
+    val activeTab = if (selectedTab in availableTabs) selectedTab else availableTabs.firstOrNull()
+
+    val options = remember(tracks, params, activeTab) {
+        if (activeTab == null) emptyList() else buildOptions(activeTab, tracks, params)
+    }
+
+    PremiumDialogScaffold(
+        title = "Playback settings",
+        subtitle = "Video, audio and subtitles",
+        onDismiss = onDismiss
+    ) {
+        if (activeTab == null) {
+            Text(
+                text = "No tracks available yet. Try again once playback starts.",
+                color = GrayText,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
+            )
+            return@PremiumDialogScaffold
+        }
+
+        // Tabs
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Tabs - Video, Audio, Subtitle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(Color(0xFF1A1F2E), Color(0xFF222834))
-                            )
-                        )
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            availableTabs.forEach { type ->
+                TvFocusableItem(
+                    onClick = { selectedTab = type },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    restBackground = if (type == activeTab) BioAccent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    TabItem(
-                        title = "VIDEO",
-                        isSelected = selectedTab == C.TRACK_TYPE_VIDEO,
-                        onClick = { selectedTab = C.TRACK_TYPE_VIDEO },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TabItem(
-                        title = "AUDIO",
-                        isSelected = selectedTab == C.TRACK_TYPE_AUDIO,
-                        onClick = { selectedTab = C.TRACK_TYPE_AUDIO },
-                        modifier = Modifier.weight(1f)
-                    )
-                    TabItem(
-                        title = "SUBTITLE",
-                        isSelected = selectedTab == C.TRACK_TYPE_TEXT,
-                        onClick = { selectedTab = C.TRACK_TYPE_TEXT },
-                        modifier = Modifier.weight(1f)
+                    Text(
+                        text = when (type) {
+                            C.TRACK_TYPE_VIDEO -> "Video"
+                            C.TRACK_TYPE_AUDIO -> "Audio"
+                            else -> "Subtitles"
+                        },
+                        color = if (type == activeTab) BioAccent else GrayText,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(8.dp))
+        val isText = activeTab == C.TRACK_TYPE_TEXT
+        val defaultSelected = if (isText) options.none { it.selected }
+        else params.overrides.values.none { it.type == activeTab }
+        val focusIndex = if (defaultSelected) 0 else options.indexOfFirst { it.selected } + 1
 
-                val trackGroups = currentTracks.groups.filter { it.type == selectedTab }
-                val parameters = trackSelector.parameters
+        val listState = rememberLazyListState()
+        val listFocus = remember { FocusRequester() }
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 300.dp)
-                        .padding(horizontal = 16.dp)
-                ) {
-                    // Auto / Off Option
-                    val hasOverride = parameters.overrides.keys.any { it.type == selectedTab }
-                    val isAuto = trackGroups.isEmpty() || !hasOverride
-                    item {
-                        TrackOptionItem(
-                            title = if (selectedTab == C.TRACK_TYPE_TEXT) "Off" else "Auto",
-                            isSelected = isAuto,
-                            onClick = {
-                                if (selectedTab == C.TRACK_TYPE_TEXT) {
-                                    // Disable subtitles
-                                    trackSelector.setParameters(
-                                        parameters.buildUpon()
-                                            .clearOverridesOfType(selectedTab)
-                                            .setRendererDisabled(getRendererIndex(currentTracks, selectedTab), true)
-                                            .build()
-                                    )
-                                } else {
-                                    trackSelector.setParameters(
-                                        parameters.buildUpon().clearOverridesOfType(selectedTab).build()
-                                    )
-                                }
-                                onDismiss()
-                            }
-                        )
+        // Put focus on the current choice once, when the dialog opens (D-pad users).
+        LaunchedEffect(Unit) {
+            delay(100)
+            try {
+                listState.scrollToItem(focusIndex)
+                delay(50)
+                listFocus.requestFocus()
+            } catch (_: Exception) {
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            item(key = "default_$activeTab") {
+                PremiumOptionRow(
+                    title = if (isText) "Off" else "Auto",
+                    subtitle = if (isText) null else "Let the player choose",
+                    selected = defaultSelected,
+                    focusRequester = if (focusIndex == 0) listFocus else null,
+                    onClick = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .clearOverridesOfType(activeTab)
+                            .setTrackTypeDisabled(activeTab, isText)
+                            .build()
+                        onDismiss()
                     }
-
-                    // Dynamic Options
-                    trackGroups.forEach { group ->
-                        val trackGroup = group.mediaTrackGroup
-                        items(trackGroup.length) { trackIndex ->
-                            val format = trackGroup.getFormat(trackIndex)
-                            val override = parameters.overrides[trackGroup]
-                            val isSelected = !isAuto && override != null && override.trackIndices.contains(trackIndex)
-                            val title = formatTrackName(format, selectedTab)
-
-                            TrackOptionItem(
-                                title = title,
-                                isSelected = isSelected,
-                                onClick = {
-                                    val override = TrackSelectionOverride(group.mediaTrackGroup, listOf(trackIndex))
-                                    trackSelector.setParameters(
-                                        trackSelector.buildUponParameters()
-                                            .clearOverridesOfType(selectedTab)
-                                            .setRendererDisabled(getRendererIndex(currentTracks, selectedTab), false)
-                                            .addOverride(override)
-                                            .build()
-                                    )
-                                    onDismiss()
-                                }
-                            )
-                        }
+                )
+            }
+            itemsIndexed(options, key = { i, _ -> "${activeTab}_$i" }) { i, option ->
+                PremiumOptionRow(
+                    title = option.title,
+                    subtitle = option.subtitle,
+                    badge = option.badge,
+                    selected = option.selected,
+                    focusRequester = if (focusIndex == i + 1) listFocus else null,
+                    onClick = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(activeTab, false)
+                            .setOverrideForType(TrackSelectionOverride(option.group.mediaTrackGroup, option.index))
+                            .build()
+                        onDismiss()
                     }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Close Button
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    var closeFocused by remember { mutableStateOf(false) }
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .onFocusChanged { closeFocused = it.isFocused }
-                            .border(
-                                width = if (closeFocused) 2.dp else 0.dp,
-                                color = if (closeFocused) TealAccent else Color.Transparent,
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                    ) {
-                        Text("CLOSE", color = TealAccent, fontWeight = FontWeight.Bold)
-                    }
-                }
+                )
             }
         }
     }
 }
 
-@Composable
-private fun TabItem(title: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    var isFocused by remember { mutableStateOf(false) }
+private fun buildOptions(type: Int, tracks: Tracks, params: TrackSelectionParameters): List<TrackOption> {
+    val typeDisabled = type in params.disabledTrackTypes
+    val raw = mutableListOf<TrackOption>()
 
-    Box(
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .background(
-                color = if (isSelected) TealAccent.copy(alpha = 0.15f) else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(vertical = 14.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = title,
-            color = if (isSelected) TealAccent else Color.Gray,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp
-        )
-    }
-}
-
-@Composable
-private fun TrackOptionItem(title: String, isSelected: Boolean, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused }
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .background(
-                color = if (isFocused) TealAccent.copy(alpha = 0.08f) else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) TealAccent else Color.Transparent,
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            color = if (isSelected) TealAccent else WhiteText,
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.weight(1f)
-        )
-        if (isSelected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = TealAccent,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
-private fun formatTrackName(format: Format, trackType: Int): String {
-    return when (trackType) {
-        C.TRACK_TYPE_VIDEO -> {
-            if (format.width > 0 && format.height > 0) {
-                var name = "${format.width} × ${format.height}"
-                if (format.bitrate > 0) {
-                    name += ", ${String.format("%.1f", format.bitrate / 1000000.0)} Mbps"
-                }
-                name
+    tracks.groups.filter { it.type == type }.forEach { group ->
+        val override = params.overrides[group.mediaTrackGroup]
+        for (i in 0 until group.length) {
+            if (!group.isTrackSupported(i, true)) continue
+            val selected = if (type == C.TRACK_TYPE_TEXT) {
+                !typeDisabled && group.isTrackSelected(i)
             } else {
-                "Unknown"
+                override?.trackIndices?.contains(i) == true
             }
+            raw += describe(group, i, type, selected)
+        }
+    }
+
+    // Same title twice (e.g. two English audio tracks) gets a number suffix.
+    val counts = raw.groupingBy { it.title }.eachCount()
+    val seen = mutableMapOf<String, Int>()
+    return raw.map { option ->
+        if ((counts[option.title] ?: 0) > 1) {
+            val n = (seen[option.title] ?: 0) + 1
+            seen[option.title] = n
+            option.copy(title = "${option.title} $n")
+        } else option
+    }
+}
+
+private fun describe(group: Tracks.Group, index: Int, type: Int, selected: Boolean): TrackOption {
+    val format = group.getTrackFormat(index)
+    val language = languageName(format)
+    val label = format.label?.takeIf { it.isNotBlank() }
+    return when (type) {
+        C.TRACK_TYPE_VIDEO -> {
+            val hasSize = format.width > 0 && format.height > 0
+            val parts = listOfNotNull(
+                format.frameRate.takeIf { it > 0f }?.let { "${it.roundToInt()} fps" },
+                format.bitrate.takeIf { it > 0 }?.let { String.format(Locale.US, "%.1f Mbps", it / 1_000_000.0) },
+                codecName(format.sampleMimeType)
+            )
+            TrackOption(
+                group, index,
+                title = if (hasSize) "${format.width} × ${format.height}" else "Video",
+                subtitle = parts.joinToString("  •  ").ifEmpty { null },
+                badge = if (hasSize) qualityBadge(format.height) else null,
+                selected = selected
+            )
         }
         C.TRACK_TYPE_AUDIO -> {
-            val lang = format.language?.let { java.util.Locale(it).displayLanguage } ?: "Unknown"
-            val channels = when (format.channelCount) {
-                1 -> "Mono"
-                2 -> "Stereo"
-                6 -> "5.1"
-                8 -> "7.1"
-                else -> if (format.channelCount > 0) "${format.channelCount}ch" else ""
-            }
-            if (channels.isNotEmpty()) "$lang ($channels)" else lang
+            val title = language ?: label ?: "Audio"
+            val parts = listOfNotNull(
+                label?.takeIf { it != title },
+                codecName(format.sampleMimeType),
+                format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" }
+            )
+            TrackOption(
+                group, index,
+                title = title,
+                subtitle = parts.joinToString("  •  ").ifEmpty { null },
+                badge = channelBadge(format.channelCount),
+                selected = selected
+            )
         }
-        C.TRACK_TYPE_TEXT -> {
-            val lang = format.language?.let { java.util.Locale(it).displayLanguage } ?: "Unknown"
-            val label = format.label
-            if (label != null && label != lang) "$lang — $label" else lang
+        else -> {
+            val title = language ?: label ?: "Subtitle"
+            TrackOption(
+                group, index,
+                title = title,
+                subtitle = label?.takeIf { it != title },
+                badge = null,
+                selected = selected
+            )
         }
-        else -> "Unknown"
     }
 }
 
-private fun getRendererIndex(tracks: Tracks, trackType: Int): Int {
-    // Find the renderer index for the given track type
-    var rendererIndex = 0
-    for (group in tracks.groups) {
-        if (group.type == trackType) return rendererIndex
-        rendererIndex++
-    }
-    return rendererIndex
+private fun languageName(format: Format): String? {
+    val lang = format.language
+    if (lang.isNullOrBlank() || lang == C.LANGUAGE_UNDETERMINED) return null
+    val name = Locale.forLanguageTag(lang).getDisplayLanguage(Locale.getDefault())
+    return name.takeIf { it.isNotBlank() } ?: lang
+}
+
+private fun qualityBadge(height: Int): String? = when {
+    height >= 2160 -> "4K"
+    height >= 1440 -> "2K"
+    height >= 1080 -> "FHD"
+    height >= 720 -> "HD"
+    height > 0 -> "SD"
+    else -> null
+}
+
+private fun channelBadge(count: Int): String? = when (count) {
+    Format.NO_VALUE, 0 -> null
+    1 -> "Mono"
+    2 -> "Stereo"
+    6 -> "5.1"
+    8 -> "7.1"
+    else -> "${count}ch"
+}
+
+private fun codecName(mime: String?): String? = when (mime) {
+    MimeTypes.VIDEO_H264 -> "H.264"
+    MimeTypes.VIDEO_H265 -> "HEVC"
+    MimeTypes.VIDEO_AV1 -> "AV1"
+    MimeTypes.VIDEO_VP9 -> "VP9"
+    MimeTypes.AUDIO_AAC -> "AAC"
+    MimeTypes.AUDIO_AC3 -> "AC3"
+    MimeTypes.AUDIO_E_AC3 -> "E-AC3"
+    MimeTypes.AUDIO_MPEG -> "MP3"
+    MimeTypes.AUDIO_OPUS -> "Opus"
+    else -> null
 }
