@@ -120,7 +120,7 @@ fun VodPlayerScreen(
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
         val originalOrientation = activity?.requestedOrientation
-        backgroundval originalBackground = activity?.window?.decorView?.background
+        val originalBackground = activity?.window?.decorView?.background
         val window = activity?.window
 
         if (window != null) {
