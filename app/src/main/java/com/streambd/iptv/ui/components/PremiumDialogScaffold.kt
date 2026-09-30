@@ -1,7 +1,5 @@
 package com.streambd.iptv.ui.components
 
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -22,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.HorizontalDivider
@@ -62,11 +62,10 @@ import com.streambd.iptv.ui.theme.WhiteText
 /**
  * Shared shell for every dialog.
  *
- * FIXES vs. previous version:
- *  - Uses `HorizontalDivider` instead of Box+background.
- *  - Content slot has a bounded scroll area (`contentMaxHeight`) so very long
- *    dialogs (e.g. update changelog) don't overflow off-screen on TV.
- *  - Focus borders now use the softer `TvFocusedBorder` tone (better on TV).
+ *  - Uses `HorizontalDivider` (no Box+background).
+ *  - Content slot has a bounded scroll area (`contentMaxHeight`) so long dialogs
+ *    don't overflow off-screen on TV.
+ *  - Focus borders use the softer `TvFocusedBorder` tone.
  */
 @Composable
 fun PremiumDialogScaffold(
@@ -159,18 +158,11 @@ fun PremiumDialogScaffold(
     }
 }
 
-// Missing imports for the verticalScroll usage — place at top with the others
-// (declared here as a reminder; move to the import block above in the real file)
-private typealias _SuppressedImportReminder = Unit
-
 /**
  * Focusable base surface for TV + touch.
  *
- * FIXES vs. previous version:
- *  - Uses `tvTouchClick` (focusable + D-pad ENTER + tap) instead of raw `clickable`.
- *  - Uses `hasFocus` so nested focusable children still light up the parent.
- *  - Focus border color is `TvFocusedBorder` (softer than BioAccent).
- *  - No animation on `isFocused` → no recomposition storm while scrolling fast.
+ * Uses `tvTouchClick` (focusable + D-pad ENTER + tap) instead of raw `clickable`,
+ * and `hasFocus` so nested focusable children still light up the parent.
  */
 @Composable
 fun TvFocusableItem(
