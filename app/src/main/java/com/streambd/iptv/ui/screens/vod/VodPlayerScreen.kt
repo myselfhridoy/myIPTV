@@ -41,6 +41,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.streambd.iptv.R
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.TvIconButton
@@ -106,13 +107,12 @@ fun VodPlayerScreen(
 
     val seekAmount = 10_000L
 
-    // Window effects (insets, cutout, PiP). NO orientation forcing anymore.
+    // Window effects (insets, cutout, PiP). NO orientation forcing.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
 
-    // ── Handle ExoPlayer media setup ──
     LaunchedEffect(stream, retryToken) {
         isLoading = true
         resolveFailed = false
@@ -486,7 +486,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Player listener ──
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -518,7 +517,6 @@ fun VodPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ── Progress tracker ──
     LaunchedEffect(Unit) {
         while (true) {
             if (!isDragging) currentPosition = exoPlayer.currentPosition
@@ -528,7 +526,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Overlay auto-hide + focus ──
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
@@ -543,14 +540,12 @@ fun VodPlayerScreen(
         }
     }
 
-    // Real exit (called by PlayerRevealContainer after reverse animation).
     val finishExit: () -> Unit = {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         navController.popBackStack()
     }
 
-    // Request exit — starts the reverse animation.
     val requestExit: () -> Unit = {
         if (!exitRequested) exitRequested = true
     }
@@ -618,11 +613,10 @@ fun VodPlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        PlayerView(ctx).apply {
+                        // Style forces TextureView so the container rotation applies.
+                        PlayerView(ctx, null, 0, R.style.PlayerViewTextureStyle).apply {
                             player = exoPlayer
                             useController = false
-                            // Required so the container rotation applies to the video.
-                            setUseTextureView(true)
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -642,12 +636,10 @@ fun VodPlayerScreen(
                         if (playerView.player != exoPlayer) {
                             playerView.player = exoPlayer
                         }
-                        playerView.setUseTextureView(true)
                     }
                 )
             }
 
-            // ── Overlay UI ──
             if (showOverlay && !isInPiP) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
                     if (isLocked) {
@@ -662,7 +654,6 @@ fun VodPlayerScreen(
                             Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
                         }
                     } else {
-                        // ── Top bar ──
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -743,7 +734,6 @@ fun VodPlayerScreen(
                             }
                         }
 
-                        // ── Center controls ──
                         Row(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -794,7 +784,6 @@ fun VodPlayerScreen(
                             }
                         }
 
-                        // ── Bottom bar ──
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
