@@ -216,15 +216,15 @@ fun LiveEventsScreen(
                             .height(50.dp)
                             .onFocusChanged { isSearchFocused = it.hasFocus },
                         placeholder = { Text("Search matches…", color = GrayText) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
-                            focusedIndicatorColor = BioAccent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = WhiteText,
-                            unfocusedTextColor = WhiteText,
-                            cursorColor = BioAccent
-                        ),
+                        colors = TextFieldDefaults.colors(
+    focusedContainerColor = Color.White.copy(alpha = 0.1f),
+    unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+    focusedIndicatorColor = BioAccent,
+    unfocusedIndicatorColor = Color.Transparent,
+    focusedTextColor = WhiteText,
+    unfocusedTextColor = WhiteText,
+    cursorColor = BioAccent
+),
                         shape = RoundedCornerShape(25.dp),
                         singleLine = true
                     )
