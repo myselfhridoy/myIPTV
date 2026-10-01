@@ -72,9 +72,12 @@ import java.util.Date
 import java.util.Locale
 
 // ─────────────────────────────────────────────────────────────
-// Palette
+// Local palette — restrained, single accent, minimal neutrality
 // ─────────────────────────────────────────────────────────────
-private val SportzfyCardBg = Color(0xFF161D2D).copy(alpha = 0.85f)
+private val CardSurface = Color(0xFF161D2D)
+private val ChipIdle = Color(0xFF1B2233)
+private val ChipIdleBorder = Color(0xFF252D3E)
+private val OnAccent = Color(0xFF0A0E17)     // text on BioAccent fill
 
 // ─────────────────────────────────────────────────────────────
 // Date parsing
@@ -85,7 +88,7 @@ private fun parseEventDate(dateStr: String?): Date? {
         val cleanStr = dateStr.replace(Regex("([+-]\\d\\d):(\\d\\d)$"), "$1$2")
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US)
         sdf.parse(cleanStr)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
@@ -177,17 +180,10 @@ fun LiveEventsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color(0xFF0A0D14))
             .nestedScroll(pullToRefreshState.nestedScrollConnection)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF0F1423), Color(0xFF0A0D14))
-                    )
-                )
-        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // ── Top bar ──
             Row(
                 modifier = Modifier
@@ -204,7 +200,7 @@ fun LiveEventsScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                 }
 
                 if (isSearchActive) {
@@ -213,19 +209,25 @@ fun LiveEventsScreen(
                         onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(48.dp)
                             .onFocusChanged { isSearchFocused = it.hasFocus },
-                        placeholder = { Text("Search matches…", color = GrayText) },
+                        placeholder = {
+                            Text(
+                                "Search teams or leagues…",
+                                color = GrayText,
+                                fontSize = 14.sp
+                            )
+                        },
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = ChipIdle,
+                            unfocusedContainerColor = ChipIdle,
                             focusedIndicatorColor = BioAccent,
                             unfocusedIndicatorColor = Color.Transparent,
                             focusedTextColor = WhiteText,
                             unfocusedTextColor = WhiteText,
                             cursorColor = BioAccent
                         ),
-                        shape = RoundedCornerShape(25.dp),
+                        shape = RoundedCornerShape(12.dp),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -238,7 +240,7 @@ fun LiveEventsScreen(
                     ) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = "Close search",
+                            contentDescription = "Close",
                             tint = WhiteText,
                             modifier = Modifier.size(22.dp)
                         )
@@ -246,11 +248,10 @@ fun LiveEventsScreen(
                 } else {
                     Text(
                         "Live Events",
-                        color = BioAccent,
+                        color = WhiteText,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center
+                        modifier = Modifier.weight(1f)
                     )
                     TvIconButton(
                         onClick = { isSearchActive = true },
@@ -269,8 +270,8 @@ fun LiveEventsScreen(
             // ── Category pills ──
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(items = categories, key = { it }) { cat ->
                     CategoryPill(
@@ -282,12 +283,12 @@ fun LiveEventsScreen(
                 }
             }
 
-            // ── Status chips ──
+            // ── Status segmented control ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 val recentCount = events.count {
                     it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) <=
@@ -298,38 +299,52 @@ fun LiveEventsScreen(
                     it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) >
                         System.currentTimeMillis()
                 }
-                StatusChip("Recent", recentCount, selectedStatus == "Recent") {
+                StatusSegment("Recent", recentCount, selectedStatus == "Recent") {
                     selectedStatus = "Recent"
                 }
-                StatusChip("Live", liveCount, selectedStatus == "Live") {
+                StatusSegment("Live", liveCount, selectedStatus == "Live") {
                     selectedStatus = "Live"
                 }
-                StatusChip("Upcoming", upcomingCount, selectedStatus == "Upcoming") {
+                StatusSegment("Upcoming", upcomingCount, selectedStatus == "Upcoming") {
                     selectedStatus = "Upcoming"
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // ── Content ──
             when {
                 isLoading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = BioAccent)
+                        CircularProgressIndicator(color = BioAccent, strokeWidth = 3.dp)
                     }
                 }
                 filteredEvents.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "No $selectedStatus events for $selectedCategory",
-                            color = GrayText,
-                            fontSize = 16.sp
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No $selectedStatus events",
+                                color = WhiteText.copy(alpha = 0.6f),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Try a different filter",
+                                color = GrayText.copy(alpha = 0.6f),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp,
+                            top = 4.dp, bottom = 24.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(
                             items = filteredEvents,
@@ -391,7 +406,7 @@ fun LiveEventsScreen(
         PullToRefreshContainer(
             state = pullToRefreshState,
             modifier = Modifier.align(Alignment.TopCenter),
-            containerColor = SportzfyCardBg,
+            containerColor = CardSurface,
             contentColor = BioAccent
         )
     }
@@ -422,8 +437,7 @@ fun LiveEventsScreen(
                         "${stream.label ?: ""}|${stream.stream_url ?: ""}"
                     }
                 ) { stream ->
-                    val streamName = stream.label?.takeIf { !it.isNullOrBlank() }
-                        ?: "Source"
+                    val streamName = stream.label?.takeIf { !it.isNullOrBlank() } ?: "Source"
                     PremiumOptionRow(
                         title = streamName,
                         selected = false,
@@ -473,7 +487,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category pill — solid-fill when selected
+// Category pill — solid BioAccent fill when selected
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryPill(
@@ -487,31 +501,22 @@ private fun CategoryPill(
     val bgColor by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent
-            isFocused -> Color.White.copy(alpha = 0.08f)
-            else -> Color(0xFF161D2D)
+            isFocused -> ChipIdleBorder
+            else -> ChipIdle
         },
-        animationSpec = tween(200),
-        label = "catPillBg"
+        animationSpec = tween(180),
+        label = "catBg"
     )
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> BioAccent
-            isFocused -> BioAccent.copy(alpha = 0.7f)
-            else -> Color.White.copy(alpha = 0.08f)
-        },
-        animationSpec = tween(200),
-        label = "catPillBorder"
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) OnAccent else WhiteText,
+        animationSpec = tween(180),
+        label = "catText"
     )
-    val mainTextColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF0A0E17) else WhiteText,
-        animationSpec = tween(200),
-        label = "catPillText"
-    )
-    val countTextColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF0A0E17).copy(alpha = 0.55f)
-        else WhiteText.copy(alpha = 0.45f),
-        animationSpec = tween(200),
-        label = "catPillCount"
+    val countColor by animateColorAsState(
+        targetValue = if (isSelected) OnAccent.copy(alpha = 0.55f)
+        else WhiteText.copy(alpha = 0.4f),
+        animationSpec = tween(180),
+        label = "catCount"
     )
 
     Row(
@@ -519,26 +524,21 @@ private fun CategoryPill(
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(50))
             .background(bgColor)
-            .border(
-                width = 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(50)
-            )
             .tvTouchClick(onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = name,
-            color = mainTextColor,
+            color = textColor,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            fontSize = 14.sp
+            fontSize = 13.sp
         )
         if (count > 0) {
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
                 text = count.toString(),
-                color = countTextColor,
+                color = countColor,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -547,10 +547,10 @@ private fun CategoryPill(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Status chip — subtle segmented control
+// Status segment — segmented control feel (not a chip)
 // ─────────────────────────────────────────────────────────────
 @Composable
-private fun StatusChip(
+private fun StatusSegment(
     name: String,
     count: Int,
     isSelected: Boolean,
@@ -558,62 +558,57 @@ private fun StatusChip(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    val bgColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> BioAccent.copy(alpha = 0.14f)
-            isFocused -> Color.White.copy(alpha = 0.06f)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "statusBg"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> BioAccent.copy(alpha = 0.55f)
-            isFocused -> BioAccent.copy(alpha = 0.5f)
-            else -> Color.White.copy(alpha = 0.12f)
-        },
-        animationSpec = tween(180),
-        label = "statusBorder"
-    )
     val textColor by animateColorAsState(
-        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.7f),
+        targetValue = when {
+            isSelected -> BioAccent
+            isFocused -> WhiteText
+            else -> WhiteText.copy(alpha = 0.55f)
+        },
         animationSpec = tween(180),
-        label = "statusText"
+        label = "segText"
+    )
+    val indicatorColor by animateColorAsState(
+        targetValue = if (isSelected) BioAccent else Color.Transparent,
+        animationSpec = tween(180),
+        label = "segIndicator"
     )
 
-    Row(
+    Column(
         modifier = Modifier
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(10.dp))
-            .background(bgColor)
-            .border(
-                width = 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(10.dp)
-            )
             .tvTouchClick(onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = name,
-            color = textColor,
-            fontSize = 13.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = count.toString(),
-            color = textColor.copy(alpha = 0.55f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = name,
+                color = textColor,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = count.toString(),
+                color = textColor.copy(alpha = 0.6f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Box(
+            modifier = Modifier
+                .width(if (isSelected) 20.dp else 0.dp)
+                .height(2.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(indicatorColor)
         )
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Match card — symmetric 3-column layout for teams
+// Match card — clean, minimal, single accent
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
@@ -623,13 +618,11 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
         animationSpec = tween(180),
         label = "cardScale"
     )
-    val borderBrush = if (isFocused) {
-        Brush.linearGradient(listOf(BioAccent, BioAccent))
-    } else {
-        Brush.linearGradient(
-            listOf(Color.White.copy(alpha = 0.15f), Color.Transparent)
-        )
-    }
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) BioAccent.copy(alpha = 0.55f) else Color.Transparent,
+        animationSpec = tween(180),
+        label = "cardBorder"
+    )
 
     Box(
         modifier = Modifier
@@ -639,11 +632,11 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                 scaleY = scale
             }
             .onFocusChanged { isFocused = it.hasFocus }
-            .clip(RoundedCornerShape(16.dp))
-            .background(SportzfyCardBg)
-            .border(1.dp, borderBrush, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(CardSurface)
+            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
             .tvTouchClick(onClick)
-            .padding(14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Column {
             // ── Top row: league · time / live ──
@@ -661,7 +654,7 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                             model = event.league_icon,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
@@ -669,7 +662,7 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                         text = listOfNotNull(event.sport, event.league)
                             .filter { it.isNotBlank() }
                             .joinToString(" · "),
-                        color = WhiteText.copy(alpha = 0.85f),
+                        color = WhiteText.copy(alpha = 0.75f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -681,10 +674,9 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                     val dateObj = parseEventDate(event.starts_at)
                     Column(horizontalAlignment = Alignment.End) {
                         if (dateObj != null && event.is_live == 0) {
-                            val dateSdf = SimpleDateFormat("dd MMM", Locale.getDefault())
                             Text(
-                                dateSdf.format(dateObj),
-                                color = GrayText,
+                                SimpleDateFormat("dd MMM", Locale.getDefault()).format(dateObj),
+                                color = GrayText.copy(alpha = 0.65f),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -696,61 +688,25 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                             timeFormatted,
                             color = BioAccent,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
                     if (event.is_live == 1) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "liveDot")
-                        val dotAlpha by infiniteTransition.animateFloat(
-                            initialValue = 0.2f,
-                            targetValue = 1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(800, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "dotAlpha"
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFFFF416C), Color(0xFFFF4B2B))
-                                    )
-                                )
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = dotAlpha))
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "LIVE",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
+                        LiveBadge()
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // ── Teams — symmetric 3-column ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left column: team name (right-aligned) + logo
+                // Left: name (right-aligned) + logo
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -759,34 +715,34 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                     Text(
                         text = event.team_a_name ?: "Team A",
                         color = WhiteText,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.End,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (!event.team_a_logo.isNullOrEmpty()) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         TeamLogo(url = event.team_a_logo)
                     }
                 }
 
-                // Center column: VS
+                // Center: VS anchor
                 Box(
-                    modifier = Modifier.width(44.dp),
+                    modifier = Modifier.width(36.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "VS",
-                        color = WhiteText.copy(alpha = 0.5f),
-                        fontSize = 13.sp,
+                        color = WhiteText.copy(alpha = 0.35f),
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     )
                 }
 
-                // Right column: logo + team name (left-aligned)
+                // Right: logo + name (left-aligned)
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -794,15 +750,15 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                 ) {
                     if (!event.team_b_logo.isNullOrEmpty()) {
                         TeamLogo(url = event.team_b_logo)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
                         text = event.team_b_name ?: "Team B",
                         color = WhiteText,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Start,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
@@ -813,14 +769,54 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Team logo — fixed size so both sides align perfectly
+// Live badge — subtle pulse, no screaming gradient
+// ─────────────────────────────────────────────────────────────
+@Composable
+private fun LiveBadge() {
+    val infiniteTransition = rememberInfiniteTransition(label = "livePulse")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dotAlpha"
+    )
+
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(BioAccent.copy(alpha = 0.14f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(BioAccent.copy(alpha = dotAlpha))
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            "LIVE",
+            color = BioAccent,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Team logo — fixed size for perfect alignment
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun TeamLogo(url: String) {
     Box(
         modifier = Modifier
-            .size(width = 52.dp, height = 38.dp)
-            .clip(RoundedCornerShape(6.dp)),
+            .size(width = 40.dp, height = 30.dp)
+            .clip(RoundedCornerShape(5.dp)),
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
