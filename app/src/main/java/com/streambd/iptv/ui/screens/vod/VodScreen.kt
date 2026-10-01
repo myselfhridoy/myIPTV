@@ -261,14 +261,14 @@ fun VodScreen(
                     }
                 } else {
                     mediaRows.forEachIndexed { rowIndex, row ->
-                        item(key = "row_${row.key}") {
-                            MediaSection(
-                                title = row.title,
-                                count = row.list.size,
-                                mediaList = row.list,
-                                firstItemModifier = if (rowIndex == 0)
-                                    Modifier.focusRequester(firstRowFocusRequester)
-                                else Modifier,
+    item(key = "row_${row.key}") {
+        MediaSection(
+            title = row.title,
+            count = row.list.size,
+            mediaList = row.list,
+            firstItemModifier = if (rowIndex == 0)
+                Modifier.focusRequester(firstCardFocusRequester)
+            else Modifier,
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
@@ -318,11 +318,12 @@ fun VodScreen(
                     focusRequester = searchFieldFocusRequester
                 )
             } else {
-                VodTopBar(
-                    onMenuClick = onMenuClick,
-                    onSearchClick = { isSearchExpanded = true }
-                )
-            }
+    VodTopBar(
+        onMenuClick = onMenuClick,
+        isTv = isTV,
+        onSearchClick = { isSearchExpanded = true }
+    )
+}
         }
     }
 }
@@ -333,13 +334,14 @@ fun VodScreen(
 @Composable
 private fun VodTopBar(
     onMenuClick: (() -> Unit)?,
+    isTv: Boolean,
     onSearchClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (onMenuClick != null) {
+        if (onMenuClick != null && !isTv) {
             TvIconButton(
                 onClick = onMenuClick,
                 modifier = Modifier.size(44.dp)
