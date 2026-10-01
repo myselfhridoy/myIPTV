@@ -201,8 +201,8 @@ val isTv = remember(configuration) {
         }
     }
 
-    // More dialog (mobile only)
-    if (showMoreDialog && !isTv) {
+    // More dialog (both mobile + TV)
+    if (showMoreDialog) {
         val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
         Dialog(onDismissRequest = { showMoreDialog = false }) {
             Surface(
