@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 package com.streambd.iptv.ui.screens.main
 
 import android.content.Context
