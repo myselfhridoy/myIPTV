@@ -2,6 +2,7 @@
 
 package com.streambd.iptv.ui.screens.live
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
