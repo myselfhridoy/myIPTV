@@ -185,6 +185,18 @@ fun LivePlayerScreen(
     val currentMediaSource by playerViewModel.currentMediaSource.collectAsState()
     val isResolving by playerViewModel.isLoading.collectAsState()
     val isResolutionFailed by playerViewModel.resolutionFailed.collectAsState()
+
+// Log resolver failure once per occurrence (Firebase).
+LaunchedEffect(isResolutionFailed) {
+    if (isResolutionFailed) {
+        PlaybackLogger.logResolutionFailed(
+            context = context,
+            channelName = channel.name,
+            sourceUrl = currentSourceUrl,
+            reason = "resolver_returned_null"
+        )
+    }
+}
     val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
