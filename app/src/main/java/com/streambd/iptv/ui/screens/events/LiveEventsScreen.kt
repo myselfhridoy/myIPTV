@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Schedule
@@ -67,6 +68,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -346,7 +349,7 @@ fun LiveEventsScreen(
                     CategoryCircle(
                         name = cat,
                         count = sportsCount[cat] ?: 0,
-                        icon = if (cat == "All") Icons.Default.SportsSoccer else sportIcon(cat),
+                        icon = if (cat == "All") Icons.Default.GridView else sportIcon(cat),
                         isSelected = selectedCategory == cat,
                         circleSize = categoryCircleSize,
                         iconSize = categoryIconSize,
@@ -357,11 +360,10 @@ fun LiveEventsScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── Filter chips ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            // ── Filter chips (LazyRow — horizontally scrollable on mobile) ──
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val liveCount = events.count { it.is_live == 1 }
@@ -374,38 +376,59 @@ fun LiveEventsScreen(
                     it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) >
                         System.currentTimeMillis()
                 }
+                val recentCount = events.count {
+                    it.is_live == 0 && (parseEventDate(it.starts_at)?.time ?: Long.MAX_VALUE) <=
+                        System.currentTimeMillis()
+                }
 
-                FilterChipWithIcon(
-                    label = "All",
-                    count = events.size,
-                    icon = Icons.Default.Check,
-                    isSelected = selectedStatus == "All",
-                    onClick = { selectedStatus = "All" }
-                )
-                FilterChipWithIcon(
-                    label = "Live",
-                    count = liveCount,
-                    icon = Icons.Default.Podcasts,
-                    isSelected = selectedStatus == "Live",
-                    onClick = { selectedStatus = "Live" }
-                )
-                FilterChipWithIcon(
-                    label = "Today",
-                    count = todayCount,
-                    icon = Icons.Default.Schedule,
-                    isSelected = selectedStatus == "Today",
-                    onClick = { selectedStatus = "Today" }
-                )
-                FilterChipWithIcon(
-                    label = "Upcoming",
-                    count = upcomingCount,
-                    icon = Icons.Default.Schedule,
-                    isSelected = selectedStatus == "Upcoming",
-                    onClick = { selectedStatus = "Upcoming" }
-                )
+                item(key = "chip_all") {
+                    FilterChipWithIcon(
+                        label = "All",
+                        count = events.size,
+                        icon = Icons.Default.Check,
+                        isSelected = selectedStatus == "All",
+                        onClick = { selectedStatus = "All" }
+                    )
+                }
+                item(key = "chip_live") {
+                    FilterChipWithIcon(
+                        label = "Live",
+                        count = liveCount,
+                        icon = Icons.Default.Podcasts,
+                        isSelected = selectedStatus == "Live",
+                        onClick = { selectedStatus = "Live" }
+                    )
+                }
+                item(key = "chip_today") {
+                    FilterChipWithIcon(
+                        label = "Today",
+                        count = todayCount,
+                        icon = Icons.Default.Schedule,
+                        isSelected = selectedStatus == "Today",
+                        onClick = { selectedStatus = "Today" }
+                    )
+                }
+                item(key = "chip_upcoming") {
+                    FilterChipWithIcon(
+                        label = "Upcoming",
+                        count = upcomingCount,
+                        icon = Icons.Default.Schedule,
+                        isSelected = selectedStatus == "Upcoming",
+                        onClick = { selectedStatus = "Upcoming" }
+                    )
+                }
+                item(key = "chip_recent") {
+                    FilterChipWithIcon(
+                        label = "Recent",
+                        count = recentCount,
+                        icon = Icons.Default.Schedule,
+                        isSelected = selectedStatus == "Recent",
+                        onClick = { selectedStatus = "Recent" }
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // ── Content ──
             when {
@@ -436,7 +459,7 @@ fun LiveEventsScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp
+                            start = 16.dp, end = 16.dp, top = 0.dp, bottom = 24.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -505,12 +528,15 @@ fun LiveEventsScreen(
             }
         }
 
-        PullToRefreshContainer(
-            state = pullToRefreshState,
-            modifier = Modifier.align(Alignment.TopCenter),
-            containerColor = CardSurface,
-            contentColor = BioAccent
-        )
+        // Pull-to-refresh indicator: only while refreshing (avoids empty reservation space)
+        if (pullToRefreshState.isRefreshing) {
+            PullToRefreshContainer(
+                state = pullToRefreshState,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = CardSurface,
+                contentColor = BioAccent
+            )
+        }
     }
 
     // ── Multi-source picker ──
@@ -589,8 +615,8 @@ private fun CategoryCircle(
     count: Int,
     icon: ImageVector,
     isSelected: Boolean,
-    circleSize: androidx.compose.ui.unit.Dp,
-    iconSize: androidx.compose.ui.unit.Dp,
+    circleSize: Dp,
+    iconSize: Dp,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -751,16 +777,16 @@ private fun FilterChipWithIcon(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Match card — PlayZ TV style
+// Match card
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun PlayZStyleMatchCard(
     event: SportzfyEvent,
     isTv: Boolean,
     isCompact: Boolean,
-    teamLogoWidth: androidx.compose.ui.unit.Dp,
-    teamLogoHeight: androidx.compose.ui.unit.Dp,
-    teamNameFontSize: androidx.compose.ui.unit.TextUnit,
+    teamLogoWidth: Dp,
+    teamLogoHeight: Dp,
+    teamNameFontSize: TextUnit,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -803,7 +829,6 @@ private fun PlayZStyleMatchCard(
                 .fillMaxWidth()
                 .padding(horizontal = cardPaddingH, vertical = cardPaddingV)
         ) {
-            // ── Center title ──
             Text(
                 text = listOfNotNull(event.sport, event.league)
                     .filter { it.isNotBlank() }
@@ -817,9 +842,8 @@ private fun PlayZStyleMatchCard(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(Modifier.height(if (isTv) 18.dp else 14.dp))
+            Spacer(modifier = Modifier.height(if (isTv) 18.dp else 14.dp))
 
-            // ── Team row ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -833,7 +857,6 @@ private fun PlayZStyleMatchCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                // Center: kickoff / live
                 Column(
                     modifier = Modifier.width(centerWidth),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -849,7 +872,7 @@ private fun PlayZStyleMatchCard(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                     Text(
                         text = timeText,
@@ -873,7 +896,6 @@ private fun PlayZStyleMatchCard(
             }
         }
 
-        // ── HOT ribbon (live only) ──
         if (event.is_live == 1) {
             Box(
                 modifier = Modifier
@@ -905,15 +927,15 @@ private fun PlayZStyleMatchCard(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Team column — rectangular logo container so flags stay natural
+// Team column
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun MatchTeamColumn(
     name: String,
     logoUrl: String?,
-    logoWidth: androidx.compose.ui.unit.Dp,
-    logoHeight: androidx.compose.ui.unit.Dp,
-    nameFontSize: androidx.compose.ui.unit.TextUnit,
+    logoWidth: Dp,
+    logoHeight: Dp,
+    nameFontSize: TextUnit,
     modifier: Modifier = Modifier
 ) {
     Column(
