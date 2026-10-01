@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +24,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.delay
+
+/**
+ * True when we are inside the rotated player container.
+ *
+ * Dialogs read this via `LocalPlayerIsRotated.current`:
+ *   • true  → render INLINE (as an overlay inside this container) so the dialog
+ *             inherits the 90° rotation and appears in landscape like the player.
+ *   • false → render as a normal Dialog window (default behaviour on mobile
+ *             outside the player, and always on TV which is not rotated).
+ */
+val LocalPlayerIsRotated = compositionLocalOf { false }
 
 /**
  * Rotates the player content 90° inside a PORTRAIT Activity instead of
@@ -117,7 +130,10 @@ fun PlayerRevealContainer(
                     this.alpha = alpha
                 }
         ) {
-            content()
+            // Expose rotation state to any child (dialogs) via CompositionLocal.
+            CompositionLocalProvider(LocalPlayerIsRotated provides shouldRotate) {
+                content()
+            }
         }
     }
 }
