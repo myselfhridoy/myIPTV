@@ -92,9 +92,7 @@ fun LiveTvScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
-    val isTV = remember {
-        context.packageManager.hasSystemFeature("android.software.leanback")
-    }
+    val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
 
     val columns = when {
         isTV -> 5
