@@ -14,7 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,6 +56,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -87,11 +89,11 @@ import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import androidx.compose.foundation.lazy.itemsIndexed
 
 // ─────────────────────────────────────────────────────────────
 // Palette
@@ -154,6 +156,7 @@ fun LiveEventsScreen(
     val context = LocalContext.current
     val isTv = remember(configuration) { com.streambd.iptv.utils.DeviceType.isTv(context) }
 
+    // ── Responsive sizing ──
     val screenWidth = configuration.screenWidthDp
     val isCompact = screenWidth < 400
     val categoryCircleSize = when {
@@ -188,8 +191,9 @@ fun LiveEventsScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    // Focus first card on entry (TV)
-val firstCardFocusRequester = remember { FocusRequester() }
+
+    // ── TV focus: first match card on entry ──
+    val firstCardFocusRequester = remember { FocusRequester() }
 
     var showStreamSelectionFor by remember {
         mutableStateOf<List<com.streambd.iptv.data.models.SportzfyStream>?>(null)
@@ -251,13 +255,21 @@ val firstCardFocusRequester = remember { FocusRequester() }
         if (!isLoading) pullToRefreshState.endRefresh()
     }
 
-    LaunchedEffect(Unit) {
-    delay(180)
-    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
-}
+    // ── Focus first card once loading completes (TV) ──
+    LaunchedEffect(isLoading, filteredEvents.isNotEmpty()) {
+        if (!isLoading && filteredEvents.isNotEmpty() && !isSearchActive) {
+            delay(180)
+            try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
     BackHandler(enabled = isSearchActive) {
-        if (isSearchFocused) focusManager.clearFocus()
-        else { searchQuery = ""; isSearchActive = false }
+        if (isSearchFocused) {
+            focusManager.clearFocus()
+        } else {
+            searchQuery = ""
+            isSearchActive = false
+        }
     }
 
     Box(
@@ -275,8 +287,9 @@ val firstCardFocusRequester = remember { FocusRequester() }
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // FIX: hide hamburger on TV — Back opens drawer
                 if (onMenuClick != null && !isSearchActive && !isTv) {
-    TvIconButton(onClick = onMenuClick, modifier = Modifier.size(44.dp)) {
+                    TvIconButton(onClick = onMenuClick, modifier = Modifier.size(44.dp)) {
                         Icon(
                             Icons.Default.Menu, "Menu",
                             tint = WhiteText, modifier = Modifier.size(22.dp)
@@ -293,11 +306,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                             .weight(1f)
                             .onFocusChanged { isSearchFocused = it.hasFocus },
                         placeholder = {
-                            Text(
-                                "Search teams or leagues…",
-                                color = GrayText,
-                                fontSize = 14.sp
-                            )
+                            Text("Search teams or leagues…", color = GrayText, fontSize = 14.sp)
                         },
                         leadingIcon = {
                             Icon(
@@ -307,7 +316,6 @@ val firstCardFocusRequester = remember { FocusRequester() }
                                 modifier = Modifier.size(20.dp)
                             )
                         },
-                        // ▼ FIX: was `TextFieldDefaults.colors()` — mismatched with OutlinedTextField
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = BioAccent,
                             unfocusedBorderColor = CircleIdleBorder,
@@ -354,7 +362,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(items = categories, key = { it }) { cat ->
+                itemsIndexed(items = categories, key = { _, cat -> cat }) { _, cat ->
                     CategoryCircle(
                         name = cat,
                         count = sportsCount[cat] ?: 0,
@@ -392,8 +400,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
 
                 item(key = "chip_all") {
                     FilterChipWithIcon(
-                        label = "All",
-                        count = events.size,
+                        label = "All", count = events.size,
                         icon = Icons.Default.Check,
                         isSelected = selectedStatus == "All",
                         onClick = { selectedStatus = "All" }
@@ -401,8 +408,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 }
                 item(key = "chip_live") {
                     FilterChipWithIcon(
-                        label = "Live",
-                        count = liveCount,
+                        label = "Live", count = liveCount,
                         icon = Icons.Default.Podcasts,
                         isSelected = selectedStatus == "Live",
                         onClick = { selectedStatus = "Live" }
@@ -410,8 +416,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 }
                 item(key = "chip_today") {
                     FilterChipWithIcon(
-                        label = "Today",
-                        count = todayCount,
+                        label = "Today", count = todayCount,
                         icon = Icons.Default.Schedule,
                         isSelected = selectedStatus == "Today",
                         onClick = { selectedStatus = "Today" }
@@ -419,8 +424,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 }
                 item(key = "chip_upcoming") {
                     FilterChipWithIcon(
-                        label = "Upcoming",
-                        count = upcomingCount,
+                        label = "Upcoming", count = upcomingCount,
                         icon = Icons.Default.Schedule,
                         isSelected = selectedStatus == "Upcoming",
                         onClick = { selectedStatus = "Upcoming" }
@@ -428,8 +432,7 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 }
                 item(key = "chip_recent") {
                     FilterChipWithIcon(
-                        label = "Recent",
-                        count = recentCount,
+                        label = "Recent", count = recentCount,
                         icon = Icons.Default.Schedule,
                         isSelected = selectedStatus == "Recent",
                         onClick = { selectedStatus = "Recent" }
@@ -473,12 +476,14 @@ val firstCardFocusRequester = remember { FocusRequester() }
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         itemsIndexed(
-    items = filteredEvents,
-    key = { _, event -> event.id ?: event.hashCode() }
-) { index, event ->
-    PlayZStyleMatchCard(
-        event = event,
-        modifier = if (index == 0) Modifier.focusRequester(firstCardFocusRequester) else Modifier,
+                            items = filteredEvents,
+                            key = { index, event -> "ev_${index}_${event.id ?: event.hashCode()}" }
+                        ) { index, event ->
+                            PlayZStyleMatchCard(
+                                event = event,
+                                modifier = if (index == 0)
+                                    Modifier.focusRequester(firstCardFocusRequester)
+                                else Modifier,
                                 isTv = isTv,
                                 isCompact = isCompact,
                                 teamLogoWidth = teamLogoWidth,
@@ -489,11 +494,11 @@ val firstCardFocusRequester = remember { FocusRequester() }
                                         val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
                                         if (streams.isNotEmpty()) {
                                             val sourcesMap = mutableMapOf<String, String>()
-                                            streams.forEachIndexed { index, s ->
+                                            streams.forEachIndexed { idx, s ->
                                                 var name = s.label.takeIf { !it.isNullOrBlank() }
-                                                    ?: "Source ${index + 1}"
+                                                    ?: "Source ${idx + 1}"
                                                 if (sourcesMap.containsKey(name))
-                                                    name = "$name (${index + 1})"
+                                                    name = "$name (${idx + 1})"
                                                 var srcUrl = s.stream_url ?: ""
                                                 if (s.drm_key != null && s.drm_kid != null) {
                                                     srcUrl += "|drm-type=clearkey|drm-key=" +
@@ -566,10 +571,12 @@ val firstCardFocusRequester = remember { FocusRequester() }
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = streams,
-                    key = { "${it.label ?: ""}|${it.stream_url ?: ""}" }
-                ) { stream ->
+                    key = { index, stream ->
+                        "s_${index}_${stream.label ?: ""}|${stream.stream_url ?: ""}"
+                    }
+                ) { _, stream ->
                     val streamName = stream.label?.takeIf { !it.isNullOrBlank() } ?: "Source"
                     PremiumOptionRow(
                         title = streamName,
@@ -636,8 +643,7 @@ private fun CategoryCircle(
             isFocused -> CircleIdleBorder
             else -> CircleIdle
         },
-        animationSpec = tween(220),
-        label = "circleBg"
+        animationSpec = tween(220), label = "circleBg"
     )
     val circleBorder by animateColorAsState(
         targetValue = when {
@@ -645,44 +651,33 @@ private fun CategoryCircle(
             isFocused -> BioAccent.copy(alpha = 0.75f)
             else -> CircleIdleBorder
         },
-        animationSpec = tween(220),
-        label = "circleBorder"
+        animationSpec = tween(220), label = "circleBorder"
     )
     val iconColor by animateColorAsState(
         targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.82f),
-        animationSpec = tween(220),
-        label = "iconColor"
+        animationSpec = tween(220), label = "iconColor"
     )
     val labelColor by animateColorAsState(
         targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.6f),
-        animationSpec = tween(220),
-        label = "labelColor"
+        animationSpec = tween(220), label = "labelColor"
     )
 
     val iconScale by animateFloatAsState(
-        targetValue = when {
-            isFocused -> 1.12f
-            isSelected -> 1.05f
-            else -> 1f
-        },
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label = "iconScale"
+        targetValue = when { isFocused -> 1.12f; isSelected -> 1.05f; else -> 1f },
+        animationSpec = tween(200, easing = FastOutSlowInEasing), label = "iconScale"
     )
     val circleScale by animateFloatAsState(
         targetValue = if (isFocused) 1.06f else 1f,
-        animationSpec = tween(180),
-        label = "circleScale"
+        animationSpec = tween(180), label = "circleScale"
     )
 
     val badgeBg by animateColorAsState(
         targetValue = if (isSelected) BioAccent else CountBadgeRed,
-        animationSpec = tween(220),
-        label = "badgeBg"
+        animationSpec = tween(220), label = "badgeBg"
     )
     val badgeTextColor by animateColorAsState(
         targetValue = if (isSelected) OnAccent else Color.White,
-        animationSpec = tween(220),
-        label = "badgeTextColor"
+        animationSpec = tween(220), label = "badgeTextColor"
     )
 
     val badgeText = if (count > 99) "99+" else count.toString()
@@ -719,10 +714,7 @@ private fun CategoryCircle(
                     tint = iconColor,
                     modifier = Modifier
                         .size(iconSize)
-                        .graphicsLayer {
-                            scaleX = iconScale
-                            scaleY = iconScale
-                        }
+                        .graphicsLayer { scaleX = iconScale; scaleY = iconScale }
                 )
             }
 
@@ -734,11 +726,7 @@ private fun CategoryCircle(
                         .size(width = badgeWidth, height = badgeHeight)
                         .clip(RoundedCornerShape(50))
                         .background(badgeBg)
-                        .border(
-                            width = 1.dp,
-                            color = PageBg,
-                            shape = RoundedCornerShape(50)
-                        ),
+                        .border(1.dp, PageBg, RoundedCornerShape(50)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -765,7 +753,7 @@ private fun CategoryCircle(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Filter chip with icon
+// Filter chip
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun FilterChipWithIcon(
@@ -783,8 +771,7 @@ private fun FilterChipWithIcon(
             isFocused -> CircleIdleBorder
             else -> CircleIdle
         },
-        animationSpec = tween(180),
-        label = "chipBg"
+        animationSpec = tween(180), label = "chipBg"
     )
     val border by animateColorAsState(
         targetValue = when {
@@ -792,13 +779,11 @@ private fun FilterChipWithIcon(
             isFocused -> BioAccent.copy(alpha = 0.6f)
             else -> CircleIdleBorder
         },
-        animationSpec = tween(180),
-        label = "chipBorder"
+        animationSpec = tween(180), label = "chipBorder"
     )
     val contentColor by animateColorAsState(
         targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.7f),
-        animationSpec = tween(180),
-        label = "chipContent"
+        animationSpec = tween(180), label = "chipContent"
     )
 
     Row(
@@ -811,25 +796,16 @@ private fun FilterChipWithIcon(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = contentColor,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(modifier = Modifier.width(6.dp))
+        Icon(icon, null, tint = contentColor, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
         Text(
-            text = label,
-            color = contentColor,
-            fontSize = 13.sp,
+            label, color = contentColor, fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(Modifier.width(4.dp))
         Text(
-            text = "($count)",
-            color = contentColor.copy(alpha = 0.55f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
+            "($count)", color = contentColor.copy(alpha = 0.55f),
+            fontSize = 12.sp, fontWeight = FontWeight.Medium
         )
     }
 }
@@ -851,13 +827,11 @@ private fun PlayZStyleMatchCard(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.01f else 1f,
-        animationSpec = tween(180),
-        label = "cardScale"
+        animationSpec = tween(180), label = "cardScale"
     )
     val borderColor by animateColorAsState(
         targetValue = if (isFocused) BioAccent.copy(alpha = 0.6f) else Color.Transparent,
-        animationSpec = tween(180),
-        label = "cardBorder"
+        animationSpec = tween(180), label = "cardBorder"
     )
 
     val dateObj = parseEventDate(event.starts_at)
@@ -871,12 +845,9 @@ private fun PlayZStyleMatchCard(
     val centerWidth = if (isTv) 120.dp else if (isCompact) 80.dp else 96.dp
 
     Box(
-    modifier = modifier
-        .fillMaxWidth()
-        .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-        }
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(14.dp))
             .background(CardSurface)
@@ -925,19 +896,14 @@ private fun PlayZStyleMatchCard(
                         Spacer(Modifier.height(6.dp))
                     } else {
                         Text(
-                            text = "KICKOFF",
-                            color = GrayText.copy(alpha = 0.5f),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            "KICKOFF", color = GrayText.copy(alpha = 0.5f),
+                            fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(Modifier.height(4.dp))
                     }
                     Text(
                         text = timeText,
-                        color = if (event.is_live == 1)
-                            WhiteText.copy(alpha = 0.55f)
-                        else WhiteText,
+                        color = if (event.is_live == 1) WhiteText.copy(alpha = 0.55f) else WhiteText,
                         fontSize = if (isTv) 13.sp else 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center
@@ -966,18 +932,13 @@ private fun PlayZStyleMatchCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "HOT",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 0.5.sp
+                        "HOT", color = Color.White, fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
+                    Spacer(Modifier.width(2.dp))
                     Icon(
-                        Icons.Default.Whatshot,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                        Icons.Default.Whatshot, null,
+                        tint = Color.White, modifier = Modifier.size(12.dp)
                     )
                 }
             }
@@ -997,20 +958,13 @@ private fun MatchTeamColumn(
     nameFontSize: TextUnit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
                 .size(width = logoWidth, height = logoHeight)
                 .clip(RoundedCornerShape(10.dp))
                 .background(LogoContainerBg)
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.06f),
-                    shape = RoundedCornerShape(10.dp)
-                ),
+                .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (!logoUrl.isNullOrEmpty()) {
@@ -1018,16 +972,12 @@ private fun MatchTeamColumn(
                     model = logoUrl,
                     contentDescription = name,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(6.dp)
+                    modifier = Modifier.fillMaxSize().padding(6.dp)
                 )
             } else {
                 Text(
                     text = name.take(2).uppercase(),
-                    color = BioAccent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    color = BioAccent, fontSize = 18.sp, fontWeight = FontWeight.Bold
                 )
             }
         }
