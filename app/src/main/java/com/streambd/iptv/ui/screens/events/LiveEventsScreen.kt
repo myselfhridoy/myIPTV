@@ -471,12 +471,13 @@ val firstCardFocusRequester = remember { FocusRequester() }
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(
-                            items = filteredEvents,
-                            key = { it.id ?: it.hashCode() }
-                        ) { event ->
-                            PlayZStyleMatchCard(
-                                event = event,
+                        itemsIndexed(
+    items = filteredEvents,
+    key = { _, event -> event.id ?: event.hashCode() }
+) { index, event ->
+    PlayZStyleMatchCard(
+        event = event,
+        modifier = if (index == 0) Modifier.focusRequester(firstCardFocusRequester) else Modifier,
                                 isTv = isTv,
                                 isCompact = isCompact,
                                 teamLogoWidth = teamLogoWidth,
