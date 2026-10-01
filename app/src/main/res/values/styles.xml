@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="PlayerViewTextureStyle" parent="">
+        <item name="surface_type">texture_view</item>
+        <item name="use_controller">false</item>
+        <item name="resize_mode">fill</item>
+        <item name="show_buffering">never</item>
+    </style>
+</resources>
