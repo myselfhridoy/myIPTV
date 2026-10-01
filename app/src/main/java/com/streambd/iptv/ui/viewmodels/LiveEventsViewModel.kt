@@ -2,30 +2,29 @@ package com.streambd.iptv.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streambd.iptv.data.models.SportzfyApiResponse
 import com.streambd.iptv.data.models.SportzfyEvent
-import com.streambd.iptv.data.models.SportzfyStreamResponse
 import com.streambd.iptv.data.models.SportzfyStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 
 class LiveEventsViewModel : ViewModel() {
+
     private val _events = MutableStateFlow<List<SportzfyEvent>>(emptyList())
-    val events: StateFlow<List<SportzfyEvent>> = _events
+    val events: StateFlow<List<SportzfyEvent>> = _events.asStateFlow()
 
     private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val fullApiUrl: String
         get() = com.streambd.iptv.utils.RemoteConfigManager.getLiveEventsApiUrl()
 
     private val baseDirectory: String
         get() = fullApiUrl.substringBeforeLast("/")
-        
+
     private val fileName: String
         get() = fullApiUrl.substringAfterLast("/")
 
@@ -37,10 +36,11 @@ class LiveEventsViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
             try {
-                val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEvents(
-                    fullApiUrl
-                )
+                val response = com.streambd.iptv.data.api.RetrofitClient.apiService
+                    .getLiveEvents(fullApiUrl)
                 _events.value = response.events
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -51,8 +51,11 @@ class LiveEventsViewModel : ViewModel() {
 
     suspend fun getLiveEventsDirectly(): List<SportzfyEvent> {
         return try {
-            val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEvents(fullApiUrl)
+            val response = com.streambd.iptv.data.api.RetrofitClient.apiService
+                .getLiveEvents(fullApiUrl)
             response.events
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -61,11 +64,12 @@ class LiveEventsViewModel : ViewModel() {
 
     suspend fun getStreamsForEvent(eventId: String): List<SportzfyStream> {
         return try {
-            val streamUrl = "$baseDirectory/${eventId}/$fileName"
-            val response = com.streambd.iptv.data.api.RetrofitClient.apiService.getLiveEventStreams(
-                streamUrl
-            )
+            val streamUrl = "$baseDirectory/$eventId/$fileName"
+            val response = com.streambd.iptv.data.api.RetrofitClient.apiService
+                .getLiveEventStreams(streamUrl)
             response.streams
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
