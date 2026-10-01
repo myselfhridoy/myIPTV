@@ -481,6 +481,16 @@ fun VodPlayerScreen(
     e.printStackTrace()
     isLoading = false
     resolveFailed = true
+
+    // ── Firebase logging: resolution failed before ExoPlayer started ──
+    PlaybackLogger.logVodPlaybackError(
+        context = context,
+        title = videoTitle ?: stream.provider,
+        streamProvider = stream.provider,
+        streamQuality = stream.quality,
+        streamUrl = stream.url,
+        error = null
+    )
 }
     }
 
