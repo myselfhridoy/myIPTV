@@ -400,7 +400,6 @@ private fun DrawerItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    // ── Colors ──
     val bgColor by animateColorAsState(
         targetValue = when {
             isFocused -> DrawerFocusedBg
@@ -430,9 +429,8 @@ private fun DrawerItem(
         label = "drawerBorder"
     )
 
-    // ── Lift-up + scale ──
-    val translationY by animateFloatAsState(
-        targetValue = if (isFocused) -6f else 0f,   // rises 6px up
+    val liftY by animateFloatAsState(
+        targetValue = if (isFocused) -6f else 0f,
         animationSpec = tween(200),
         label = "drawerLift"
     )
@@ -442,27 +440,12 @@ private fun DrawerItem(
         label = "drawerScale"
     )
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 2.dp)
-            .graphicsLayer {
-                translationY = this@graphicsLayer.translationY.let { _ -> 0f } // placeholder
-            }
-            // Apply lift via a nested graphicsLayer to keep math clean:
-            .then(
-                Modifier.graphicsLayer {
-                    this.translationY = this@DrawerItem.run { translationY }.let { _ ->
-                        // see comment below
-                        0f
-                    }
-                }
-            )
-            // ── Real focus behaviour ──
+            .padding(horizontal = 12.dp, vertical = 3.dp)
             .focusProperties {
-                // Block focus entirely when drawer is closed
                 canFocus = isDrawerOpen
-                // Trap Left/Right inside drawer while it's open
                 if (isDrawerOpen) {
                     left = FocusRequester.Cancel
                     right = FocusRequester.Cancel
@@ -473,55 +456,60 @@ private fun DrawerItem(
                 else Modifier
             )
             .onFocusChanged { isFocused = it.hasFocus }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationY = liftY
+            }
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
             .border(2.dp, borderColor, RoundedCornerShape(10.dp))
             .tvTouchClick(onClick)
-            .padding(horizontal = 0.dp, vertical = 12.dp)
-            .graphicsLayer {
-                this.scaleX = scale
-                this.scaleY = scale
-                this.translationY = translationY
-            },
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .width(4.dp)
-                .height(24.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(accentBarColor)
-        )
-        Spacer(Modifier.width(12.dp))
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = contentColor,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(Modifier.width(14.dp))
-        Text(
-            text = label,
-            color = contentColor,
-            fontSize = 14.sp,
-            fontWeight = if (selected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.weight(1f)
-        )
-        if (badge != null) {
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(BioAccent.copy(alpha = 0.18f))
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = badge,
-                    color = BioAccent,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                    .width(4.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accentBarColor)
+            )
+            Spacer(Modifier.width(12.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                text = label,
+                color = contentColor,
+                fontSize = 14.sp,
+                fontWeight = if (selected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            if (badge != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(BioAccent.copy(alpha = 0.18f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        color = BioAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
+            Spacer(Modifier.width(12.dp))
         }
-        Spacer(Modifier.width(12.dp))
     }
 }
