@@ -3,6 +3,7 @@ package com.streambd.iptv.ui.screens.main
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,9 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,11 +64,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────
-// Local drawer palette
+// Drawer palette
 // ─────────────────────────────────────────────────────────────
 private val DrawerBg = Color(0xFF0D1220)
 private val DrawerSelectedBg = BioAccent.copy(alpha = 0.14f)
 private val DrawerSectionLabel = Color(0xFF6B7280)
+private val DrawerFocusedBg = BioAccent.copy(alpha = 0.08f)
+private val DrawerFocusedBorder = BioAccent
 
 @Composable
 fun TvMainScreen(
@@ -85,10 +91,10 @@ fun TvMainScreen(
 
     var lastBackPressTime by remember { mutableStateOf(0L) }
 
-    // Back behavior on TV:
-    //   • Drawer open      → close drawer
-    //   • Double-back      → exit dialog
-    //   • Single-back      → toast hint
+    // Back:
+    //   • Drawer open → close drawer
+    //   • Double-back (2s) → exit dialog
+    //   • Single-back → toast hint
     BackHandler(enabled = true) {
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
@@ -110,12 +116,11 @@ fun TvMainScreen(
 
     LaunchedEffect(drawerState.isOpen) {
         if (drawerState.isOpen) {
-            delay(220) // let the drawer finish sliding in
+            delay(220) // let the slide-in finish
             try { drawerFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
-    // Central helper: opens drawer from anywhere in the TV UI
     val openDrawer: () -> Unit = {
         scope.launch { drawerState.open() }
     }
@@ -124,16 +129,28 @@ fun TvMainScreen(
         drawerState = drawerState,
         drawerContent = {
             TvDrawerContent(
-                mainViewModel = mainViewModel,
                 tvTabs = tvTabs,
                 selectedTab = selectedTab,
+                isDrawerOpen = drawerState.isOpen,
                 firstItemFocusRequester = drawerFocusRequester,
                 onItemClick = { index ->
                     when (index) {
-                        4 -> navController.navigate("playlists")
-                        5 -> onCheckUpdate()
-                        6 -> onShowMore()
-                        7 -> onShowExitDialog()
+                        4 -> {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("playlists")
+                        }
+                        5 -> {
+                            scope.launch { drawerState.close() }
+                            onCheckUpdate()
+                        }
+                        6 -> {
+                            scope.launch { drawerState.close() }
+                            onShowMore()
+                        }
+                        7 -> {
+                            scope.launch { drawerState.close() }
+                            onShowExitDialog()
+                        }
                         else -> {
                             onTabSelected(index)
                             scope.launch { drawerState.close() }
@@ -158,7 +175,7 @@ fun TvMainScreen(
                         androidx.lifecycle.viewmodel.compose.viewModel()
                     LiveEventsScreen(
                         eventsViewModel, mainViewModel, navController,
-                        onMenuClick = openDrawer     // ← hamburger icon now works
+                        onMenuClick = openDrawer
                     )
                 }
                 1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = openDrawer)
@@ -170,13 +187,13 @@ fun TvMainScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Drawer content — polished, section-grouped
+// Drawer content
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun TvDrawerContent(
-    mainViewModel: MainViewModel,
     tvTabs: List<TabItem>,
     selectedTab: Int,
+    isDrawerOpen: Boolean,
     firstItemFocusRequester: FocusRequester,
     onItemClick: (Int) -> Unit
 ) {
@@ -199,13 +216,13 @@ private fun TvDrawerContent(
             DrawerDivider()
             Spacer(Modifier.height(12.dp))
 
-            // ── Content section ──
+            // ── Content ──
             DrawerSectionLabelText("CONTENT")
             DrawerItem(
                 icon = Icons.Filled.Event,
                 label = tvTabs[0].title,
                 selected = selectedTab == 0,
-                badge = null,
+                isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 0) firstItemFocusRequester else null,
                 onClick = { onItemClick(0) }
             )
@@ -213,7 +230,7 @@ private fun TvDrawerContent(
                 icon = Icons.Filled.LiveTv,
                 label = tvTabs[1].title,
                 selected = selectedTab == 1,
-                badge = null,
+                isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 1) firstItemFocusRequester else null,
                 onClick = { onItemClick(1) }
             )
@@ -221,7 +238,7 @@ private fun TvDrawerContent(
                 icon = Icons.Filled.MovieFilter,
                 label = tvTabs[2].title,
                 selected = selectedTab == 2,
-                badge = null,
+                isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 2) firstItemFocusRequester else null,
                 onClick = { onItemClick(2) }
             )
@@ -229,42 +246,39 @@ private fun TvDrawerContent(
                 icon = Icons.Filled.NetworkWifi,
                 label = tvTabs[3].title,
                 selected = selectedTab == 3,
-                badge = null,
+                isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 3) firstItemFocusRequester else null,
                 onClick = { onItemClick(3) }
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Library section ──
+            // ── Library ──
             DrawerSectionLabelText("LIBRARY")
             DrawerItem(
                 icon = Icons.Filled.Folder,
                 label = "Playlists",
                 selected = false,
-                badge = null,
-                focusRequester = null,
+                isDrawerOpen = isDrawerOpen,
                 onClick = { onItemClick(4) }
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // ── Settings section ──
+            // ── Settings ──
             DrawerSectionLabelText("SETTINGS")
             DrawerItem(
                 icon = Icons.Filled.Refresh,
                 label = "Check Update",
                 selected = false,
-                badge = null,
-                focusRequester = null,
+                isDrawerOpen = isDrawerOpen,
                 onClick = { onItemClick(5) }
             )
             DrawerItem(
                 icon = Icons.Outlined.MoreVert,
                 label = "More",
                 selected = false,
-                badge = null,
-                focusRequester = null,
+                isDrawerOpen = isDrawerOpen,
                 onClick = { onItemClick(6) }
             )
 
@@ -277,15 +291,13 @@ private fun TvDrawerContent(
                 icon = Icons.AutoMirrored.Filled.ExitToApp,
                 label = "Exit App",
                 selected = false,
+                isDrawerOpen = isDrawerOpen,
                 danger = true,
-                badge = null,
-                focusRequester = null,
                 onClick = { onItemClick(7) }
             )
 
             Spacer(Modifier.height(24.dp))
 
-            // ── Footer ──
             Text(
                 text = "StreamBD IPTV • v4.0",
                 color = GrayText.copy(alpha = 0.4f),
@@ -297,7 +309,7 @@ private fun TvDrawerContent(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Header — logo + brand
+// Header
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun DrawerHeader() {
@@ -307,7 +319,6 @@ private fun DrawerHeader() {
             .padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Logo placeholder — BioAccent circle with a TV icon
         Box(
             modifier = Modifier
                 .size(46.dp)
@@ -332,20 +343,18 @@ private fun DrawerHeader() {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BioAccent.copy(alpha = 0.15f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "v4.0",
-                        color = BioAccent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(BioAccent.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "v4.0",
+                    color = BioAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -376,13 +385,14 @@ private fun DrawerDivider() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Drawer item — with accent bar + optional badge + danger variant
+// Drawer item — with lift-up + focus trap + closed-focus block
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun DrawerItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     selected: Boolean,
+    isDrawerOpen: Boolean,
     badge: String? = null,
     danger: Boolean = false,
     focusRequester: FocusRequester? = null,
@@ -390,10 +400,11 @@ private fun DrawerItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
+    // ── Colors ──
     val bgColor by animateColorAsState(
         targetValue = when {
+            isFocused -> DrawerFocusedBg
             selected -> DrawerSelectedBg
-            isFocused -> Color.White.copy(alpha = 0.06f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
@@ -402,34 +413,78 @@ private fun DrawerItem(
     val contentColor by animateColorAsState(
         targetValue = when {
             danger -> Color(0xFFFF6B6B)
-            selected -> BioAccent
+            isFocused || selected -> BioAccent
             else -> WhiteText.copy(alpha = 0.85f)
         },
         animationSpec = tween(180),
         label = "drawerItemContent"
     )
     val accentBarColor by animateColorAsState(
-        targetValue = if (selected) BioAccent else Color.Transparent,
+        targetValue = if (isFocused || selected) BioAccent else Color.Transparent,
         animationSpec = tween(180),
         label = "drawerAccent"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) DrawerFocusedBorder else Color.Transparent,
+        animationSpec = tween(180),
+        label = "drawerBorder"
+    )
+
+    // ── Lift-up + scale ──
+    val translationY by animateFloatAsState(
+        targetValue = if (isFocused) -6f else 0f,   // rises 6px up
+        animationSpec = tween(200),
+        label = "drawerLift"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.03f else 1f,
+        animationSpec = tween(200),
+        label = "drawerScale"
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(bgColor)
-            .onFocusChanged { isFocused = it.hasFocus }
+            .graphicsLayer {
+                translationY = this@graphicsLayer.translationY.let { _ -> 0f } // placeholder
+            }
+            // Apply lift via a nested graphicsLayer to keep math clean:
+            .then(
+                Modifier.graphicsLayer {
+                    this.translationY = this@DrawerItem.run { translationY }.let { _ ->
+                        // see comment below
+                        0f
+                    }
+                }
+            )
+            // ── Real focus behaviour ──
+            .focusProperties {
+                // Block focus entirely when drawer is closed
+                canFocus = isDrawerOpen
+                // Trap Left/Right inside drawer while it's open
+                if (isDrawerOpen) {
+                    left = FocusRequester.Cancel
+                    right = FocusRequester.Cancel
+                }
+            }
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
             )
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(2.dp, borderColor, RoundedCornerShape(10.dp))
             .tvTouchClick(onClick)
-            .padding(horizontal = 0.dp, vertical = 12.dp),
+            .padding(horizontal = 0.dp, vertical = 12.dp)
+            .graphicsLayer {
+                this.scaleX = scale
+                this.scaleY = scale
+                this.translationY = translationY
+            },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left accent bar (4dp) — visible only when selected
         Box(
             modifier = Modifier
                 .width(4.dp)
@@ -437,26 +492,21 @@ private fun DrawerItem(
                 .clip(RoundedCornerShape(2.dp))
                 .background(accentBarColor)
         )
-
         Spacer(Modifier.width(12.dp))
-
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = contentColor,
             modifier = Modifier.size(20.dp)
         )
-
         Spacer(Modifier.width(14.dp))
-
         Text(
             text = label,
             color = contentColor,
             fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            fontWeight = if (selected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
-
         if (badge != null) {
             Box(
                 modifier = Modifier
@@ -472,7 +522,6 @@ private fun DrawerItem(
                 )
             }
         }
-
         Spacer(Modifier.width(12.dp))
     }
 }
