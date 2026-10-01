@@ -828,12 +828,12 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
     val isTv = remember(configuration) {
-        val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
-        val isTelevision = uiMode == UI_MODE_TYPE_TELEVISION
-        val pm = context.packageManager
-        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        isTelevision || isLeanback
-    }
+    val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+    val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION   // ← Configuration. prefix
+    val pm = context.packageManager
+    val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+    isTelevision || isLeanback
+}
 
     if (isTv) {
         // TV mode — non-inline edit; TV keyboards are awkward, so we render a
