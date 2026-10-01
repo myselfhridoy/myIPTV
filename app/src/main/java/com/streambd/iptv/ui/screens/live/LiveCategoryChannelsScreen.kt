@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,7 +61,6 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.SurfaceDark
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 
@@ -178,7 +179,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             }
         }
 
-        // ── Chips row (only if more than one real group) ──
+        // ── Chips row ──
         val validGroups = groups.filter { it.isNotBlank() }
         if (validGroups.size > 1) {
             LazyRow(
@@ -195,10 +196,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         onClick = { isGroupsModalExpanded = true }
                     )
                 }
-                items(
+                itemsIndexed(
                     items = validGroups.take(10),
-                    key = { it }
-                ) { group ->
+                    key = { index, group -> "chip_${index}_$group" }
+                ) { _, group ->
                     FilterChipItem(
                         text = group,
                         icon = if (selectedGroup == group) Icons.Default.Check else null,
@@ -248,10 +249,14 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            gridItems(
+                            // ── FIX: index-prefixed key so duplicate name+url pairs
+                            //    (identical PTV Sports listed twice, etc.) don't crash.
+                            gridItemsIndexed(
                                 items = channelsList ?: emptyList(),
-                                key = { "${it.name}|${it.url}" }
-                            ) { channel ->
+                                key = { index, channel ->
+                                    "$index|${channel.name}|${channel.url}"
+                                }
+                            ) { _, channel ->
                                 ChannelCard(channel = channel) {
                                     viewModel.setCurrentPlaylist(currentPlaylist)
                                     viewModel.selectChannel(channel)
@@ -267,8 +272,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                         contentPadding = PaddingValues(bottom = 32.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
+                        var groupCounter = 0
                         groupedChannels.forEach { (group, channels) ->
-                            item(key = "grp_$group") {
+                            val groupKey = "grp_${groupCounter++}_$group"
+                            item(key = groupKey) {
                                 if (group.isNotBlank()) {
                                     Text(
                                         text = group.uppercase(),
@@ -284,10 +291,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                                     contentPadding = PaddingValues(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    items(
+                                    itemsIndexed(
                                         items = channels,
-                                        key = { "${it.name}|${it.url}" }
-                                    ) { channel ->
+                                        key = { index, channel ->
+                                            "$index|${channel.name}|${channel.url}"
+                                        }
+                                    ) { _, channel ->
                                         Box(modifier = Modifier.width(140.dp)) {
                                             ChannelCard(channel = channel) {
                                                 viewModel.setCurrentPlaylist(currentPlaylist)
@@ -322,7 +331,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(items = groups, key = { it }) { group ->
+                itemsIndexed(
+                    items = groups,
+                    key = { index, group -> "modal_${index}_$group" }
+                ) { _, group ->
                     PremiumOptionRow(
                         title = group,
                         selected = selectedGroup == group,
@@ -432,7 +444,7 @@ fun FilterChipItem(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Channel card — custom, predictable on TV + mobile
+// Channel card
 // ─────────────────────────────────────────────────────────────
 @Composable
 fun ChannelCard(channel: Channel, onClick: () -> Unit) {
@@ -451,7 +463,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1.77f) // 16:9
+            .aspectRatio(1.77f)
             .onFocusChanged { isFocused = it.hasFocus }
             .graphicsLayer {
                 scaleX = scale
