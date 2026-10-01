@@ -175,9 +175,7 @@ fun VodScreen(
 
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
-    val isTV = remember {
-        context.packageManager.hasSystemFeature("android.software.leanback")
-    }
+    val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     // ── Single source of truth for rows ──
