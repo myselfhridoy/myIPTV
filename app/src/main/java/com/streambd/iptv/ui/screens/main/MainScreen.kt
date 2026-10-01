@@ -203,8 +203,11 @@ val isTv = remember(configuration) {
 
     // More dialog (both mobile + TV)
     if (showMoreDialog) {
-        val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
-        Dialog(onDismissRequest = { showMoreDialog = false }) {
+    val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
+    Dialog(
+        onDismissRequest = { showMoreDialog = false },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = DarkNavySurface
