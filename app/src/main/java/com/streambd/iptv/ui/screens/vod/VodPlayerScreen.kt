@@ -1,7 +1,6 @@
 package com.streambd.iptv.ui.screens.vod
 
-import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.view.LayoutInflater
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -86,7 +85,6 @@ fun VodPlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
 
-    // Player reveal (rotation + fade + scale on entry/exit)
     var exitRequested by remember { mutableStateOf(false) }
 
     var currentPosition by remember { mutableStateOf(0L) }
@@ -107,12 +105,12 @@ fun VodPlayerScreen(
 
     val seekAmount = 10_000L
 
-    // Window effects (insets, cutout, PiP). NO orientation forcing.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
 
+    // ── Handle ExoPlayer media setup ──
     LaunchedEffect(stream, retryToken) {
         isLoading = true
         resolveFailed = false
@@ -613,14 +611,12 @@ fun VodPlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // Style forces TextureView so the container rotation applies.
-                        PlayerView(ctx, null, 0, R.style.PlayerViewTextureStyle).apply {
+                        // Inflate XML layout so `app:surface_type="texture_view"` is honored.
+                        val view = LayoutInflater.from(ctx)
+                            .inflate(R.layout.view_player_texture, null, false) as PlayerView
+                        view.apply {
                             player = exoPlayer
                             useController = false
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
                         }
                     },
                     update = { playerView ->
