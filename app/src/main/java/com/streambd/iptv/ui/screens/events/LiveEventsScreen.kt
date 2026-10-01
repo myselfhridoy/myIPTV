@@ -102,6 +102,7 @@ private val CircleIdleBorder = Color(0xFF252D3E)
 private val LogoContainerBg = Color(0xFF1F2739)
 private val CountBadgeRed = Color(0xFFE53935)
 private val LiveRed = Color(0xFFFF3B3B)
+private val OnAccent = Color(0xFF0A0E17)
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -360,7 +361,7 @@ fun LiveEventsScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── Filter chips (LazyRow — horizontally scrollable on mobile) ──
+            // ── Filter chips (LazyRow — horizontally scrollable) ──
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -528,7 +529,7 @@ fun LiveEventsScreen(
             }
         }
 
-        // Pull-to-refresh indicator: only while refreshing (avoids empty reservation space)
+        // Pull-to-refresh indicator (only while refreshing)
         if (pullToRefreshState.isRefreshing) {
             PullToRefreshContainer(
                 state = pullToRefreshState,
@@ -607,7 +608,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category circle
+// Category circle — polished
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryCircle(
@@ -621,34 +622,68 @@ private fun CategoryCircle(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
+    // ── Circle background ──
     val circleBg by animateColorAsState(
         targetValue = when {
-            isSelected -> BioAccent.copy(alpha = 0.14f)
+            isSelected -> BioAccent.copy(alpha = 0.16f)
             isFocused -> CircleIdleBorder
             else -> CircleIdle
         },
-        animationSpec = tween(180),
+        animationSpec = tween(220),
         label = "circleBg"
     )
     val circleBorder by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent
-            isFocused -> BioAccent.copy(alpha = 0.7f)
+            isFocused -> BioAccent.copy(alpha = 0.75f)
             else -> CircleIdleBorder
         },
-        animationSpec = tween(180),
+        animationSpec = tween(220),
         label = "circleBorder"
     )
     val iconColor by animateColorAsState(
-        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.8f),
-        animationSpec = tween(180),
+        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.82f),
+        animationSpec = tween(220),
         label = "iconColor"
     )
     val labelColor by animateColorAsState(
-        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.65f),
-        animationSpec = tween(180),
+        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.6f),
+        animationSpec = tween(220),
         label = "labelColor"
     )
+
+    // ── Micro-animations ──
+    val iconScale by animateFloatAsState(
+        targetValue = when {
+            isFocused -> 1.12f
+            isSelected -> 1.05f
+            else -> 1f
+        },
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "iconScale"
+    )
+    val circleScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.06f else 1f,
+        animationSpec = tween(180),
+        label = "circleScale"
+    )
+
+    // ── Badge color adapts to selected state ──
+    val badgeBg by animateColorAsState(
+        targetValue = if (isSelected) BioAccent else CountBadgeRed,
+        animationSpec = tween(220),
+        label = "badgeBg"
+    )
+    val badgeTextColor by animateColorAsState(
+        targetValue = if (isSelected) OnAccent else Color.White,
+        animationSpec = tween(220),
+        label = "badgeTextColor"
+    )
+
+    // Handle 99+ overflow
+    val badgeText = if (count > 99) "99+" else count.toString()
+    val badgeWidth = if (count > 99) 28.dp else 20.dp
+    val badgeHeight = 20.dp
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -656,7 +691,13 @@ private fun CategoryCircle(
             .onFocusChanged { isFocused = it.hasFocus }
             .tvTouchClick(onClick)
     ) {
-        Box {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                scaleX = circleScale
+                scaleY = circleScale
+            }
+        ) {
+            // ── Circle body ──
             Box(
                 modifier = Modifier
                     .size(circleSize)
@@ -673,35 +714,50 @@ private fun CategoryCircle(
                     imageVector = icon,
                     contentDescription = name,
                     tint = iconColor,
-                    modifier = Modifier.size(iconSize)
+                    modifier = Modifier
+                        .size(iconSize)
+                        .graphicsLayer {
+                            scaleX = iconScale
+                            scaleY = iconScale
+                        }
                 )
             }
+
+            // ── Count badge — top-right, subtle offset ──
             if (count > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-4).dp)
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(CountBadgeRed),
+                        .offset(x = 2.dp, y = (-2).dp)
+                        .size(width = badgeWidth, height = badgeHeight)
+                        .clip(RoundedCornerShape(50))
+                        .background(badgeBg)
+                        .border(
+                            width = 1.dp,
+                            color = PageBg,
+                            shape = RoundedCornerShape(50)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = count.toString(),
-                        color = Color.White,
+                        text = badgeText,
+                        color = badgeTextColor,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
+
         Spacer(Modifier.height(6.dp))
+
         Text(
             text = name,
             color = labelColor,
             fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            maxLines = 1
+            maxLines = 1,
+            letterSpacing = if (isSelected) 0.3.sp else 0.sp
         )
     }
 }
@@ -759,14 +815,14 @@ private fun FilterChipWithIcon(
             tint = contentColor,
             modifier = Modifier.size(16.dp)
         )
-        Spacer(Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
             color = contentColor,
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
         )
-        Spacer(Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = "($count)",
             color = contentColor.copy(alpha = 0.55f),
@@ -913,7 +969,7 @@ private fun PlayZStyleMatchCard(
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 0.5.sp
                     )
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
                     Icon(
                         Icons.Default.Whatshot,
                         contentDescription = null,
