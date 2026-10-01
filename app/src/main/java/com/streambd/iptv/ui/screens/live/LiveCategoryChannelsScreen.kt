@@ -63,6 +63,8 @@ import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import androidx.compose.material.icons.filled.Close
+import com.streambd.iptv.ui.theme.SurfaceDark
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,23 +141,57 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             Spacer(modifier = Modifier.width(16.dp))
 
             if (isSearchActive) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search channels…", color = GrayText) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BioAccent,
-                        unfocusedBorderColor = Color.DarkGray,
-                        focusedTextColor = WhiteText,
-                        unfocusedTextColor = WhiteText,
-                        cursorColor = BioAccent
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp)
-                        .onFocusChanged { isSearchFocused = it.hasFocus }
+    OutlinedTextField(
+        value = searchQuery,
+        onValueChange = { searchQuery = it },
+        placeholder = {
+            Text(
+                "Search channels…",
+                color = GrayText,
+                fontSize = 14.sp
+            )
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = BioAccent
+            )
+        },
+        trailingIcon = {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .tvTouchClick {
+                        searchQuery = ""
+                        isSearchActive = false
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close search",
+                    tint = GrayText
                 )
-            } else {
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = BioAccent,
+            unfocusedBorderColor = Color(0xFF2B3648),
+            focusedTextColor = WhiteText,
+            unfocusedTextColor = WhiteText,
+            cursorColor = BioAccent,
+            focusedContainerColor = SurfaceDark,
+            unfocusedContainerColor = SurfaceDark
+        ),
+        shape = RoundedCornerShape(14.dp),
+        singleLine = true,
+        modifier = Modifier
+            .weight(1f)
+            .height(50.dp)
+            .onFocusChanged { isSearchFocused = it.hasFocus }
+    )
+} else {
                 Text(
                     text = categoryName,
                     color = WhiteText,
