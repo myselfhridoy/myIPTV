@@ -56,6 +56,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.streambd.iptv.utils.PlaybackLogger
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -296,8 +297,21 @@ fun LivePlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                val hls = isHlsFormatError(error)
-                val allUrls = (listOf(channel.url) + channel.sources.values.toList())
+    val hls = isHlsFormatError(error)
+
+    // ── Firebase logging (throttled inside PlaybackLogger) ──
+    PlaybackLogger.logLivePlaybackError(
+        context = context,
+        channelName = channel.name,
+        channelGroup = channel.group,
+        channelUrl = channel.url,
+        sourceUrl = currentSourceUrl,
+        sourcesCount = channel.sources.size,
+        error = error,
+        isHlsFormatError = hls
+    )
+
+    val allUrls = (listOf(channel.url) + channel.sources.values.toList())
                     .filter { it.isNotBlank() }
                     .distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
