@@ -13,29 +13,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.outlined.ExitToApp
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.MovieFilter
-import androidx.compose.material.icons.filled.NetworkWifi
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.outlined.Copyright
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material.icons.outlined.LiveTv
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.MovieFilter
-import androidx.compose.material.icons.outlined.NetworkWifi
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Event
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DrawerValue
@@ -46,8 +29,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,7 +53,6 @@ import com.streambd.iptv.R
 import com.streambd.iptv.ui.components.PremiumButton
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.TvFocusableItem
-import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.screens.events.LiveEventsScreen
 import com.streambd.iptv.ui.screens.live.LiveTvScreen
@@ -80,7 +62,6 @@ import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.SurfaceDark
 import com.streambd.iptv.ui.theme.UnselectedItemColor
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
@@ -141,9 +122,7 @@ fun MainScreen(
 
     val openTelegram = {
         try {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/streamBD"))
-            )
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/streamBD")))
         } catch (_: Exception) {}
     }
 
@@ -166,7 +145,6 @@ fun MainScreen(
         ).show()
     }
 
-    // Restart helper — never kill the process.
     val restartApp: () -> Unit = {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         intent?.addFlags(
@@ -178,10 +156,7 @@ fun MainScreen(
         (context as? android.app.Activity)?.finishAffinity()
     }
 
-    // ── Back handler:
-    //   1. drawer open    → close drawer
-    //   2. not home tab   → go to home tab
-    //   3. home tab       → exit dialog
+    // Back: drawer → close / non-home → home / home → exit dialog
     BackHandler(enabled = true) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
@@ -190,7 +165,7 @@ fun MainScreen(
         }
     }
 
-    // ── Exit dialog ──
+    // Exit dialog
     if (showExitDialog) {
         PremiumDialogScaffold(
             title = "Exit App",
@@ -206,7 +181,7 @@ fun MainScreen(
         ) {}
     }
 
-    // ── Copyright dialog ──
+    // Copyright dialog
     if (showCopyrightDialog) {
         PremiumDialogScaffold(
             title = "Copyright & Disclaimer",
@@ -231,31 +206,22 @@ fun MainScreen(
         }
     }
 
-    // ── More dialog (mobile only — TV uses drawer) ──
+    // More dialog (mobile only)
     if (showMoreDialog && !isTv) {
         val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
         Dialog(onDismissRequest = { showMoreDialog = false }) {
-            androidx.compose.material3.Surface(
+            Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = DarkNavySurface
             ) {
                 Column(modifier = Modifier.padding(16.dp).width(300.dp)) {
-                    Text(
-                        "More Options",
-                        color = WhiteText,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("More Options", color = WhiteText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
                     val moreItems = listOf(
                         Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
                             showMoreDialog = false
-                            if (!isTvModeEnabled) {
-                                showTvModeConfigDialog = true
-                            } else {
-                                mainViewModel.toggleTvMode(false)
-                                restartApp()
-                            }
+                            if (!isTvModeEnabled) showTvModeConfigDialog = true
+                            else { mainViewModel.toggleTvMode(false); restartApp() }
                         },
                         Pair("Notice", Icons.Outlined.Notifications) to {
                             showMoreDialog = false; showNotice()
@@ -302,7 +268,6 @@ fun MainScreen(
             onRestartApp = restartApp
         )
     } else {
-        // ── Mobile layout: Navigation Drawer + Bottom nav ──
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
@@ -319,7 +284,6 @@ fun MainScreen(
                     ) {
                         var logoTapCount by remember { mutableStateOf(0) }
                         var logoLastTapTime by remember { mutableStateOf(0L) }
-
                         Image(
                             painter = painterResource(id = R.drawable.tv_app_banner),
                             contentDescription = "App Logo",
@@ -350,12 +314,8 @@ fun MainScreen(
                     val drawerItems = listOf(
                         Pair("TV Mode: ${if (isTvModeEnabled) "ON" else "OFF"}", Icons.Outlined.LiveTv) to {
                             scope.launch { drawerState.close() }
-                            if (!isTvModeEnabled) {
-                                showTvModeConfigDialog = true
-                            } else {
-                                mainViewModel.toggleTvMode(false)
-                                restartApp()
-                            }
+                            if (!isTvModeEnabled) showTvModeConfigDialog = true
+                            else { mainViewModel.toggleTvMode(false); restartApp() }
                         },
                         Pair("Playlists", Icons.Outlined.Folder) to {
                             scope.launch { drawerState.close() }
@@ -401,9 +361,7 @@ fun MainScreen(
                 containerColor = DarkNavyBackground,
                 bottomBar = {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.Transparent)
+                        modifier = Modifier.fillMaxWidth().background(Color.Transparent)
                     ) {
                         Box(
                             modifier = Modifier
@@ -412,10 +370,7 @@ fun MainScreen(
                                 .align(Alignment.TopCenter)
                                 .background(
                                     Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            DarkNavyBackground.copy(alpha = 0.8f)
-                                        )
+                                        colors = listOf(Color.Transparent, DarkNavyBackground.copy(alpha = 0.8f))
                                     )
                                 )
                         )
@@ -450,25 +405,20 @@ fun MainScreen(
                                 val isSelected = selectedTab == index
                                 val bgColor by animateColorAsState(
                                     targetValue = if (isSelected) BioAccent.copy(alpha = 0.15f) else Color.Transparent,
-                                    animationSpec = tween(250),
-                                    label = "mobileBg"
+                                    animationSpec = tween(250), label = "mobileBg"
                                 )
                                 val iconColor by animateColorAsState(
                                     targetValue = if (isSelected) BioAccent else UnselectedItemColor,
-                                    animationSpec = tween(250),
-                                    label = "mobileIcon"
+                                    animationSpec = tween(250), label = "mobileIcon"
                                 )
                                 val textColor by animateColorAsState(
                                     targetValue = if (isSelected) BioAccent else UnselectedItemColor,
-                                    animationSpec = tween(250),
-                                    label = "mobileText"
+                                    animationSpec = tween(250), label = "mobileText"
                                 )
                                 val pillWidth by animateDpAsState(
                                     targetValue = if (isSelected) 20.dp else 0.dp,
-                                    animationSpec = tween(300),
-                                    label = "pillWidth"
+                                    animationSpec = tween(300), label = "pillWidth"
                                 )
-
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
@@ -486,9 +436,7 @@ fun MainScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = tab.title,
-                                        color = textColor,
-                                        fontSize = 11.sp,
+                                        text = tab.title, color = textColor, fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
@@ -515,25 +463,15 @@ fun MainScreen(
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
                         }
-                        1 -> LiveTvScreen(
-                            mainViewModel, navController,
-                            onMenuClick = { scope.launch { drawerState.open() } }
-                        )
-                        2 -> VodScreen(
-                            tmdbViewModel, navController,
-                            onMenuClick = { scope.launch { drawerState.open() } }
-                        )
-                        3 -> StreamScreen(
-                            mainViewModel, tmdbViewModel, navController,
-                            onMenuClick = { scope.launch { drawerState.open() } }
-                        )
+                        1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        2 -> VodScreen(tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
+                        3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = { scope.launch { drawerState.open() } })
                     }
                 }
             }
         }
     }
 
-    // ── TV Mode configuration dialog (both layouts) ──
     if (showTvModeConfigDialog) {
         TvModeConfigDialog(
             mainViewModel = mainViewModel,
@@ -547,9 +485,6 @@ fun MainScreen(
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// TV Mode config dialog (extracted for reuse)
-// ─────────────────────────────────────────────────────────────
 @Composable
 private fun TvModeConfigDialog(
     mainViewModel: MainViewModel,
@@ -590,7 +525,6 @@ private fun TvModeConfigDialog(
         }
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            // Events toggle
             TvFocusableItem(
                 onClick = { includeEvents = !includeEvents },
                 modifier = Modifier.fillMaxWidth()
@@ -628,12 +562,7 @@ private fun TvModeConfigDialog(
 
             if (userPlaylists.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "User Playlists",
-                    color = GrayText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("User Playlists", color = GrayText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 userPlaylists.forEach { playlist ->
                     val isChecked = selectedCategories.contains(playlist.title)
                     TvFocusableItem(
