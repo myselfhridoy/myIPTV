@@ -105,6 +105,8 @@ fun LiveTvScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
+    // ── NEW: Focus on first card when the screen opens (TV) ──
+    val firstCardFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
 
     // Debounce only the filter input; blank clears immediately.
@@ -130,6 +132,14 @@ fun LiveTvScreen(
             .distinctBy { it.name + it.url }
             .take(100)
             .toList()
+    }
+
+    // ── NEW: Focus first card on entry (TV). Re-runs when loading finishes. ──
+    LaunchedEffect(isLoading, displayedCategories.isNotEmpty()) {
+        if (!isLoading && displayedCategories.isNotEmpty()) {
+            delay(180)
+            try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
     }
 
     LaunchedEffect(isSearchActive) {
@@ -162,7 +172,8 @@ fun LiveTvScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (!isSearchActive) {
-                if (onMenuClick != null) {
+                // ── FIX: hide hamburger on TV (Back opens drawer instead) ──
+                if (onMenuClick != null && !isTV) {
                     TvIconButton(
                         onClick = onMenuClick,
                         modifier = Modifier.size(44.dp)
@@ -293,12 +304,17 @@ fun LiveTvScreen(
                     }
                 }
 
-                // ── FIX: index-prefixed key
+                // ── FIX: first item gets the initial FocusRequester ──
                 itemsIndexed(
                     items = displayedCategories,
                     key = { index, category -> "cat_${index}_${category.name}" }
-                ) { _, category ->
-                    CategoryCard(category = category) {
+                ) { index, category ->
+                    CategoryCard(
+                        category = category,
+                        modifier = if (index == 0 && debouncedQuery.isBlank())
+                            Modifier.focusRequester(firstCardFocusRequester)
+                        else Modifier
+                    ) {
                         viewModel.selectCategory(category)
                         navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
                             launchSingleTop = true
@@ -311,7 +327,6 @@ fun LiveTvScreen(
                     item(span = { GridItemSpan(maxLineSpan) }, key = "hdr_channels") {
                         SectionHeader("CHANNELS")
                     }
-                    // ── FIX: index-prefixed key
                     itemsIndexed(
                         items = matchedChannels,
                         key = { index, channel -> "ch_${index}_${channel.name}|${channel.url}" }
@@ -374,10 +389,14 @@ private fun NoResultsState(query: String) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category card
+// Category card — modifier parameter added so callers can attach a FocusRequester
 // ─────────────────────────────────────────────────────────────
 @Composable
-fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
+fun CategoryCard(
+    category: LiveCategory,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.03f else 1f,
@@ -391,7 +410,7 @@ fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
     )
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(56.dp)
             .graphicsLayer {
