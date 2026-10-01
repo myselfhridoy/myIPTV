@@ -126,6 +126,7 @@ fun VodScreen(
     val resultsFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
     var pendingFocus by remember { mutableStateOf<String?>(null) }
+    val firstCardFocusRequester = remember { FocusRequester() }
 
     // Helper: fully close search
     val closeSearch: () -> Unit = {
@@ -133,6 +134,11 @@ fun VodScreen(
         searchQuery = ""
         viewModel.search("")
     }
+
+    LaunchedEffect(Unit) {
+    delay(200)
+    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
+}
 
     // Back handler: two-step (typing → results card → home)
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
@@ -205,10 +211,10 @@ fun VodScreen(
         if (showInitialSkeleton) {
             VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
                 // Top spacer for the fixed nav bar
                 item(key = "top_spacer") {
                     Spacer(
