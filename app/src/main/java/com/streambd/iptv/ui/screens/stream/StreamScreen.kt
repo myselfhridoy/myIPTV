@@ -62,7 +62,6 @@ import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
@@ -557,7 +556,10 @@ fun StreamScreen(
     if (showHistoryDialog) {
         PremiumDialogScaffold(
             title = "History",
-            subtitle = if (historyUrls.isEmpty()) "No history found" else "${historyUrls.size} recent stream${if (historyUrls.size > 1) "s" else ""}",
+            subtitle = if (historyUrls.isEmpty())
+                "No history found"
+            else
+                "${historyUrls.size} recent stream${if (historyUrls.size > 1) "s" else ""}",
             onDismiss = { showHistoryDialog = false },
             scrollContent = false
         ) {
@@ -704,24 +706,50 @@ fun StreamScreen(
                 StreamTextField("Origin Value", originValue) { originValue = it }
                 StreamTextField("DRM License URL", drmLicenseUrl) { drmLicenseUrl = it }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    DropdownField(
-                        label = "UserAgent",
-                        value = userAgent,
-                        expanded = showUserAgentDropdown,
-                        onExpandedChange = { showUserAgentDropdown = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    DropdownField(
-                        label = "DrmScheme",
-                        value = drmScheme,
-                        expanded = showDrmSchemeDropdown,
-                        onExpandedChange = { showDrmSchemeDropdown = it },
-                        modifier = Modifier.weight(1f)
-                    )
+                // ── Responsive dropdown row ──
+                // Side-by-side when the window is wide enough, stacked when narrow.
+                val isNarrowForDropdowns = LocalConfiguration.current.screenWidthDp < 500
+
+                if (isNarrowForDropdowns) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DropdownField(
+                            label = "UserAgent",
+                            value = userAgent,
+                            expanded = showUserAgentDropdown,
+                            onExpandedChange = { showUserAgentDropdown = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        DropdownField(
+                            label = "DrmScheme",
+                            value = drmScheme,
+                            expanded = showDrmSchemeDropdown,
+                            onExpandedChange = { showDrmSchemeDropdown = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        DropdownField(
+                            label = "UserAgent",
+                            value = userAgent,
+                            expanded = showUserAgentDropdown,
+                            onExpandedChange = { showUserAgentDropdown = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        DropdownField(
+                            label = "DrmScheme",
+                            value = drmScheme,
+                            expanded = showDrmSchemeDropdown,
+                            onExpandedChange = { showDrmSchemeDropdown = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -883,7 +911,9 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ---------------------------------------------------------------------
+// Dropdown — responsive sizing so the value never wraps
+// ---------------------------------------------------------------------
 @Composable
 fun DropdownField(
     label: String,
@@ -908,20 +938,37 @@ fun DropdownField(
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(label, color = GrayText, fontSize = 12.sp)
-                Text(value, color = WhiteText, fontSize = 15.sp)
+            Column(
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                Text(
+                    text = label,
+                    color = GrayText,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = value,
+                    color = WhiteText,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+            Spacer(modifier = Modifier.width(6.dp))
             Icon(
-                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                imageVector = if (expanded) Icons.Default.ArrowDropUp
+                else Icons.Default.ArrowDropDown,
                 contentDescription = null,
-                tint = GrayText
+                tint = GrayText,
+                modifier = Modifier.size(22.dp)
             )
         }
     }
