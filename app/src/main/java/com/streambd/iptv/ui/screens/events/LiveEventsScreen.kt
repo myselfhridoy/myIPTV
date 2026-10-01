@@ -5,6 +5,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -55,12 +56,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,12 +92,13 @@ import java.util.Locale
 // ─────────────────────────────────────────────────────────────
 // Palette
 // ─────────────────────────────────────────────────────────────
+private val PageBg = Color(0xFF0A0D14)
 private val CardSurface = Color(0xFF161D2D)
 private val CircleIdle = Color(0xFF1B2233)
 private val CircleIdleBorder = Color(0xFF252D3E)
+private val LogoContainerBg = Color(0xFF1F2739)
 private val CountBadgeRed = Color(0xFFE53935)
 private val LiveRed = Color(0xFFFF3B3B)
-private val OnAccent = Color(0xFF0A0E17)
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -110,14 +113,15 @@ private fun parseEventDate(dateStr: String?): Date? {
     }
 }
 
-/** Map sport name → Material icon. */
 private fun sportIcon(sport: String?): ImageVector {
     val s = sport?.lowercase() ?: ""
     return when {
         s.contains("cricket") -> Icons.Default.SportsCricket
         s.contains("football") || s.contains("soccer") -> Icons.Default.SportsSoccer
-        s.contains("motorsport") || s.contains("motor") || s.contains("racing") -> Icons.Default.SportsMotorsports
-        s.contains("wrestling") || s.contains("wwe") || s.contains("mma") || s.contains("ufc") -> Icons.Default.SportsMma
+        s.contains("motorsport") || s.contains("motor") || s.contains("racing") ->
+            Icons.Default.SportsMotorsports
+        s.contains("wrestling") || s.contains("wwe") || s.contains("mma") || s.contains("ufc") ->
+            Icons.Default.SportsMma
         s.contains("basketball") -> Icons.Default.SportsBasketball
         s.contains("tennis") -> Icons.Default.SportsTennis
         s.contains("volleyball") -> Icons.Default.SportsVolleyball
@@ -140,6 +144,47 @@ fun LiveEventsScreen(
     val events by eventsViewModel.events.collectAsState()
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    // ── TV / Mobile detection ──
+    val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val isTv = remember(configuration) {
+        val uiMode = configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK
+        val isTelevision =
+            uiMode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        val pm = context.packageManager
+        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        isTelevision || isLeanback
+    }
+
+    // ── Responsive sizing ──
+    val screenWidth = configuration.screenWidthDp
+    val isCompact = screenWidth < 400
+    val categoryCircleSize = when {
+        isTv -> 72.dp
+        isCompact -> 52.dp
+        else -> 56.dp
+    }
+    val categoryIconSize = when {
+        isTv -> 32.dp
+        isCompact -> 22.dp
+        else -> 26.dp
+    }
+    val teamLogoWidth = when {
+        isTv -> 96.dp
+        isCompact -> 64.dp
+        else -> 72.dp
+    }
+    val teamLogoHeight = when {
+        isTv -> 68.dp
+        isCompact -> 46.dp
+        else -> 52.dp
+    }
+    val teamNameFontSize = when {
+        isTv -> 15.sp
+        isCompact -> 12.sp
+        else -> 13.sp
+    }
 
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedStatus by remember { mutableStateOf("All") }
@@ -216,7 +261,7 @@ fun LiveEventsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(PageBg)
             .nestedScroll(pullToRefreshState.nestedScrollConnection)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -266,13 +311,16 @@ fun LiveEventsScreen(
                         onClick = { isSearchActive = false; searchQuery = "" },
                         modifier = Modifier.size(44.dp)
                     ) {
-                        Icon(Icons.Default.Close, "Close", tint = WhiteText, modifier = Modifier.size(22.dp))
+                        Icon(
+                            Icons.Default.Close, "Close",
+                            tint = WhiteText, modifier = Modifier.size(22.dp)
+                        )
                     }
                 } else {
                     Text(
                         "Live Events",
                         color = WhiteText,
-                        fontSize = 22.sp,
+                        fontSize = if (isTv) 26.sp else 22.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
@@ -280,7 +328,10 @@ fun LiveEventsScreen(
                         onClick = { isSearchActive = true },
                         modifier = Modifier.size(44.dp)
                     ) {
-                        Icon(Icons.Default.Search, "Search", tint = WhiteText, modifier = Modifier.size(22.dp))
+                        Icon(
+                            Icons.Default.Search, "Search",
+                            tint = WhiteText, modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
             }
@@ -297,6 +348,8 @@ fun LiveEventsScreen(
                         count = sportsCount[cat] ?: 0,
                         icon = if (cat == "All") Icons.Default.SportsSoccer else sportIcon(cat),
                         isSelected = selectedCategory == cat,
+                        circleSize = categoryCircleSize,
+                        iconSize = categoryIconSize,
                         onClick = { selectedCategory = cat }
                     )
                 }
@@ -391,53 +444,61 @@ fun LiveEventsScreen(
                             items = filteredEvents,
                             key = { it.id ?: it.hashCode() }
                         ) { event ->
-                            PlayZStyleMatchCard(event) {
-                                coroutineScope.launch {
-                                    val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
-                                    if (streams.isNotEmpty()) {
-                                        val sourcesMap = mutableMapOf<String, String>()
-                                        streams.forEachIndexed { index, s ->
-                                            var name = s.label.takeIf { !it.isNullOrBlank() }
-                                                ?: "Source ${index + 1}"
-                                            if (sourcesMap.containsKey(name))
-                                                name = "$name (${index + 1})"
-                                            var srcUrl = s.stream_url ?: ""
-                                            if (s.drm_key != null && s.drm_kid != null) {
-                                                srcUrl += "|drm-type=clearkey|drm-key=" +
-                                                    "${s.drm_kid}:${s.drm_key}"
+                            PlayZStyleMatchCard(
+                                event = event,
+                                isTv = isTv,
+                                isCompact = isCompact,
+                                teamLogoWidth = teamLogoWidth,
+                                teamLogoHeight = teamLogoHeight,
+                                teamNameFontSize = teamNameFontSize,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
+                                        if (streams.isNotEmpty()) {
+                                            val sourcesMap = mutableMapOf<String, String>()
+                                            streams.forEachIndexed { index, s ->
+                                                var name = s.label.takeIf { !it.isNullOrBlank() }
+                                                    ?: "Source ${index + 1}"
+                                                if (sourcesMap.containsKey(name))
+                                                    name = "$name (${index + 1})"
+                                                var srcUrl = s.stream_url ?: ""
+                                                if (s.drm_key != null && s.drm_kid != null) {
+                                                    srcUrl += "|drm-type=clearkey|drm-key=" +
+                                                        "${s.drm_kid}:${s.drm_key}"
+                                                }
+                                                sourcesMap[name] = srcUrl
                                             }
-                                            sourcesMap[name] = srcUrl
-                                        }
 
-                                        if (streams.size == 1) {
-                                            val stream = streams.first()
-                                            var initialUrl = stream.stream_url ?: ""
-                                            if (stream.drm_key != null && stream.drm_kid != null) {
-                                                initialUrl += "|drm-type=clearkey|drm-key=" +
-                                                    "${stream.drm_kid}:${stream.drm_key}"
+                                            if (streams.size == 1) {
+                                                val stream = streams.first()
+                                                var initialUrl = stream.stream_url ?: ""
+                                                if (stream.drm_key != null && stream.drm_kid != null) {
+                                                    initialUrl += "|drm-type=clearkey|drm-key=" +
+                                                        "${stream.drm_kid}:${stream.drm_key}"
+                                                }
+                                                val ch = Channel(
+                                                    name = event.league ?: "Live Event",
+                                                    url = initialUrl,
+                                                    group = event.sport ?: "Live",
+                                                    isLiveEvent = true,
+                                                    drm = if (stream.drm_key != null) DrmConfig(
+                                                        type = "clearkey",
+                                                        rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
+                                                    ) else null,
+                                                    sources = sourcesMap
+                                                )
+                                                mainViewModel.selectChannel(ch)
+                                                navController.navigate(Routes.LIVE_PLAYER) {
+                                                    launchSingleTop = true
+                                                }
+                                            } else {
+                                                selectedEventForStream = event
+                                                showStreamSelectionFor = streams
                                             }
-                                            val ch = Channel(
-                                                name = event.league ?: "Live Event",
-                                                url = initialUrl,
-                                                group = event.sport ?: "Live",
-                                                isLiveEvent = true,
-                                                drm = if (stream.drm_key != null) DrmConfig(
-                                                    type = "clearkey",
-                                                    rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
-                                                ) else null,
-                                                sources = sourcesMap
-                                            )
-                                            mainViewModel.selectChannel(ch)
-                                            navController.navigate(Routes.LIVE_PLAYER) {
-                                                launchSingleTop = true
-                                            }
-                                        } else {
-                                            selectedEventForStream = event
-                                            showStreamSelectionFor = streams
                                         }
                                     }
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -520,7 +581,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category circle — icon + count badge + label below
+// Category circle
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryCircle(
@@ -528,6 +589,8 @@ private fun CategoryCircle(
     count: Int,
     icon: ImageVector,
     isSelected: Boolean,
+    circleSize: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -570,7 +633,7 @@ private fun CategoryCircle(
         Box {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(circleSize)
                     .clip(CircleShape)
                     .background(circleBg)
                     .border(
@@ -584,7 +647,7 @@ private fun CategoryCircle(
                     imageVector = icon,
                     contentDescription = name,
                     tint = iconColor,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(iconSize)
                 )
             }
             if (count > 0) {
@@ -618,7 +681,7 @@ private fun CategoryCircle(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Filter chip with icon (All / Live / Today / Upcoming)
+// Filter chip with icon
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun FilterChipWithIcon(
@@ -659,11 +722,7 @@ private fun FilterChipWithIcon(
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(50))
             .background(bg)
-            .border(
-                width = 1.dp,
-                color = border,
-                shape = RoundedCornerShape(50)
-            )
+            .border(1.dp, border, RoundedCornerShape(50))
             .tvTouchClick(onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -693,18 +752,19 @@ private fun FilterChipWithIcon(
 
 // ─────────────────────────────────────────────────────────────
 // Match card — PlayZ TV style
-//   • Center title
-//   • Big circular team logos on each side
-//   • Broadcast icon + Live label + time in the middle
-//   • HOT ribbon when live
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun PlayZStyleMatchCard(
     event: SportzfyEvent,
+    isTv: Boolean,
+    isCompact: Boolean,
+    teamLogoWidth: androidx.compose.ui.unit.Dp,
+    teamLogoHeight: androidx.compose.ui.unit.Dp,
+    teamNameFontSize: androidx.compose.ui.unit.TextUnit,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by androidx.compose.animation.core.animateFloatAsState(
+    val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.01f else 1f,
         animationSpec = tween(180),
         label = "cardScale"
@@ -719,6 +779,11 @@ private fun PlayZStyleMatchCard(
     val timeText = if (dateObj != null) {
         SimpleDateFormat("hh:mm a", Locale.getDefault()).format(dateObj)
     } else event.starts_at ?: "--:--"
+
+    val cardPaddingH = if (isTv) 18.dp else 14.dp
+    val cardPaddingV = if (isTv) 16.dp else 14.dp
+    val titleFontSize = if (isTv) 15.sp else 13.sp
+    val centerWidth = if (isTv) 120.dp else if (isCompact) 80.dp else 96.dp
 
     Box(
         modifier = Modifier
@@ -736,7 +801,7 @@ private fun PlayZStyleMatchCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp)
+                .padding(horizontal = cardPaddingH, vertical = cardPaddingV)
         ) {
             // ── Center title ──
             Text(
@@ -744,7 +809,7 @@ private fun PlayZStyleMatchCard(
                     .filter { it.isNotBlank() }
                     .joinToString(" · "),
                 color = WhiteText,
-                fontSize = 13.sp,
+                fontSize = titleFontSize,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -752,53 +817,68 @@ private fun PlayZStyleMatchCard(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(if (isTv) 18.dp else 14.dp))
 
             // ── Team row ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left team
                 MatchTeamColumn(
                     name = event.team_a_name ?: "Team A",
                     logoUrl = event.team_a_logo,
+                    logoWidth = teamLogoWidth,
+                    logoHeight = teamLogoHeight,
+                    nameFontSize = teamNameFontSize,
                     modifier = Modifier.weight(1f)
                 )
 
-                // Center live section
+                // Center: kickoff / live
                 Column(
-                    modifier = Modifier.width(96.dp),
+                    modifier = Modifier.width(centerWidth),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (event.is_live == 1) {
                         LiveIndicator()
                         Spacer(Modifier.height(6.dp))
+                    } else {
+                        Text(
+                            text = "KICKOFF",
+                            color = GrayText.copy(alpha = 0.5f),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(Modifier.height(4.dp))
                     }
                     Text(
                         text = timeText,
-                        color = WhiteText.copy(alpha = 0.5f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
+                        color = if (event.is_live == 1)
+                            WhiteText.copy(alpha = 0.55f)
+                        else WhiteText,
+                        fontSize = if (isTv) 13.sp else 12.sp,
+                        fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center
                     )
                 }
 
-                // Right team
                 MatchTeamColumn(
                     name = event.team_b_name ?: "Team B",
                     logoUrl = event.team_b_logo,
+                    logoWidth = teamLogoWidth,
+                    logoHeight = teamLogoHeight,
+                    nameFontSize = teamNameFontSize,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        // ── HOT ribbon (only when live) ──
+        // ── HOT ribbon (live only) ──
         if (event.is_live == 1) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 56.dp)
+                    .padding(top = if (isTv) 68.dp else 56.dp)
                     .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                     .background(LiveRed)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -825,12 +905,15 @@ private fun PlayZStyleMatchCard(
 }
 
 // ─────────────────────────────────────────────────────────────
-// One side of a match (logo + name stacked)
+// Team column — rectangular logo container so flags stay natural
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun MatchTeamColumn(
     name: String,
     logoUrl: String?,
+    logoWidth: androidx.compose.ui.unit.Dp,
+    logoHeight: androidx.compose.ui.unit.Dp,
+    nameFontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -839,10 +922,14 @@ private fun MatchTeamColumn(
     ) {
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF1F2739))
-                .border(1.dp, Color.White.copy(alpha = 0.05f), CircleShape),
+                .size(width = logoWidth, height = logoHeight)
+                .clip(RoundedCornerShape(10.dp))
+                .background(LogoContainerBg)
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(10.dp)
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (!logoUrl.isNullOrEmpty()) {
@@ -867,7 +954,7 @@ private fun MatchTeamColumn(
         Text(
             text = name,
             color = WhiteText,
-            fontSize = 13.sp,
+            fontSize = nameFontSize,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 2,
@@ -877,7 +964,7 @@ private fun MatchTeamColumn(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Broadcast indicator — pulsing red icon + "Live" label
+// Live indicator
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun LiveIndicator() {
