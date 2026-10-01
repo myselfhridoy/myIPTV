@@ -2,7 +2,6 @@
 
 package com.streambd.iptv.ui.screens.live
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -28,7 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -295,10 +294,11 @@ fun LiveTvScreen(
                     }
                 }
 
-                items(
+                // ── FIX: index-prefixed key
+                itemsIndexed(
                     items = displayedCategories,
-                    key = { "cat_${it.name}" }
-                ) { category ->
+                    key = { index, category -> "cat_${index}_${category.name}" }
+                ) { _, category ->
                     CategoryCard(category = category) {
                         viewModel.selectCategory(category)
                         navController.navigate(Routes.LIVE_CATEGORY_CHANNELS) {
@@ -312,10 +312,11 @@ fun LiveTvScreen(
                     item(span = { GridItemSpan(maxLineSpan) }, key = "hdr_channels") {
                         SectionHeader("CHANNELS")
                     }
-                    items(
+                    // ── FIX: index-prefixed key
+                    itemsIndexed(
                         items = matchedChannels,
-                        key = { "ch_${it.name}|${it.url}" }
-                    ) { channel ->
+                        key = { index, channel -> "ch_${index}_${channel.name}|${channel.url}" }
+                    ) { _, channel ->
                         ChannelCard(channel = channel) {
                             viewModel.setCurrentPlaylist(matchedChannels)
                             viewModel.selectChannel(channel)
@@ -331,7 +332,7 @@ fun LiveTvScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Section header (while searching)
+// Section header
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun SectionHeader(text: String) {
@@ -374,7 +375,7 @@ private fun NoResultsState(query: String) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category card — inline focus + tvTouchClick (Option A)
+// Category card
 // ─────────────────────────────────────────────────────────────
 @Composable
 fun CategoryCard(category: LiveCategory, onClick: () -> Unit) {
