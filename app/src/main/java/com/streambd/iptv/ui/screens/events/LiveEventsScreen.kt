@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.screens.events
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -23,8 +24,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -61,7 +62,6 @@ import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
 import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
@@ -72,12 +72,12 @@ import java.util.Date
 import java.util.Locale
 
 // ─────────────────────────────────────────────────────────────
-// Palette (local, will be consolidated later)
+// Palette
 // ─────────────────────────────────────────────────────────────
 private val SportzfyCardBg = Color(0xFF161D2D).copy(alpha = 0.85f)
 
 // ─────────────────────────────────────────────────────────────
-// Date parsing helper
+// Date parsing
 // ─────────────────────────────────────────────────────────────
 private fun parseEventDate(dateStr: String?): Date? {
     if (dateStr.isNullOrBlank()) return null
@@ -217,14 +217,14 @@ fun LiveEventsScreen(
                             .onFocusChanged { isSearchFocused = it.hasFocus },
                         placeholder = { Text("Search matches…", color = GrayText) },
                         colors = TextFieldDefaults.colors(
-    focusedContainerColor = Color.White.copy(alpha = 0.1f),
-    unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
-    focusedIndicatorColor = BioAccent,
-    unfocusedIndicatorColor = Color.Transparent,
-    focusedTextColor = WhiteText,
-    unfocusedTextColor = WhiteText,
-    cursorColor = BioAccent
-),
+                            focusedContainerColor = Color.White.copy(alpha = 0.1f),
+                            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+                            focusedIndicatorColor = BioAccent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = WhiteText,
+                            unfocusedTextColor = WhiteText,
+                            cursorColor = BioAccent
+                        ),
                         shape = RoundedCornerShape(25.dp),
                         singleLine = true
                     )
@@ -266,11 +266,11 @@ fun LiveEventsScreen(
                 }
             }
 
-            // ── Category circles ──
+            // ── Category pills ──
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(items = categories, key = { it }) { cat ->
                     CategoryPill(
@@ -331,7 +331,10 @@ fun LiveEventsScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(items = filteredEvents, key = { it.id ?: it.hashCode() }) { event ->
+                        items(
+                            items = filteredEvents,
+                            key = { it.id ?: it.hashCode() }
+                        ) { event ->
                             SportzfyMatchCard(event) {
                                 coroutineScope.launch {
                                     val streams = eventsViewModel.getStreamsForEvent(event.id ?: "")
@@ -393,7 +396,7 @@ fun LiveEventsScreen(
         )
     }
 
-    // ── Multi-source picker (was ModalBottomSheet) ──
+    // ── Multi-source picker ──
     if (showStreamSelectionFor != null && selectedEventForStream != null) {
         val streams = showStreamSelectionFor!!
         val event = selectedEventForStream!!
@@ -470,7 +473,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category pill — solid-fill when selected (Netflix/TiviMate style)
+// Category pill — solid-fill when selected
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryPill(
@@ -481,7 +484,7 @@ private fun CategoryPill(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    val bgColor by androidx.compose.animation.animateColorAsState(
+    val bgColor by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent
             isFocused -> Color.White.copy(alpha = 0.08f)
@@ -490,7 +493,7 @@ private fun CategoryPill(
         animationSpec = tween(200),
         label = "catPillBg"
     )
-    val borderColor by androidx.compose.animation.animateColorAsState(
+    val borderColor by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent
             isFocused -> BioAccent.copy(alpha = 0.7f)
@@ -499,12 +502,12 @@ private fun CategoryPill(
         animationSpec = tween(200),
         label = "catPillBorder"
     )
-    val mainTextColor by androidx.compose.animation.animateColorAsState(
+    val mainTextColor by animateColorAsState(
         targetValue = if (isSelected) Color(0xFF0A0E17) else WhiteText,
         animationSpec = tween(200),
         label = "catPillText"
     )
-    val countTextColor by androidx.compose.animation.animateColorAsState(
+    val countTextColor by animateColorAsState(
         targetValue = if (isSelected) Color(0xFF0A0E17).copy(alpha = 0.55f)
         else WhiteText.copy(alpha = 0.45f),
         animationSpec = tween(200),
@@ -544,7 +547,7 @@ private fun CategoryPill(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Status chip — subtle segmented-control look
+// Status chip — subtle segmented control
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun StatusChip(
@@ -555,7 +558,7 @@ private fun StatusChip(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    val bgColor by androidx.compose.animation.animateColorAsState(
+    val bgColor by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent.copy(alpha = 0.14f)
             isFocused -> Color.White.copy(alpha = 0.06f)
@@ -564,7 +567,7 @@ private fun StatusChip(
         animationSpec = tween(180),
         label = "statusBg"
     )
-    val borderColor by androidx.compose.animation.animateColorAsState(
+    val borderColor by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent.copy(alpha = 0.55f)
             isFocused -> BioAccent.copy(alpha = 0.5f)
@@ -573,7 +576,7 @@ private fun StatusChip(
         animationSpec = tween(180),
         label = "statusBorder"
     )
-    val textColor by androidx.compose.animation.animateColorAsState(
+    val textColor by animateColorAsState(
         targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.7f),
         animationSpec = tween(180),
         label = "statusText"
@@ -610,7 +613,7 @@ private fun StatusChip(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Match card — custom focus + tvTouchClick
+// Match card — symmetric 3-column layout for teams
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
@@ -640,10 +643,10 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
             .background(SportzfyCardBg)
             .border(1.dp, borderBrush, RoundedCornerShape(16.dp))
             .tvTouchClick(onClick)
-            .padding(12.dp)
+            .padding(14.dp)
     ) {
         Column {
-            // Top row
+            // ── Top row: league · time / live ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -656,15 +659,18 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                     if (!event.league_icon.isNullOrEmpty()) {
                         AsyncImage(
                             model = event.league_icon,
-                            contentDescription = "League Logo",
-                            modifier = Modifier.size(24.dp)
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
                     Text(
-                        text = "${event.sport} || ${event.league}",
-                        color = WhiteText,
-                        fontSize = 13.sp,
+                        text = listOfNotNull(event.sport, event.league)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · "),
+                        color = WhiteText.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -678,14 +684,13 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
                             val dateSdf = SimpleDateFormat("dd MMM", Locale.getDefault())
                             Text(
                                 dateSdf.format(dateObj),
-                                color = Color.LightGray,
+                                color = GrayText,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                         val timeFormatted = if (dateObj != null) {
-                            SimpleDateFormat("hh:mm a", Locale.getDefault())
-                                .format(dateObj)
+                            SimpleDateFormat("hh:mm a", Locale.getDefault()).format(dateObj)
                         } else event.starts_at ?: ""
                         Text(
                             timeFormatted,
@@ -740,74 +745,89 @@ private fun SportzfyMatchCard(event: SportzfyEvent, onClick: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Teams
+            // ── Teams — symmetric 3-column ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Left column: team name (right-aligned) + logo
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (!event.team_a_logo.isNullOrEmpty()) {
-                        AsyncImage(
-                            model = event.team_a_logo,
-                            contentDescription = "Team A Logo",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .height(44.dp)
-                                .widthIn(max = 64.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                    }
-                    Text(
-                        event.team_a_name ?: "Team A",
-                        color = WhiteText,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Text(
-                    "VS",
-                    color = WhiteText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.End
                 ) {
                     Text(
-                        event.team_b_name ?: "Team B",
+                        text = event.team_a_name ?: "Team A",
                         color = WhiteText,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.End,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f, fill = false)
                     )
-                    if (!event.team_b_logo.isNullOrEmpty()) {
-                        Spacer(modifier = Modifier.width(10.dp))
-                        AsyncImage(
-                            model = event.team_b_logo,
-                            contentDescription = "Team B Logo",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .height(44.dp)
-                                .widthIn(max = 64.dp)
-                        )
+                    if (!event.team_a_logo.isNullOrEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TeamLogo(url = event.team_a_logo)
                     }
+                }
+
+                // Center column: VS
+                Box(
+                    modifier = Modifier.width(44.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "VS",
+                        color = WhiteText.copy(alpha = 0.5f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Right column: logo + team name (left-aligned)
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    if (!event.team_b_logo.isNullOrEmpty()) {
+                        TeamLogo(url = event.team_b_logo)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = event.team_b_name ?: "Team B",
+                        color = WhiteText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Start,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                 }
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Team logo — fixed size so both sides align perfectly
+// ─────────────────────────────────────────────────────────────
+@Composable
+private fun TeamLogo(url: String) {
+    Box(
+        modifier = Modifier
+            .size(width = 52.dp, height = 38.dp)
+            .clip(RoundedCornerShape(6.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = url,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
