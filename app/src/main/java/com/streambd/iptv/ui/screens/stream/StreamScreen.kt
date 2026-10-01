@@ -1,13 +1,14 @@
 package com.streambd.iptv.ui.screens.stream
 
 import android.content.res.Configuration
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,14 +22,26 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,18 +49,21 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.ListItem
-import androidx.tv.material3.ListItemDefaults
 import com.streambd.iptv.data.models.DrmConfig
 import com.streambd.iptv.data.models.StreamSource
-import com.streambd.iptv.ui.components.tvFocusBorder
+import com.streambd.iptv.ui.components.PremiumButton
+import com.streambd.iptv.ui.components.PremiumDialogScaffold
+import com.streambd.iptv.ui.components.PremiumOptionRow
+import com.streambd.iptv.ui.components.TvFocusableItem
+import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
+import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.TealAccent
+import com.streambd.iptv.ui.theme.DarkNavySurface
+import com.streambd.iptv.ui.theme.GrayText
+import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.utils.M3UParser
 import org.json.JSONArray
@@ -57,11 +73,12 @@ import org.json.JSONObject
 // Constants / helpers
 // ---------------------------------------------------------------------
 
-private val USER_AGENTS = listOf("Default", "Chrome(Android)", "Chrome(PC)", "IE(PC)", "Firefox(PC)", "iPhone", "Nokia", "Custom")
+private val USER_AGENTS = listOf(
+    "Default", "Chrome(Android)", "Chrome(PC)", "IE(PC)", "Firefox(PC)",
+    "iPhone", "Nokia", "Custom"
+)
 private val DRM_SCHEMES = listOf("None", "clearkey", "widevine", "playready")
 
-// ড্রপডাউনের নাম আসল User-Agent স্ট্রিং নয়। আগে "Chrome(Android)" লেখাটাই হেডার হিসেবে যেত,
-// এখন আসল UA স্ট্রিং যায়। (নিজের UA দিলে সেটাই যায়।)
 private val UA_STRINGS = mapOf(
     "Chrome(Android)" to "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
     "Chrome(PC)" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -96,7 +113,6 @@ private fun buildDrmConfig(scheme: String, license: String): DrmConfig? {
     if (scheme.isBlank() || scheme.equals("None", ignoreCase = true)) return null
     val lic = license.trim().takeIf { it.isNotEmpty() }
     val type = scheme.lowercase()
-    // kid:key জোড়া license server নয়, এটা rawKeyPair (M3UParser এর মতোই)
     return if (type == "clearkey" && lic != null && CLEARKEY_PAIR.matches(lic)) {
         DrmConfig(type = "clearkey", rawKeyPair = lic)
     } else {
@@ -123,7 +139,6 @@ private fun jsonToMap(obj: JSONObject?): Map<String, String> {
     return out
 }
 
-/** পাইপ (|) থেকে পাওয়া কাস্টম হেডার/টোকেন, যেগুলোর আলাদা UI ফিল্ড নেই। */
 data class PipeExtras(
     val url: String = "",
     val headers: Map<String, String> = emptyMap(),
@@ -173,7 +188,6 @@ data class StreamHistoryItem(
     val tokenMatch: String? = null,
     val tokenReplace: String? = null,
     val tokenId: Int? = null,
-    // নতুন: আগে এগুলো হিস্ট্রিতে সেভ হতো না, তাই রিপ্লে করলে হারিয়ে যেত
     val customUa: String = "",
     val extraHeaders: Map<String, String> = emptyMap()
 ) {
@@ -225,7 +239,7 @@ data class StreamHistoryItem(
 // Screen
 // ---------------------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamScreen(
     mainViewModel: MainViewModel,
@@ -234,7 +248,10 @@ fun StreamScreen(
     onMenuClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
-    val sharedPreferences = context.getSharedPreferences("stream_history_prefs", android.content.Context.MODE_PRIVATE)
+    val sharedPreferences = context.getSharedPreferences(
+        "stream_history_prefs",
+        android.content.Context.MODE_PRIVATE
+    )
 
     var mediaStreamUrl by remember { mutableStateOf(sharedPreferences.getString("draft_url", "") ?: "") }
     var cookieValue by remember { mutableStateOf(sharedPreferences.getString("draft_cookie", "") ?: "") }
@@ -247,10 +264,14 @@ fun StreamScreen(
     var showCustomUaDialog by remember { mutableStateOf(false) }
 
     var drmScheme by remember { mutableStateOf(sharedPreferences.getString("draft_drmScheme", "clearkey") ?: "clearkey") }
+    var pipeExtras by remember {
+        mutableStateOf(PipeExtras.fromJsonString(sharedPreferences.getString("draft_extras", null)))
+    }
 
-    var pipeExtras by remember { mutableStateOf(PipeExtras.fromJsonString(sharedPreferences.getString("draft_extras", null))) }
-
-    LaunchedEffect(mediaStreamUrl, cookieValue, refererValue, originValue, drmLicenseUrl, userAgent, customUserAgent, drmScheme, pipeExtras) {
+    LaunchedEffect(
+        mediaStreamUrl, cookieValue, refererValue, originValue, drmLicenseUrl,
+        userAgent, customUserAgent, drmScheme, pipeExtras
+    ) {
         sharedPreferences.edit().apply {
             putString("draft_url", mediaStreamUrl)
             putString("draft_cookie", cookieValue)
@@ -283,7 +304,6 @@ fun StreamScreen(
         }
     }
 
-    // Button এর onClick আর tvTouchClick দুটো একসাথে ফায়ার করলে দুইবার navigate হতো, তাই ডিবাউন্স
     val lastNavAt = remember { LongArray(1) }
 
     fun persistHistory() {
@@ -317,7 +337,9 @@ fun StreamScreen(
 
         mainViewModel.selectStream(streamSource)
         tmdbViewModel.clearSelectedMedia()
-        navController.navigate(Routes.VOD_PLAYER)
+        navController.navigate(Routes.VOD_PLAYER) {
+            launchSingleTop = true
+        }
     }
 
     fun playFromHistory(item: StreamHistoryItem) {
@@ -359,7 +381,6 @@ fun StreamScreen(
         var extras: PipeExtras
 
         if (raw.contains("|")) {
-            // M3UParser এর পার্সার ব্যবহার: ':' বা '=' সেপারেটর, '&' জোড়া হেডার, drm*/token* সব হ্যান্ডেল হয়
             val parsed = M3UParser.parseUrlHeaders(raw)
             finalUrl = parsed.cleanUrl
             parsed.headers["cookie"]?.let { finalCookie = it }
@@ -386,7 +407,6 @@ fun StreamScreen(
                 tokenId = parsed.custom["tokenid"]?.toIntOrNull()
             )
         } else {
-            // পাইপ ছাড়া: একই URL হলে আগের পাইপ-এক্সট্রা (হিডেন হেডার/টোকেন) রেখে দেওয়া হয়
             extras = if (pipeExtras.url == raw) pipeExtras else PipeExtras()
         }
 
@@ -431,186 +451,171 @@ fun StreamScreen(
     // ------------------------- Dialogs -------------------------
 
     if (showEmptyUrlErrorDialog) {
-        AlertDialog(
-            onDismissRequest = { showEmptyUrlErrorDialog = false },
-            title = { Text("Error", color = Color.White) },
-            text = { Text("Please enter a valid media stream URL.", color = Color.White) },
-            confirmButton = {
-                TextButton(onClick = { showEmptyUrlErrorDialog = false }) {
-                    Text("OK", color = TealAccent)
-                }
-            },
-            containerColor = Color(0xFF1F2430)
-        )
+        PremiumDialogScaffold(
+            title = "Error",
+            subtitle = "Please enter a valid media stream URL.",
+            onDismiss = { showEmptyUrlErrorDialog = false }
+        ) {}
     }
 
     if (showCustomUaDialog) {
-        AlertDialog(
-            onDismissRequest = { showCustomUaDialog = false },
-            title = { Text("Custom UserAgent", color = Color.White) },
-            text = {
-                OutlinedTextField(
-                    value = customUserAgent,
-                    onValueChange = { customUserAgent = it },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        PremiumDialogScaffold(
+            title = "Custom UserAgent",
+            subtitle = "Type the exact User-Agent string to send",
+            onDismiss = { showCustomUaDialog = false },
+            actions = {
+                PremiumButton("Cancel", { showCustomUaDialog = false })
+                PremiumButton("OK", {
                     userAgent = "Custom"
                     showCustomUaDialog = false
-                }) {
-                    Text("OK", color = TealAccent)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustomUaDialog = false }) {
-                    Text("CANCEL", color = TealAccent)
-                }
-            },
-            containerColor = Color(0xFF1F2430)
-        )
+                }, primary = true)
+            }
+        ) {
+            OutlinedTextField(
+                value = customUserAgent,
+                onValueChange = { customUserAgent = it },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = BioAccent,
+                    unfocusedBorderColor = Color.DarkGray,
+                    cursorColor = BioAccent
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                singleLine = true
+            )
+        }
     }
 
     if (showUserAgentDropdown) {
-        Dialog(onDismissRequest = { showUserAgentDropdown = false }) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF151A25),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+        PremiumDialogScaffold(
+            title = "Select UserAgent",
+            onDismiss = { showUserAgentDropdown = false },
+            scrollContent = false
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Select UserAgent", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(USER_AGENTS) { selectionOption ->
-                            val select = {
-                                if (selectionOption == "Custom") {
-                                    showCustomUaDialog = true
-                                } else {
-                                    userAgent = selectionOption
-                                }
-                                showUserAgentDropdown = false
+                itemsIndexed(
+                    items = USER_AGENTS,
+                    key = { index, ua -> "ua_${index}_$ua" }
+                ) { _, option ->
+                    PremiumOptionRow(
+                        title = option,
+                        selected = userAgent == option,
+                        onClick = {
+                            if (option == "Custom") {
+                                showCustomUaDialog = true
+                            } else {
+                                userAgent = option
                             }
-                            ListItem(
-                                selected = false,
-                                onClick = select,
-                                headlineContent = { androidx.tv.material3.Text(selectionOption, color = Color.White) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .tvTouchClick { select() },
-                                colors = ListItemDefaults.colors(
-                                    containerColor = Color.Transparent,
-                                    focusedContainerColor = TealAccent.copy(alpha = 0.1f)
-                                ),
-                                shape = ListItemDefaults.shape(RoundedCornerShape(8.dp))
-                            )
+                            showUserAgentDropdown = false
                         }
-                    }
+                    )
                 }
             }
         }
     }
 
     if (showDrmSchemeDropdown) {
-        Dialog(onDismissRequest = { showDrmSchemeDropdown = false }) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF151A25),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
+        PremiumDialogScaffold(
+            title = "Select DRM Scheme",
+            onDismiss = { showDrmSchemeDropdown = false },
+            scrollContent = false
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Select DRM Scheme", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                        items(DRM_SCHEMES) { selectionOption ->
-                            val select = {
-                                drmScheme = selectionOption
-                                showDrmSchemeDropdown = false
-                            }
-                            ListItem(
-                                selected = false,
-                                onClick = select,
-                                headlineContent = { androidx.tv.material3.Text(selectionOption, color = Color.White) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .tvTouchClick { select() },
-                                colors = ListItemDefaults.colors(
-                                    containerColor = Color.Transparent,
-                                    focusedContainerColor = TealAccent.copy(alpha = 0.1f)
-                                ),
-                                shape = ListItemDefaults.shape(RoundedCornerShape(8.dp))
-                            )
+                itemsIndexed(
+                    items = DRM_SCHEMES,
+                    key = { index, scheme -> "drm_${index}_$scheme" }
+                ) { _, option ->
+                    PremiumOptionRow(
+                        title = option,
+                        selected = drmScheme == option,
+                        onClick = {
+                            drmScheme = option
+                            showDrmSchemeDropdown = false
                         }
-                    }
+                    )
                 }
             }
         }
     }
 
     if (showHistoryDialog) {
-        Dialog(onDismissRequest = { showHistoryDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF151A25),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("History", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    if (historyUrls.isEmpty()) {
-                        Text("No history found.", color = Color.Gray)
-                    } else {
-                        LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
-                            items(historyUrls.toList()) { item ->
-                                ListItem(
-                                    selected = false,
+        PremiumDialogScaffold(
+            title = "History",
+            subtitle = if (historyUrls.isEmpty()) "No history found" else "${historyUrls.size} recent stream${if (historyUrls.size > 1) "s" else ""}",
+            onDismiss = { showHistoryDialog = false },
+            scrollContent = false
+        ) {
+            if (historyUrls.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Nothing here yet.", color = GrayText)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(
+                        items = historyUrls.toList(),
+                        key = { index, item -> "hist_${index}_${item.url}" }
+                    ) { _, item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                TvFocusableItem(
                                     onClick = { playFromHistory(item) },
-                                    headlineContent = {
-                                        androidx.tv.material3.Text(
-                                            text = item.url,
-                                            color = Color.White,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    trailingContent = {
-                                        IconButton(
-                                            onClick = {
-                                                historyUrls.remove(item)
-                                                persistHistory()
-                                            }
-                                        ) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
-                                        }
-                                    },
-                                    colors = ListItemDefaults.colors(
-                                        containerColor = Color.Transparent,
-                                        focusedContainerColor = TealAccent.copy(alpha = 0.1f)
-                                    ),
-                                    shape = ListItemDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .tvTouchClick { playFromHistory(item) }
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = item.url,
+                                        color = WhiteText,
+                                        fontSize = 13.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TvIconButton(
+                                onClick = {
+                                    historyUrls.remove(item)
+                                    persistHistory()
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = Color(0xFFFF6B6B),
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                HorizontalDivider(color = Color.DarkGray)
                             }
                         }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    TextButton(
-                        onClick = { showHistoryDialog = false },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("CLOSE", color = TealAccent)
+                        HorizontalDivider(color = Color.DarkGray.copy(alpha = 0.4f))
                     }
                 }
             }
@@ -625,7 +630,7 @@ fun StreamScreen(
             .background(DarkNavyBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Bar
+            // Top bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -633,53 +638,61 @@ fun StreamScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (onMenuClick != null) {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White, modifier = Modifier.tvFocusBorder(CircleShape))
+                    TvIconButton(
+                        onClick = onMenuClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            tint = WhiteText,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                 }
                 Text(
                     text = "Network Stream",
-                    color = Color.White,
-                    fontSize = 24.sp,
+                    color = WhiteText,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { showHistoryDialog = true }) {
+                TvIconButton(
+                    onClick = { showHistoryDialog = true },
+                    modifier = Modifier.size(44.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.History,
                         contentDescription = "History",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .tvFocusBorder(CircleShape)
-                            .background(com.streambd.iptv.ui.theme.SurfaceDark, CircleShape)
-                            .padding(8.dp)
+                        tint = WhiteText,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
 
-            // Main Content
+            // Main content
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp) // TV overscan padding
+                    .padding(bottom = 24.dp)
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 StreamTextField("Media Stream URL", mediaStreamUrl) { mediaStreamUrl = it }
 
-                // পাইপ থেকে আসা লুকানো হেডার/টোকেন থাকলে দেখানো হয়, যাতে বোঝা যায় সেগুলো প্রয়োগ হবে
                 if (pipeExtras.url.isNotEmpty() && pipeExtras.url == mediaStreamUrl.trim()) {
                     val notes = buildList {
-                        if (pipeExtras.headers.isNotEmpty()) add("Headers: " + pipeExtras.headers.keys.joinToString(", "))
+                        if (pipeExtras.headers.isNotEmpty())
+                            add("Headers: " + pipeExtras.headers.keys.joinToString(", "))
                         if (pipeExtras.tokenUrl != null || pipeExtras.tokenId != null) add("Token")
                     }
                     if (notes.isNotEmpty()) {
                         Text(
                             text = "Extra: " + notes.joinToString(" • "),
-                            color = Color.Gray,
+                            color = GrayText,
                             fontSize = 12.sp
                         )
                     }
@@ -690,7 +703,10 @@ fun StreamScreen(
                 StreamTextField("Origin Value", originValue) { originValue = it }
                 StreamTextField("DRM License URL", drmLicenseUrl) { drmLicenseUrl = it }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     DropdownField(
                         label = "UserAgent",
                         value = userAgent,
@@ -698,7 +714,6 @@ fun StreamScreen(
                         onExpandedChange = { showUserAgentDropdown = it },
                         modifier = Modifier.weight(1f)
                     )
-
                     DropdownField(
                         label = "DrmScheme",
                         value = drmScheme,
@@ -710,24 +725,54 @@ fun StreamScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    androidx.tv.material3.Button(
-                        onClick = handlePlay,
-                        modifier = Modifier
-                            .padding(bottom = 16.dp, top = 8.dp)
-                            .tvTouchClick(onClick = handlePlay),
-                        colors = androidx.tv.material3.ButtonDefaults.colors(
-                            containerColor = TealAccent,
-                            focusedContainerColor = Color(0xFF008D94)
-                        ),
-                        shape = androidx.tv.material3.ButtonDefaults.shape(CircleShape),
-                        contentPadding = PaddingValues(16.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    StreamPlayButton(onClick = handlePlay)
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Custom Play button
+// ---------------------------------------------------------------------
+@Composable
+private fun StreamPlayButton(onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    val bg by animateColorAsState(
+        targetValue = if (isFocused) Color(0xFF008D94) else BioAccent,
+        animationSpec = tween(180),
+        label = "playBg"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.06f else 1f,
+        animationSpec = tween(180),
+        label = "playScale"
+    )
+
+    Box(
+        modifier = Modifier
+            .padding(bottom = 16.dp, top = 8.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clip(CircleShape)
+            .background(bg)
+            .tvTouchClick(onClick)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Default.PlayArrow,
+            contentDescription = "Play",
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
+        )
     }
 }
 
@@ -744,24 +789,22 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
         val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
         val pm = context.packageManager
         val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        isTelevision || isLeanback || isLandscape
+        isTelevision || isLeanback
     }
 
     if (isTv) {
         var isEditing by remember { mutableStateOf(false) }
-        val focusRequester = remember { FocusRequester() }
+        val editFocusRequester = remember { FocusRequester() }
 
         if (isEditing) {
-            // শুরুতে onFocusChanged এ isFocused=false আসে; সেটায় সাথে সাথে এডিট বন্ধ হওয়া আটকাতে hadFocus গার্ড
             var hadFocus by remember { mutableStateOf(false) }
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
-                label = { Text(label, color = Color.Gray) },
+                label = { Text(label, color = GrayText) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester)
+                    .focusRequester(editFocusRequester)
                     .onFocusChanged { state ->
                         if (state.isFocused) {
                             hadFocus = true
@@ -776,36 +819,45 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
-                    focusedBorderColor = TealAccent,
+                    focusedBorderColor = BioAccent,
                     unfocusedBorderColor = Color.DarkGray,
-                    cursorColor = TealAccent
+                    cursorColor = BioAccent
                 ),
                 shape = RoundedCornerShape(8.dp)
             )
             LaunchedEffect(Unit) {
-                focusRequester.requestFocus()
+                try { editFocusRequester.requestFocus() } catch (_: Exception) {}
             }
         } else {
             var isFocused by remember { mutableStateOf(false) }
+            val borderColor by animateColorAsState(
+                targetValue = if (isFocused) BioAccent else Color.DarkGray,
+                animationSpec = tween(180),
+                label = "fieldBorder"
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onFocusChanged { isFocused = it.isFocused }
-                    .focusable()
+                    .onFocusChanged { isFocused = it.hasFocus }
                     .tvTouchClick { isEditing = true }
                     .border(
                         width = if (isFocused) 2.dp else 1.dp,
-                        color = if (isFocused) TealAccent else Color.DarkGray,
+                        color = borderColor,
                         shape = RoundedCornerShape(8.dp)
                     )
                     .padding(horizontal = 16.dp, vertical = 16.dp)
             ) {
                 if (value.isEmpty()) {
-                    Text(label, color = Color.Gray)
+                    Text(label, color = GrayText)
                 } else {
                     Column {
-                        Text(label, color = Color.Gray, fontSize = 12.sp)
-                        Text(value, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(label, color = GrayText, fontSize = 12.sp)
+                        Text(
+                            value,
+                            color = WhiteText,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -814,16 +866,16 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(label, color = Color.Gray) },
+            label = { Text(label, color = GrayText) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
-                focusedBorderColor = TealAccent,
+                focusedBorderColor = BioAccent,
                 unfocusedBorderColor = Color.DarkGray,
-                cursorColor = TealAccent
+                cursorColor = BioAccent
             ),
             shape = RoundedCornerShape(8.dp)
         )
@@ -839,36 +891,37 @@ fun DropdownField(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label, color = Color.Gray) },
-            trailingIcon = {
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                    contentDescription = null,
-                    tint = Color.Gray
-                )
-            },
-            singleLine = true,
-            maxLines = 1,
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused || expanded) BioAccent else Color.DarkGray,
+        animationSpec = tween(180),
+        label = "ddBorder"
+    )
+
+    Box(
+        modifier = modifier
+            .onFocusChanged { isFocused = it.hasFocus }
+            .tvTouchClick { onExpandedChange(!expanded) }
+            .border(
+                width = if (isFocused || expanded) 2.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedBorderColor = TealAccent,
-                unfocusedBorderColor = Color.DarkGray,
-                cursorColor = TealAccent
-            ),
-            shape = RoundedCornerShape(8.dp)
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(Color.Transparent)
-                .clickable { onExpandedChange(!expanded) }
-        )
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, color = GrayText, fontSize = 12.sp)
+                Text(value, color = WhiteText, fontSize = 15.sp)
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = GrayText
+            )
+        }
     }
 }
