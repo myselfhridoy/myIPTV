@@ -1,7 +1,5 @@
 package com.streambd.iptv.ui.components
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
@@ -15,22 +13,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
-
 /**
- * Applies the standard "fullscreen player" window configuration on the host
- * Activity while this composable is in the composition tree:
+ * Configures the host Activity for immersive playback.
  *
- *  - Requests landscape orientation (restores the original on dispose).
- *  - Hides system bars + applies a "swipe to show" gesture behaviour.
- *  - Sets a black window background and enables `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`
- *    (API 28+) so the video can extend into the notch.
- *  - Keeps the screen on for the duration of the player.
- *  - Hooks `onPictureInPictureModeChanged` and forwards the boolean to [onPipChanged].
- *
- *  Everything is restored in `onDispose` — including the Activity's original
- *  orientation and window background.
- *
- *  Extracted from LivePlayerScreen + VodPlayerScreen to remove duplication.
+ * IMPORTANT: This no longer changes the Activity orientation.
+ * The PlayerRevealContainer handles the visual "landscape" by rotating
+ * the player content 90° while the Activity stays portrait.
  */
 @Composable
 fun PlayerWindowEffect(
@@ -41,19 +29,16 @@ fun PlayerWindowEffect(
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
 
-        // ── PiP listener ──
+        // PiP listener
         val pipObserver = Consumer<androidx.core.app.PictureInPictureModeChangedInfo> { info ->
             onPipChanged(info.isInPictureInPictureMode)
         }
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
-        // ── Snapshot state to restore later ──
-        val originalOrientation: Int? = activity?.requestedOrientation
         val window = activity?.window
         val originalBackground = window?.decorView?.background
 
         if (window != null) {
-            // Draw under system bars + cutout.
             WindowCompat.setDecorFitsSystemWindows(window, false)
             window.setBackgroundDrawable(ColorDrawable(AndroidColor.BLACK))
 
@@ -72,16 +57,10 @@ fun PlayerWindowEffect(
             }
         }
 
-        // Lock to landscape immediately.
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        // ⚠️ NO requestedOrientation call. Activity stays portrait.
 
         onDispose {
             activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
-
-            if (activity != null) {
-                activity.requestedOrientation = originalOrientation
-                    ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
 
             if (window != null) {
                 WindowCompat.setDecorFitsSystemWindows(window, true)
