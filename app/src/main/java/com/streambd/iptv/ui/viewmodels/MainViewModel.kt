@@ -80,7 +80,8 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     private var saveChannelJob: Job? = null
     private var enrichJob: Job? = null
     private var vodJob: Job? = null
-    private var categoryFetchInFlight = mutableSetOf<String>()
+    private val categoryFetchInFlight: MutableSet<String> =
+    java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     // ==== Search-time background loader state (only used while search is active) ====
     private val _searchLoadProgress = MutableStateFlow<Pair<Int, Int>?>(null)
