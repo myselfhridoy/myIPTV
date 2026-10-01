@@ -151,14 +151,7 @@ fun LiveEventsScreen(
 
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
-    val isTv = remember(configuration) {
-        val uiMode = configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK
-        val isTelevision =
-            uiMode == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        val pm = context.packageManager
-        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        isTelevision || isLeanback
-    }
+    val isTv = remember(configuration) { com.streambd.iptv.utils.DeviceType.isTv(context) }
 
     val screenWidth = configuration.screenWidthDp
     val isCompact = screenWidth < 400
