@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.streambd.iptv.ui.screens.live
 
 import android.content.res.Configuration
