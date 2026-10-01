@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.screens.vod
 
+import com.streambd.iptv.ui.components.PlayerRevealContainer
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -566,6 +567,7 @@ fun VodPlayerScreen(
         }
     }
 
+    PlayerRevealContainer {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -900,6 +902,7 @@ fun VodPlayerScreen(
                 }
             }
         }
+    }
     }
 
     if (showTrackSelector) {
