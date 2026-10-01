@@ -2,14 +2,16 @@ package com.streambd.iptv.ui.screens.vod
 
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +37,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -63,14 +65,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import androidx.tv.material3.Border
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Glow
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.TmdbMedia
-import com.streambd.iptv.ui.components.tvFocusBorder
+import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
@@ -99,7 +96,7 @@ private data class MediaRow(
     val list: List<TmdbMedia>
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VodScreen(
     viewModel: TmdbViewModel,
@@ -130,15 +127,14 @@ fun VodScreen(
     val firstRowFocusRequester = remember { FocusRequester() }
     var pendingFocus by remember { mutableStateOf<String?>(null) }
 
-    // ── Helper: fully close search ──
-    // Used by back handler, close icon, and Option A card-tap flow.
+    // Helper: fully close search
     val closeSearch: () -> Unit = {
         isSearchExpanded = false
         searchQuery = ""
         viewModel.search("")
     }
 
-    // ── Back handler: two-step (typing → results card → home) ──
+    // Back handler: two-step (typing → results card → home)
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
             focusManager.clearFocus()
@@ -178,7 +174,7 @@ fun VodScreen(
     val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
-    // ── Single source of truth for rows ──
+    // Single source of truth for rows
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -245,9 +241,11 @@ fun VodScreen(
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
-                                // ── Option A: auto-close search on card tap ──
+                                // Option A: auto-close search on card tap
                                 closeSearch()
-                                navController.navigate(Routes.TMDB_DETAILS)
+                                navController.navigate(Routes.TMDB_DETAILS) {
+                                    launchSingleTop = true
+                                }
                             }
                         }
                     } else if (showEmptyNoResults) {
@@ -268,11 +266,12 @@ fun VodScreen(
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
-                                // ── Option A: if search was somehow open, close it ──
                                 if (isSearchExpanded || searchQuery.isNotEmpty()) {
                                     closeSearch()
                                 }
-                                navController.navigate(Routes.TMDB_DETAILS)
+                                navController.navigate(Routes.TMDB_DETAILS) {
+                                    launchSingleTop = true
+                                }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
@@ -285,7 +284,7 @@ fun VodScreen(
             }
         }
 
-        // ── Fixed top bar ──
+        // Fixed top bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -323,7 +322,7 @@ fun VodScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Top bar
+// Top bar — uses TvIconButton for reliable TV focus
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun VodTopBar(
@@ -335,34 +334,35 @@ private fun VodTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onMenuClick != null) {
-            IconButton(onClick = onMenuClick) {
+            TvIconButton(
+                onClick = onMenuClick,
+                modifier = Modifier.size(44.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Default.Menu,
                     contentDescription = "Menu",
                     tint = WhiteText,
-                    modifier = Modifier
-                        .tvFocusBorder(CircleShape)
-                        .background(Color.Transparent, CircleShape)
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
         }
         Text(
             text = "Media",
             color = WhiteText,
-            fontSize = 24.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onSearchClick) {
+        TvIconButton(
+            onClick = onSearchClick,
+            modifier = Modifier.size(44.dp)
+        ) {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = "Search",
                 tint = WhiteText,
-                modifier = Modifier
-                    .tvFocusBorder(CircleShape)
-                    .background(Color.Transparent, CircleShape)
-                    .padding(8.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }
@@ -403,9 +403,7 @@ private fun SearchField(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .tvFocusBorder(CircleShape)
-                    .tvTouchClick(onClose)
-                    .clickable { onClose() },
+                    .tvTouchClick(onClose),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -429,7 +427,7 @@ private fun SearchField(
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
-            .onFocusChanged { onFocusChange(it.isFocused) }
+            .onFocusChanged { onFocusChange(it.hasFocus) }
     )
 }
 
@@ -469,7 +467,7 @@ private fun EmptySearchState(query: String) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Skeleton (shimmer)
+// Skeleton
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun VodSkeleton(isMobilePortrait: Boolean) {
@@ -532,7 +530,6 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
 // ─────────────────────────────────────────────────────────────
 // Section
 // ─────────────────────────────────────────────────────────────
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun MediaSection(
     title: String,
@@ -546,7 +543,7 @@ fun MediaSection(
     val verticalPadding = if (isMobilePortrait) 8.dp else 16.dp
 
     Column {
-        // ── Section header: accent bar + title + subtle count ──
+        // Section header: accent bar + title + subtle count
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -597,9 +594,8 @@ fun MediaSection(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Card
+// Card — custom Box (works on all TV boxes including TX3 Mini)
 // ─────────────────────────────────────────────────────────────
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun TmdbMediaCard(
     media: TmdbMedia,
@@ -610,100 +606,99 @@ fun TmdbMediaCard(
     val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
     val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
 
-    Card(
-        onClick = onClick,
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.08f else 1f,
+        animationSpec = tween(200),
+        label = "cardScale"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) BioAccent else Color.Transparent,
+        animationSpec = tween(200),
+        label = "cardBorder"
+    )
+
+    Box(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
-            // Card.onClick handles D-pad ENTER on TV; tvTouchClick handles touch
-            // on mobile. Both coexist — the Card consumes the key event first on
-            // TV, so only one handler fires per interaction.
-            .tvTouchClick(onClick),
-        colors = CardDefaults.colors(
-            containerColor = SurfaceDark,
-            focusedContainerColor = SurfaceDark
-        ),
-        shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.08f),
-        glow = CardDefaults.glow(
-            focusedGlow = Glow(
-                elevationColor = Color.Black.copy(alpha = 0.55f),
-                elevation = 22.dp
-            )
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, BioAccent),
-                inset = 0.dp,
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceDark)
+            .border(
+                width = 3.dp,
+                color = borderColor,
                 shape = RoundedCornerShape(12.dp)
             )
-        )
+            .tvTouchClick(onClick)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = media.posterUrl,
-                contentDescription = media.displayTitle,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+        AsyncImage(
+            model = media.posterUrl,
+            contentDescription = media.displayTitle,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
 
-            // Bottom gradient
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(80.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.35f),
-                                Color.Black.copy(alpha = 0.85f)
-                            )
+        // Bottom gradient
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.85f)
                         )
                     )
-            )
+                )
+        )
 
-            // Rating chip
-            if (media.vote_average != null && media.vote_average > 0) {
-                Row(
-                    modifier = Modifier
-                        .padding(6.dp)
-                        .align(Alignment.TopEnd)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.65f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Star,
-                        contentDescription = null,
-                        tint = StarGold,
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = String.format("%.1f", media.vote_average),
-                        color = WhiteText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Title
-            Text(
-                text = media.displayTitle,
-                color = WhiteText,
-                fontSize = if (isMobilePortrait) 12.sp else 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+        // Rating chip
+        if (media.vote_average != null && media.vote_average > 0) {
+            Row(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .fillMaxWidth()
-            )
+                    .padding(6.dp)
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = null,
+                    tint = StarGold,
+                    modifier = Modifier.size(11.dp)
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    text = String.format("%.1f", media.vote_average),
+                    color = WhiteText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
+
+        // Title
+        Text(
+            text = media.displayTitle,
+            color = WhiteText,
+            fontSize = if (isMobilePortrait) 12.sp else 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .fillMaxWidth()
+        )
     }
 }
