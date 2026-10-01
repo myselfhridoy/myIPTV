@@ -108,14 +108,9 @@ fun MainScreen(
     )
 
     val configuration = LocalConfiguration.current
-    val isTv = remember(configuration) {
-        val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
-        val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
-        val pm = context.packageManager
-        val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        val noTouch = !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
-        isTelevision || isLeanback || noTouch
-    }
+val isTv = remember(configuration) {
+    com.streambd.iptv.utils.DeviceType.isTv(context)
+}
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
