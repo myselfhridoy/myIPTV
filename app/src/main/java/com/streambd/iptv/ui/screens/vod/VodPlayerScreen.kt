@@ -1,6 +1,5 @@
 package com.streambd.iptv.ui.screens.vod
 
-import com.streambd.iptv.ui.components.PlayerRevealContainer
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -42,6 +41,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
@@ -50,10 +50,9 @@ import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.MediaResolver
-import kotlinx.coroutines.delay
 import com.streambd.iptv.utils.PlaybackLogger
+import kotlinx.coroutines.delay
 
-// Max bytes read when sniffing a response body (playlists/JSON are small)
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
 @OptIn(UnstableApi::class)
@@ -86,17 +85,17 @@ fun VodPlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
 
+    // Player reveal (rotation + fade + scale on entry/exit)
+    var exitRequested by remember { mutableStateOf(false) }
+
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
-    // Resolution (token / redirect / setup) failed before ExoPlayer even started
     var resolveFailed by remember { mutableStateOf(false) }
-    // Bumped by the Retry button so the whole resolve + prepare runs again with fresh tokens
     var retryToken by remember { mutableStateOf(0) }
 
-    // Slider dragging state (so the thumb follows the finger and seeks only on release)
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
@@ -105,9 +104,9 @@ fun VodPlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
-    val seekAmount = 10_000L // 10 seconds
+    val seekAmount = 10_000L
 
-    // ── Window: orientation, insets, cutout, PiP ──
+    // Window effects (insets, cutout, PiP). NO orientation forcing anymore.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
@@ -124,7 +123,6 @@ fun VodPlayerScreen(
                 initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
             }
 
-            // Resolve token if present, or pre-resolve generic links
             val currentPlayRef = stream.headers?.entries?.firstOrNull {
                 val l = it.key.lowercase()
                 l == "playref" || l == "play-ref" || l == "streamref" || l == "stream-ref"
@@ -253,10 +251,6 @@ fun VodPlayerScreen(
                                         else com.streambd.iptv.utils.TokenParser
                                             .detectMimeType(redirectedUrl)
 
-                                    // Universal rule (like NSPlayer / OTT Navigator):
-                                    // when a stream URL redirects via Location, keep stream.url
-                                    // so ExoPlayer's OkHttpDataSource follows redirects natively
-                                    // with fresh tokens each time.
                                     val finalUrl = if (redirectedUrl != stream.url || isMasterPlaylist) {
                                         stream.url
                                     } else {
@@ -301,7 +295,7 @@ fun VodPlayerScreen(
                 shouldWrapMac
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = 2_000_000 // 2 Mbps hint helps ExoPlayer size the buffer
+                val bandwidth = 2_000_000
                 val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n" +
                     "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
                 finalUrl = "data:application/x-mpegURL;base64," +
@@ -342,7 +336,6 @@ fun VodPlayerScreen(
                 }
                 mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-                // Subtitles from the stream source, if available.
                 val subtitleConfigs = stream.subtitles?.map { sub ->
                     MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
                         .setMimeType(
@@ -394,7 +387,6 @@ fun VodPlayerScreen(
                     extractorsFactory
                 ).setLoadErrorHandlingPolicy(loadErrorPolicy)
 
-                // DRM setup
                 if (finalDrm != null && finalDrm.type != null) {
                     val drmScheme = when (finalDrm.type.lowercase()) {
                         "widevine" -> C.WIDEVINE_UUID
@@ -477,22 +469,21 @@ fun VodPlayerScreen(
                 isLoading = false
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-    throw e
-} catch (e: Exception) {
-    e.printStackTrace()
-    isLoading = false
-    resolveFailed = true
+            throw e
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isLoading = false
+            resolveFailed = true
 
-    // ── Firebase logging: resolution failed before ExoPlayer started ──
-    PlaybackLogger.logVodPlaybackError(
-        context = context,
-        title = videoTitle ?: stream.provider,
-        streamProvider = stream.provider,
-        streamQuality = stream.quality,
-        streamUrl = stream.url,
-        error = null
-    )
-}
+            PlaybackLogger.logVodPlaybackError(
+                context = context,
+                title = videoTitle ?: stream.provider,
+                streamProvider = stream.provider,
+                streamQuality = stream.quality,
+                streamUrl = stream.url,
+                error = null
+            )
+        }
     }
 
     // ── Player listener ──
@@ -510,19 +501,18 @@ fun VodPlayerScreen(
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-    playerError = error
-    isLoading = false
+                playerError = error
+                isLoading = false
 
-    // ── Firebase logging ──
-    PlaybackLogger.logVodPlaybackError(
-        context = context,
-        title = videoTitle ?: stream.provider,
-        streamProvider = stream.provider,
-        streamQuality = stream.quality,
-        streamUrl = stream.url,
-        error = error
-    )
-}
+                PlaybackLogger.logVodPlaybackError(
+                    context = context,
+                    title = videoTitle ?: stream.provider,
+                    streamProvider = stream.provider,
+                    streamQuality = stream.quality,
+                    streamUrl = stream.url,
+                    error = error
+                )
+            }
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
@@ -553,356 +543,369 @@ fun VodPlayerScreen(
         }
     }
 
-    val exitPlayer: () -> Unit = {
+    // Real exit (called by PlayerRevealContainer after reverse animation).
+    val finishExit: () -> Unit = {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         navController.popBackStack()
+    }
+
+    // Request exit — starts the reverse animation.
+    val requestExit: () -> Unit = {
+        if (!exitRequested) exitRequested = true
     }
 
     BackHandler {
         if (isLocked) {
             showOverlay = true
         } else {
-            exitPlayer()
+            requestExit()
         }
     }
 
-    PlayerRevealContainer {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp) {
-                    when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            if (!showOverlay) {
-                                currentPosition = seekBy(exoPlayer, -seekAmount)
-                                true
-                            } else false
-                        }
-                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            if (!showOverlay) {
-                                currentPosition = seekBy(exoPlayer, seekAmount)
-                                true
-                            } else false
-                        }
-                        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                        android.view.KeyEvent.KEYCODE_ENTER -> {
-                            if (!showOverlay) {
-                                showOverlay = true
-                                true
-                            } else false
-                        }
-                        else -> false
-                    }
-                } else false
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                showOverlay = !showOverlay
-            }
+    PlayerRevealContainer(
+        exitRequested = exitRequested,
+        forceUpright = isInPiP,
+        onExitComplete = finishExit
     ) {
-        val isCinema = scaleMode == VideoScaleMode.CINEMA
-
         Box(
-            modifier = if (isCinema)
-                Modifier.fillMaxSize(0.9f).align(Alignment.Center)
-            else Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            AndroidView(
-                modifier = if (isCinema)
-                    Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
-                else Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { playerView ->
-                    val exoResizeMode = when (scaleMode) {
-                        VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    }
-                    if (playerView.resizeMode != exoResizeMode) {
-                        playerView.resizeMode = exoResizeMode
-                    }
-                    if (playerView.player != exoPlayer) {
-                        playerView.player = exoPlayer
-                    }
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyUp) {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (!showOverlay) {
+                                    currentPosition = seekBy(exoPlayer, -seekAmount)
+                                    true
+                                } else false
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (!showOverlay) {
+                                    currentPosition = seekBy(exoPlayer, seekAmount)
+                                    true
+                                } else false
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                            android.view.KeyEvent.KEYCODE_ENTER -> {
+                                if (!showOverlay) {
+                                    showOverlay = true
+                                    true
+                                } else false
+                            }
+                            else -> false
+                        }
+                    } else false
                 }
-            )
-        }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    showOverlay = !showOverlay
+                }
+        ) {
+            val isCinema = scaleMode == VideoScaleMode.CINEMA
 
-        // ── Overlay UI ──
-        if (showOverlay && !isInPiP) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
-                if (isLocked) {
-                    TvIconButton(
-                        onClick = { isLocked = false },
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp)
-                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                            .focusRequester(unlockFocusRequester)
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
-                    }
-                } else {
-                    // ── Top bar ──
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.displayCutout)
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TvIconButton(
-                            onClick = { exitPlayer() },
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
+            Box(
+                modifier = if (isCinema)
+                    Modifier.fillMaxSize(0.9f).align(Alignment.Center)
+                else Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                AndroidView(
+                    modifier = if (isCinema)
+                        Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
+                    else Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            // Required so the container rotation applies to the video.
+                            setUseTextureView(true)
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                    },
+                    update = { playerView ->
+                        val exoResizeMode = when (scaleMode) {
+                            VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        }
+                        if (playerView.resizeMode != exoResizeMode) {
+                            playerView.resizeMode = exoResizeMode
+                        }
+                        if (playerView.player != exoPlayer) {
+                            playerView.player = exoPlayer
+                        }
+                        playerView.setUseTextureView(true)
+                    }
+                )
+            }
 
-                        if (videoTitle != null) {
+            // ── Overlay UI ──
+            if (showOverlay && !isInPiP) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
+                    if (isLocked) {
+                        TvIconButton(
+                            onClick = { isLocked = false },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(16.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                .focusRequester(unlockFocusRequester)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
+                        }
+                    } else {
+                        // ── Top bar ──
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.displayCutout)
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TvIconButton(
+                                onClick = { requestExit() },
+                                modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            if (videoTitle != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 16.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .background(
+                                                Color.Black.copy(alpha = 0.4f),
+                                                RoundedCornerShape(16.dp)
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = videoTitle,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TvIconButton(onClick = { isLocked = true }) {
+                                    Icon(Icons.Default.Lock, "Lock", tint = Color.White)
+                                }
+                                TvIconButton(onClick = {
+                                    val modes = VideoScaleMode.entries.toTypedArray()
+                                    val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
+                                    scaleMode = modes[nextIndex]
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        scaleMode.title,
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }) {
+                                    Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
+                                }
+                                TvIconButton(onClick = {
+                                    val activity = context as? ComponentActivity
+                                    if (android.os.Build.VERSION.SDK_INT >=
+                                        android.os.Build.VERSION_CODES.O
+                                    ) {
+                                        val params = android.app.PictureInPictureParams.Builder().build()
+                                        activity?.enterPictureInPictureMode(params)
+                                    }
+                                }) {
+                                    Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
+                                }
+                                TvIconButton(onClick = { showTrackSelector = true }) {
+                                    Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
+                                }
+                            }
+                        }
+
+                        // ── Center controls ──
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TvIconButton(
+                                onClick = { currentPosition = seekBy(exoPlayer, -seekAmount) },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.Default.Replay10,
+                                    contentDescription = "Seek Back 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            TvIconButton(
+                                onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                    .focusRequester(playPauseFocusRequester)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause
+                                    else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
+                            TvIconButton(
+                                onClick = { currentPosition = seekBy(exoPlayer, seekAmount) },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.Default.Forward10,
+                                    contentDescription = "Seek Forward 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+
+                        // ── Bottom bar ──
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.displayCutout)
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val shownPosition = if (isDragging)
+                                (dragFraction * duration).toLong() else currentPosition
+                            Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(end = 16.dp),
-                                contentAlignment = Alignment.CenterStart
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
+                                val bufferFraction = if (duration > 0)
+                                    (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                val playbackFraction = if (duration > 0)
+                                    (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                LinearProgressIndicator(
+                                    progress = { bufferFraction },
                                     modifier = Modifier
-                                        .background(
-                                            Color.Black.copy(alpha = 0.4f),
-                                            RoundedCornerShape(16.dp)
-                                        )
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = videoTitle,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TvIconButton(onClick = { isLocked = true }) {
-                                Icon(Icons.Default.Lock, "Lock", tint = Color.White)
-                            }
-                            TvIconButton(onClick = {
-                                val modes = VideoScaleMode.entries.toTypedArray()
-                                val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
-                                scaleMode = modes[nextIndex]
-                                android.widget.Toast.makeText(
-                                    context,
-                                    scaleMode.title,
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                            }) {
-                                Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
-                            }
-                            TvIconButton(onClick = {
-                                val activity = context as? ComponentActivity
-                                if (android.os.Build.VERSION.SDK_INT >=
-                                    android.os.Build.VERSION_CODES.O
-                                ) {
-                                    val params = android.app.PictureInPictureParams.Builder().build()
-                                    activity?.enterPictureInPictureMode(params)
-                                }
-                            }) {
-                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
-                            }
-                            TvIconButton(onClick = { showTrackSelector = true }) {
-                                Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
-                            }
-                        }
-                    }
-
-                    // ── Center controls ──
-                    Row(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TvIconButton(
-                            onClick = { currentPosition = seekBy(exoPlayer, -seekAmount) },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.Replay10,
-                                contentDescription = "Seek Back 10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        TvIconButton(
-                            onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                            modifier = Modifier
-                                .size(64.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                .focusRequester(playPauseFocusRequester)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause
-                                else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-
-                        TvIconButton(
-                            onClick = { currentPosition = seekBy(exoPlayer, seekAmount) },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.Forward10,
-                                contentDescription = "Seek Forward 10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-
-                    // ── Bottom bar ──
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.displayCutout)
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val shownPosition = if (isDragging)
-                            (dragFraction * duration).toLong() else currentPosition
-                        Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val bufferFraction = if (duration > 0)
-                                (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                            val playbackFraction = if (duration > 0)
-                                (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                            LinearProgressIndicator(
-                                progress = { bufferFraction },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp)
-                                    .height(4.dp)
-                                    .clip(CircleShape),
-                                color = Color.White.copy(alpha = 0.4f),
-                                trackColor = Color.Gray.copy(alpha = 0.3f)
-                            )
-                            Slider(
-                                value = if (isDragging) dragFraction else playbackFraction,
-                                onValueChange = { value ->
-                                    isDragging = true
-                                    dragFraction = value
-                                },
-                                onValueChangeFinished = {
-                                    if (duration > 0) {
-                                        val pos = (dragFraction * duration).toLong()
-                                        exoPlayer.seekTo(pos)
-                                        currentPosition = pos
-                                    }
-                                    isDragging = false
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color.White,
-                                    activeTrackColor = Color.Red,
-                                    inactiveTrackColor = Color.Transparent
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp)
+                                        .height(4.dp)
+                                        .clip(CircleShape),
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    trackColor = Color.Gray.copy(alpha = 0.3f)
                                 )
-                            )
-                        }
-                        Text(formatVodTime(duration), color = Color.White, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        TvIconButton(onClick = {
-                            isMuted = !isMuted
-                            exoPlayer.volume = if (isMuted) 0f else 1f
-                        }) {
-                            Icon(
-                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                                else Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = "Volume",
-                                tint = Color.White
-                            )
+                                Slider(
+                                    value = if (isDragging) dragFraction else playbackFraction,
+                                    onValueChange = { value ->
+                                        isDragging = true
+                                        dragFraction = value
+                                    },
+                                    onValueChangeFinished = {
+                                        if (duration > 0) {
+                                            val pos = (dragFraction * duration).toLong()
+                                            exoPlayer.seekTo(pos)
+                                            currentPosition = pos
+                                        }
+                                        isDragging = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color.White,
+                                        activeTrackColor = Color.Red,
+                                        inactiveTrackColor = Color.Transparent
+                                    )
+                                )
+                            }
+                            Text(formatVodTime(duration), color = Color.White, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            TvIconButton(onClick = {
+                                isMuted = !isMuted
+                                exoPlayer.volume = if (isMuted) 0f else 1f
+                            }) {
+                                Icon(
+                                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
+                                    else Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = "Volume",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if (isLoading && !isLocked) {
-            CircularProgressIndicator(
-                color = Color.Red,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        } else if (playerError != null || resolveFailed) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Default.Error,
-                    contentDescription = "Error",
-                    tint = Color.Red,
-                    modifier = Modifier.size(48.dp)
+            if (isLoading && !isLocked) {
+                CircularProgressIndicator(
+                    color = Color.Red,
+                    modifier = Modifier.align(Alignment.Center)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        playerError = null
-                        resolveFailed = false
-                        isLoading = true
-                        exoPlayer.stop()
-                        exoPlayer.clearMediaItems()
-                        retryToken++
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
+            } else if (playerError != null || resolveFailed) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Retry", color = Color.White)
+                    Icon(
+                        Icons.Default.Error,
+                        contentDescription = "Error",
+                        tint = Color.Red,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            playerError = null
+                            resolveFailed = false
+                            isLoading = true
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            retryToken++
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Retry", color = Color.White)
+                    }
                 }
             }
         }
-    }
     }
 
     if (showTrackSelector) {
@@ -913,11 +916,6 @@ fun VodPlayerScreen(
     }
 }
 
-/**
- * Seeks relative to the current position and returns the new position.
- * Reads the duration from the player directly (the UI state can still be 0 while
- * the overlay is hidden), and handles unknown duration (e.g. live streams).
- */
 private fun seekBy(player: ExoPlayer, deltaMs: Long): Long {
     val duration = player.duration
     val raw = player.currentPosition + deltaMs
