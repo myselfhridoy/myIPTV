@@ -46,6 +46,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.streambd.iptv.R
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.SourceSelectionDialog
@@ -174,7 +175,6 @@ fun LivePlayerScreen(
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
     }
 
-    // URLs that already failed for this channel — one attempt each per session.
     var failedSourceUrls by remember(channelKey) {
         mutableStateOf(setOf<String>())
     }
@@ -214,30 +214,26 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    // Window effects (insets, cutout, PiP). NO orientation forcing anymore.
+    // Window effects (insets, cutout, PiP). NO orientation forcing.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
 
-    // Prefetch cleanup only.
     DisposableEffect(playerViewModel) {
         onDispose { playerViewModel.stopPrefetch() }
     }
 
-    // Real exit (called by PlayerRevealContainer after the reverse animation).
     val finishExit: () -> Unit = {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         navController.popBackStack()
     }
 
-    // Request exit — starts the reverse animation. Container invokes finishExit.
     val requestExit: () -> Unit = {
         if (!exitRequested) exitRequested = true
     }
 
-    // Numeric channel input (2s timeout).
     LaunchedEffect(channelNumberInput) {
         if (channelNumberInput.isNotEmpty()) {
             delay(2000L)
@@ -291,7 +287,6 @@ fun LivePlayerScreen(
         }
     }
 
-    // Player listener.
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -350,7 +345,6 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // Progress tracker.
     LaunchedEffect(exoPlayer) {
         while (currentCoroutineContext().isActive) {
             currentPosition = exoPlayer.currentPosition
@@ -360,7 +354,6 @@ fun LivePlayerScreen(
         }
     }
 
-    // Overlay auto-hide + focus.
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
@@ -375,7 +368,6 @@ fun LivePlayerScreen(
         }
     }
 
-    // Back handler.
     BackHandler {
         if (isLocked) {
             showOverlay = true
@@ -468,12 +460,10 @@ fun LivePlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        PlayerView(ctx).apply {
+                        // Style forces TextureView so the container rotation applies.
+                        PlayerView(ctx, null, 0, R.style.PlayerViewTextureStyle).apply {
                             player = exoPlayer
                             useController = false
-                            // Required so the container rotation applies to the video
-                            // (SurfaceView would stay un-rotated).
-                            setUseTextureView(true)
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -489,13 +479,10 @@ fun LivePlayerScreen(
                         }
                         if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
                         if (playerView.player != exoPlayer) playerView.player = exoPlayer
-                        // Defensive: ensure TextureView mode every recomposition.
-                        playerView.setUseTextureView(true)
                     }
                 )
             }
 
-            // Static noise on error / resolution failure.
             if (playerError != null || isResolutionFailed) {
                 StaticNoiseBackground(Modifier.fillMaxSize())
             }
@@ -711,7 +698,7 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Status overlays: spinner OR error card
+            // Status overlays
             val showError = playerError != null || isResolutionFailed
 
             if (!showError && (isResolving || isBuffering) && !isLocked) {
@@ -779,7 +766,7 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Channel info toast.
+            // Channel info toast
             androidx.compose.animation.AnimatedVisibility(
                 visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
                 enter = androidx.compose.animation.fadeIn() +
@@ -813,7 +800,7 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Channel-number input overlay.
+            // Channel number overlay
             androidx.compose.animation.AnimatedVisibility(
                 visible = channelNumberInput.isNotEmpty(),
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
