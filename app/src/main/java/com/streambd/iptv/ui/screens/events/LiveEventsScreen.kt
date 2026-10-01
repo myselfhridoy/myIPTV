@@ -187,6 +187,8 @@ fun LiveEventsScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    // Focus first card on entry (TV)
+val firstCardFocusRequester = remember { FocusRequester() }
 
     var showStreamSelectionFor by remember {
         mutableStateOf<List<com.streambd.iptv.data.models.SportzfyStream>?>(null)
@@ -248,6 +250,10 @@ fun LiveEventsScreen(
         if (!isLoading) pullToRefreshState.endRefresh()
     }
 
+    LaunchedEffect(Unit) {
+    delay(180)
+    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
+}
     BackHandler(enabled = isSearchActive) {
         if (isSearchFocused) focusManager.clearFocus()
         else { searchQuery = ""; isSearchActive = false }
@@ -268,8 +274,8 @@ fun LiveEventsScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (onMenuClick != null && !isSearchActive) {
-                    TvIconButton(onClick = onMenuClick, modifier = Modifier.size(44.dp)) {
+                if (onMenuClick != null && !isSearchActive && !isTv) {
+    TvIconButton(onClick = onMenuClick, modifier = Modifier.size(44.dp)) {
                         Icon(
                             Icons.Default.Menu, "Menu",
                             tint = WhiteText, modifier = Modifier.size(22.dp)
