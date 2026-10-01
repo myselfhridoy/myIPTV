@@ -33,48 +33,78 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
-    
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
         }
     }
+
     compileOptions {
-        // নতুন: Java 11+ API (যেমন URLDecoder.decode(String, Charset)) পুরনো Android-এ চালানোর জন্য
+        // Java 11+ APIs (e.g. URLDecoder.decode(String, Charset)) on old Android
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
         jvmTarget = "17"
         freeCompilerArgs += listOf("-Xskip-metadata-version-check")
     }
+
     buildFeatures {
         compose = true
         buildConfig = true
     }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
+    }
+
+    lint {
+        // ─────────────────────────────────────────────────────────────
+        // Fixes the CI failure on `registerForActivityResult`:
+        //   InvalidFragmentVersionForActivityResult
+        //
+        // We use ComponentActivity (Fragment-free), so this Fragment-version
+        // check does not apply. It's a Google-recognized false positive.
+        // ─────────────────────────────────────────────────────────────
+        disable += "InvalidFragmentVersionForActivityResult"
+
+        // Keep failing on real lint errors — only the false positive is silenced.
+        abortOnError = true
+
+        // Optional: also silence other noise if CI complains
+        // disable += "GradleDependency"
+        // disable += "OldTargetApi"
+        // disable += "AndroidGradlePluginVersion"
     }
 }
 
 dependencies {
-    // নতুন: desugaring লাইব্রেরি
+    // Desugaring library
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
+    // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-config")
 
+    // AndroidX core
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+
+    // Compose
     implementation("androidx.compose.ui:ui:1.6.0")
     implementation("androidx.compose.ui:ui-graphics:1.6.0")
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
@@ -99,20 +129,20 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // Room Database
+    // Room
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // QuickJS for VOD Addon system
+    // QuickJS (VOD addon system)
     implementation("io.github.dokar3:quickjs-kt-android:1.0.15")
     testImplementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
-    
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Image Loading & Navigation
+    // Image loading & Navigation
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
