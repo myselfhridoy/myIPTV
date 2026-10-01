@@ -41,8 +41,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -149,7 +149,6 @@ fun LiveEventsScreen(
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    // ── TV / Mobile detection ──
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
     val isTv = remember(configuration) {
@@ -161,7 +160,6 @@ fun LiveEventsScreen(
         isTelevision || isLeanback
     }
 
-    // ── Responsive sizing ──
     val screenWidth = configuration.screenWidthDp
     val isCompact = screenWidth < 400
     val categoryCircleSize = when {
@@ -293,16 +291,26 @@ fun LiveEventsScreen(
                         onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
                             .onFocusChanged { isSearchFocused = it.hasFocus },
                         placeholder = {
-                            Text("Search teams or leagues…", color = GrayText, fontSize = 13.sp)
+                            Text(
+                                "Search teams or leagues…",
+                                color = GrayText,
+                                fontSize = 14.sp
+                            )
                         },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = CircleIdle,
-                            unfocusedContainerColor = CircleIdle,
-                            focusedIndicatorColor = BioAccent,
-                            unfocusedIndicatorColor = Color.Transparent,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = if (isSearchFocused) BioAccent else GrayText,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        // ▼ FIX: was `TextFieldDefaults.colors()` — mismatched with OutlinedTextField
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = BioAccent,
+                            unfocusedBorderColor = CircleIdleBorder,
                             focusedTextColor = WhiteText,
                             unfocusedTextColor = WhiteText,
                             cursorColor = BioAccent
@@ -361,7 +369,7 @@ fun LiveEventsScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── Filter chips (LazyRow — horizontally scrollable) ──
+            // ── Filter chips ──
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -529,7 +537,6 @@ fun LiveEventsScreen(
             }
         }
 
-        // Pull-to-refresh indicator (only while refreshing)
         if (pullToRefreshState.isRefreshing) {
             PullToRefreshContainer(
                 state = pullToRefreshState,
@@ -608,7 +615,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category circle — polished
+// Category circle
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryCircle(
@@ -622,7 +629,6 @@ private fun CategoryCircle(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    // ── Circle background ──
     val circleBg by animateColorAsState(
         targetValue = when {
             isSelected -> BioAccent.copy(alpha = 0.16f)
@@ -652,7 +658,6 @@ private fun CategoryCircle(
         label = "labelColor"
     )
 
-    // ── Micro-animations ──
     val iconScale by animateFloatAsState(
         targetValue = when {
             isFocused -> 1.12f
@@ -668,7 +673,6 @@ private fun CategoryCircle(
         label = "circleScale"
     )
 
-    // ── Badge color adapts to selected state ──
     val badgeBg by animateColorAsState(
         targetValue = if (isSelected) BioAccent else CountBadgeRed,
         animationSpec = tween(220),
@@ -680,7 +684,6 @@ private fun CategoryCircle(
         label = "badgeTextColor"
     )
 
-    // Handle 99+ overflow
     val badgeText = if (count > 99) "99+" else count.toString()
     val badgeWidth = if (count > 99) 28.dp else 20.dp
     val badgeHeight = 20.dp
@@ -697,7 +700,6 @@ private fun CategoryCircle(
                 scaleY = circleScale
             }
         ) {
-            // ── Circle body ──
             Box(
                 modifier = Modifier
                     .size(circleSize)
@@ -723,7 +725,6 @@ private fun CategoryCircle(
                 )
             }
 
-            // ── Count badge — top-right, subtle offset ──
             if (count > 0) {
                 Box(
                     modifier = Modifier
