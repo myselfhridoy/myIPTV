@@ -91,6 +91,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.foundation.lazy.itemsIndexed
 
 // ─────────────────────────────────────────────────────────────
 // Palette
@@ -839,6 +840,7 @@ private fun FilterChipWithIcon(
 @Composable
 private fun PlayZStyleMatchCard(
     event: SportzfyEvent,
+    modifier: Modifier = Modifier,
     isTv: Boolean,
     isCompact: Boolean,
     teamLogoWidth: Dp,
@@ -869,12 +871,12 @@ private fun PlayZStyleMatchCard(
     val centerWidth = if (isTv) 120.dp else if (isCompact) 80.dp else 96.dp
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+    modifier = modifier
+        .fillMaxWidth()
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(14.dp))
             .background(CardSurface)
