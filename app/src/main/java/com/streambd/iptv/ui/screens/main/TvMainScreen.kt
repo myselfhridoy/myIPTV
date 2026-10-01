@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -26,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.ModalNavigationDrawer
 import androidx.tv.material3.NavigationDrawerItem
 import androidx.tv.material3.NavigationDrawerItemDefaults
 import com.streambd.iptv.ui.screens.events.LiveEventsScreen
@@ -64,7 +64,7 @@ fun TvMainScreen(
     // Back: drawer open → close. Else double-back to exit dialog.
     BackHandler(enabled = true) {
         if (drawerState.currentValue == DrawerValue.Open) {
-            scope.launch { drawerState.setValue(DrawerValue.Closed) }
+            scope.launch { drawerState.close() }
         } else {
             val now = System.currentTimeMillis()
             if (now - lastBackPressTime < 2000) {
@@ -122,7 +122,7 @@ fun TvMainScreen(
                                         7 -> onShowExitDialog()
                                         else -> {
                                             onTabSelected(index)
-                                            scope.launch { drawerState.setValue(DrawerValue.Closed) }
+                                            scope.launch { drawerState.close() }
                                         }
                                     }
                                 },
@@ -156,7 +156,9 @@ fun TvMainScreen(
                 }
             }
         },
-        scrimColor = DarkNavyBackground.copy(alpha = 0.8f),
+        scrimBrush = Brush.horizontalGradient(
+            colors = listOf(DarkNavyBackground.copy(alpha = 0.8f), Color.Transparent)
+        ),
         modifier = Modifier
             .fillMaxSize()
             .background(DarkNavyBackground)
