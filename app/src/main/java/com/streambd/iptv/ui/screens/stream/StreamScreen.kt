@@ -1,5 +1,8 @@
 package com.streambd.iptv.ui.screens.stream
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -18,6 +21,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
@@ -137,6 +142,20 @@ private fun jsonToMap(obj: JSONObject?): Map<String, String> {
     val out = mutableMapOf<String, String>()
     obj.keys().forEach { k -> obj.optStrOrNull(k)?.let { out[k] = it } }
     return out
+}
+
+/** Read the current plain-text from the system clipboard, or null if empty. */
+private fun readClipboardText(context: Context): String? {
+    return try {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clip = cm?.primaryClip
+        if (clip != null && clip.itemCount > 0) {
+            val text = clip.getItemAt(0).coerceToText(context).toString()
+            text.takeIf { it.isNotBlank() }
+        } else null
+    } catch (_: Exception) {
+        null
+    }
 }
 
 data class PipeExtras(
@@ -678,13 +697,17 @@ fun StreamScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 20.dp)
                     .padding(bottom = 24.dp)
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StreamTextField("Media Stream URL", mediaStreamUrl) { mediaStreamUrl = it }
+                StreamTextField(
+                    label = "Media Stream URL",
+                    value = mediaStreamUrl,
+                    onValueChange = { mediaStreamUrl = it }
+                )
 
                 if (pipeExtras.url.isNotEmpty() && pipeExtras.url == mediaStreamUrl.trim()) {
                     val notes = buildList {
@@ -701,55 +724,46 @@ fun StreamScreen(
                     }
                 }
 
-                StreamTextField("Cookie Value", cookieValue) { cookieValue = it }
-                StreamTextField("Referer Value", refererValue) { refererValue = it }
-                StreamTextField("Origin Value", originValue) { originValue = it }
-                StreamTextField("DRM License URL", drmLicenseUrl) { drmLicenseUrl = it }
+                StreamTextField(
+                    label = "Cookie Value",
+                    value = cookieValue,
+                    onValueChange = { cookieValue = it }
+                )
+                StreamTextField(
+                    label = "Referer Value",
+                    value = refererValue,
+                    onValueChange = { refererValue = it }
+                )
+                StreamTextField(
+                    label = "Origin Value",
+                    value = originValue,
+                    onValueChange = { originValue = it }
+                )
+                StreamTextField(
+                    label = "DRM License URL",
+                    value = drmLicenseUrl,
+                    onValueChange = { drmLicenseUrl = it }
+                )
 
-                // ── Responsive dropdown row ──
-                // Side-by-side when the window is wide enough, stacked when narrow.
-                val isNarrowForDropdowns = LocalConfiguration.current.screenWidthDp < 500
-
-                if (isNarrowForDropdowns) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        DropdownField(
-                            label = "UserAgent",
-                            value = userAgent,
-                            expanded = showUserAgentDropdown,
-                            onExpandedChange = { showUserAgentDropdown = it },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        DropdownField(
-                            label = "DrmScheme",
-                            value = drmScheme,
-                            expanded = showDrmSchemeDropdown,
-                            onExpandedChange = { showDrmSchemeDropdown = it },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        DropdownField(
-                            label = "UserAgent",
-                            value = userAgent,
-                            expanded = showUserAgentDropdown,
-                            onExpandedChange = { showUserAgentDropdown = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        DropdownField(
-                            label = "DrmScheme",
-                            value = drmScheme,
-                            expanded = showDrmSchemeDropdown,
-                            onExpandedChange = { showDrmSchemeDropdown = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                // ── Dropdowns side-by-side (always) ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    DropdownField(
+                        label = "UserAgent",
+                        value = userAgent,
+                        expanded = showUserAgentDropdown,
+                        onExpandedChange = { showUserAgentDropdown = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    DropdownField(
+                        label = "DrmScheme",
+                        value = drmScheme,
+                        expanded = showDrmSchemeDropdown,
+                        onExpandedChange = { showDrmSchemeDropdown = it },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -815,13 +829,15 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
     val context = LocalContext.current
     val isTv = remember(configuration) {
         val uiMode = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
-        val isTelevision = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
+        val isTelevision = uiMode == UI_MODE_TYPE_TELEVISION
         val pm = context.packageManager
         val isLeanback = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
         isTelevision || isLeanback
     }
 
     if (isTv) {
+        // TV mode — non-inline edit; TV keyboards are awkward, so we render a
+        // display box that opens a real OutlinedTextField on click.
         var isEditing by remember { mutableStateOf(false) }
         val editFocusRequester = remember { FocusRequester() }
 
@@ -845,6 +861,13 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { isEditing = false }),
+                trailingIcon = {
+                    FieldTrailingIcons(
+                        value = value,
+                        onValueChange = onValueChange,
+                        context = context
+                    )
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
@@ -864,7 +887,7 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
                 animationSpec = tween(180),
                 label = "fieldBorder"
             )
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .onFocusChanged { isFocused = it.hasFocus }
@@ -874,24 +897,33 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
                         color = borderColor,
                         shape = RoundedCornerShape(8.dp)
                     )
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (value.isEmpty()) {
-                    Text(label, color = GrayText)
-                } else {
-                    Column {
-                        Text(label, color = GrayText, fontSize = 12.sp)
-                        Text(
-                            value,
-                            color = WhiteText,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                Box(modifier = Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
+                        Text(label, color = GrayText)
+                    } else {
+                        Column {
+                            Text(label, color = GrayText, fontSize = 12.sp)
+                            Text(
+                                value,
+                                color = WhiteText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
+                FieldTrailingIcons(
+                    value = value,
+                    onValueChange = onValueChange,
+                    context = context
+                )
             }
         }
     } else {
+        // Mobile — standard OutlinedTextField with paste + clear trailing icons.
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -899,6 +931,13 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            trailingIcon = {
+                FieldTrailingIcons(
+                    value = value,
+                    onValueChange = onValueChange,
+                    context = context
+                )
+            },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
@@ -911,8 +950,62 @@ fun StreamTextField(label: String, value: String, onValueChange: (String) -> Uni
     }
 }
 
+/**
+ * Trailing icons for a text field:
+ *   • Paste button — always visible; reads clipboard text into the field.
+ *   • Clear button — visible only when the field has a value; empties it.
+ */
+@Composable
+private fun FieldTrailingIcons(
+    value: String,
+    onValueChange: (String) -> Unit,
+    context: Context
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        // Paste
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .tvTouchClick {
+                    val clip = readClipboardText(context)
+                    if (!clip.isNullOrBlank()) onValueChange(clip)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.ContentPaste,
+                contentDescription = "Paste",
+                tint = BioAccent,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        // Clear — only when there is content
+        if (value.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .tvTouchClick { onValueChange("") },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = "Clear",
+                    tint = GrayText,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------
-// Dropdown — responsive sizing so the value never wraps
+// Dropdown — compact; two side-by-side fit on all phone widths
 // ---------------------------------------------------------------------
 @Composable
 fun DropdownField(
@@ -938,7 +1031,7 @@ fun DropdownField(
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -957,18 +1050,18 @@ fun DropdownField(
                 Text(
                     text = value,
                     color = WhiteText,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = if (expanded) Icons.Default.ArrowDropUp
                 else Icons.Default.ArrowDropDown,
-                contentDescription = null,
                 tint = GrayText,
-                modifier = Modifier.size(22.dp)
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
             )
         }
     }
