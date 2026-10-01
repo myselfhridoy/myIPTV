@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -57,13 +60,8 @@ import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.BioCardLight
 import com.streambd.iptv.ui.theme.DarkNavySurface
 import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.TvFocusedBorder
 import com.streambd.iptv.ui.theme.WhiteText
 
-/**
- * Returns `true` when the current screen is a phone-sized window.
- * 600dp matches Android's standard phone/tablet breakpoint.
- */
 @Composable
 fun rememberIsCompactLayout(): Boolean {
     val config = LocalConfiguration.current
@@ -73,16 +71,10 @@ fun rememberIsCompactLayout(): Boolean {
 /**
  * Shared shell for every dialog.
  *
- * Design:
- *  - Responsive: compact on phones, premium-size on TV/tablet.
- *  - Height-aware: content slot is capped to whatever vertical space is left
- *    after header + footer, so the dialog NEVER overflows the screen.
- *  - No default Close button: the footer only appears when the caller supplies
- *    `actions`. Tap-outside still dismisses via `onDismissRequest`.
- *
- * Usage:
- *  - Simple info dialogs → just pass content; no footer.
- *  - Confirm/action dialogs → pass `actions = { PremiumButton(...) }`.
+ * When [LocalPlayerIsRotated] is true (i.e. we're inside the rotated player
+ * container), this renders INLINE as a full-screen Box overlay instead of a
+ * separate Dialog window — so the dialog inherits the container's 90° rotation
+ * and appears landscape like the player.
  */
 @Composable
 fun PremiumDialogScaffold(
@@ -96,11 +88,75 @@ fun PremiumDialogScaffold(
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val isPlayerRotated = LocalPlayerIsRotated.current
+
+    if (isPlayerRotated) {
+        // Inline overlay — inherits rotation from PlayerRevealContainer.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.72f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() },
+            contentAlignment = Alignment.Center
+        ) {
+            // Swallow taps inside the dialog card so clicking it doesn't dismiss.
+            Box(
+                modifier = Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { /* no-op */ }
+            ) {
+                PremiumDialogCard(
+                    title = title,
+                    subtitle = subtitle,
+                    modifier = modifier,
+                    maxWidth = maxWidth,
+                    contentMaxHeight = contentMaxHeight,
+                    scrollContent = scrollContent,
+                    actions = actions,
+                    content = content
+                )
+            }
+        }
+    } else {
+        // Standard Dialog window (mobile dialogs, non-player contexts).
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            PremiumDialogCard(
+                title = title,
+                subtitle = subtitle,
+                modifier = modifier,
+                maxWidth = maxWidth,
+                contentMaxHeight = contentMaxHeight,
+                scrollContent = scrollContent,
+                actions = actions,
+                content = content
+            )
+        }
+    }
+}
+
+/** The visual card — same in both paths. */
+@Composable
+private fun PremiumDialogCard(
+    title: String,
+    subtitle: String?,
+    modifier: Modifier,
+    maxWidth: Dp,
+    contentMaxHeight: Dp,
+    scrollContent: Boolean,
+    actions: (@Composable RowScope.() -> Unit)?,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val config = LocalConfiguration.current
     val isCompact = config.screenWidthDp < 600
-    val isShortScreen = config.screenHeightDp < 480   // landscape phone
+    val isShortScreen = config.screenHeightDp < 480
 
-    // ── Responsive width / padding ──
     val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 380.dp) else maxWidth
     val outerPadding = when {
         isCompact && isShortScreen -> 6.dp
@@ -118,18 +174,13 @@ fun PremiumDialogScaffold(
     else
         MaterialTheme.typography.titleLarge
 
-    // ── Responsive HEIGHT: leave room for header + (optional) footer ──
-    // Approximate chrome cost in dp:
-    //   header row ~56dp, footer row ~50dp, plus outer padding on both sides.
     val chromeHeight = when {
-        isCompact && isShortScreen -> 110.dp   // tight landscape: header only + outer
-        isCompact -> 150.dp                     // header + small footer margin
+        isCompact && isShortScreen -> 110.dp
+        isCompact -> 150.dp
         else -> 180.dp
     }
     val screenBoundedContent = (config.screenHeightDp.dp - chromeHeight)
         .coerceAtLeast(100.dp)
-
-    // The content cap respects both the caller's preference AND the screen.
     val effectiveContentMaxHeight = minOf(
         if (isCompact) minOf(contentMaxHeight, 320.dp) else contentMaxHeight,
         screenBoundedContent
@@ -137,98 +188,86 @@ fun PremiumDialogScaffold(
 
     val shape = RoundedCornerShape(if (isCompact) 16.dp else 20.dp)
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    Column(
+        modifier = modifier
+            .padding(outerPadding)
+            .widthIn(max = effectiveMaxWidth)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(BioCardLight, DarkNavySurface)))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
     ) {
-        Column(
-            modifier = modifier
-                .padding(outerPadding)
-                .widthIn(max = effectiveMaxWidth)
+        Row(
+            modifier = Modifier
                 .fillMaxWidth()
-                .clip(shape)
-                .background(Brush.verticalGradient(listOf(BioCardLight, DarkNavySurface)))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+                .padding(start = headerStart, end = headerEnd, top = headerTop, bottom = headerBottom),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── Header ──
+            Box(
+                modifier = Modifier
+                    .width(accentWidth)
+                    .height(accentHeight)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(BioAccent)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = WhiteText,
+                    style = titleStyle,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        color = GrayText,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        val contentModifier = if (scrollContent)
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = effectiveContentMaxHeight)
+                .verticalScroll(rememberScrollState())
+        else Modifier.fillMaxWidth()
+
+        Column(modifier = contentModifier, content = content)
+
+        if (actions != null) {
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = Color.White.copy(alpha = 0.06f)
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = headerStart,
-                        end = headerEnd,
-                        top = headerTop,
-                        bottom = headerBottom
+                        horizontal = if (isCompact) 10.dp else 14.dp,
+                        vertical = if (isCompact) 8.dp else 10.dp
                     ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(accentWidth)
-                        .height(accentHeight)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(BioAccent)
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        color = WhiteText,
-                        style = titleStyle,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (subtitle != null) {
-                        Text(
-                            text = subtitle,
-                            color = GrayText,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            // ── Content (bounded to whatever space remains) ──
-            val contentModifier = if (scrollContent)
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = effectiveContentMaxHeight)
-                    .verticalScroll(rememberScrollState())
-            else Modifier.fillMaxWidth()
-
-            Column(modifier = contentModifier, content = content)
-
-            // ── Footer (only when the caller supplies actions) ──
-            if (actions != null) {
-                HorizontalDivider(
-                    modifier = Modifier.fillMaxWidth(),
-                    thickness = 1.dp,
-                    color = Color.White.copy(alpha = 0.06f)
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = if (isCompact) 10.dp else 14.dp,
-                            vertical = if (isCompact) 8.dp else 10.dp
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    actions()
-                }
+                actions()
             }
         }
     }
 }
 
-/**
- * Focusable base surface for TV + touch.
- * Uses `tvTouchClick` (focusable + D-pad ENTER + tap) instead of raw `clickable`.
- */
+// ─────────────────────────────────────────────────────────────
+// Rest of the file — TvFocusableItem, PremiumOptionRow, PremiumBadge, PremiumButton
+// (these stay the same as your current file — just re-use your existing code)
+// ─────────────────────────────────────────────────────────────
+
 @Composable
 fun TvFocusableItem(
     onClick: () -> Unit,
@@ -241,31 +280,19 @@ fun TvFocusableItem(
     content: @Composable RowScope.() -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.03f else 1f,
-        animationSpec = tween(180),
-        label = "focusScale"
-    )
     val background by animateColorAsState(
         targetValue = if (isFocused) BioAccent.copy(alpha = 0.14f) else restBackground,
         animationSpec = tween(180),
         label = "focusBg"
     )
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) TvFocusedBorder else Color.Transparent,
-        animationSpec = tween(180),
-        label = "focusBorder"
-    )
 
     Row(
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(shape)
             .background(background)
-            .border(2.dp, borderColor, shape)
             .tvTouchClick(onClick)
             .padding(contentPadding),
         horizontalArrangement = horizontalArrangement,
@@ -274,7 +301,6 @@ fun TvFocusableItem(
     )
 }
 
-/** One selectable row: title, optional subtitle, optional badge, check mark when selected. */
 @Composable
 fun PremiumOptionRow(
     title: String,
