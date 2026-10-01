@@ -50,6 +50,7 @@ import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.MediaResolver
 import kotlinx.coroutines.delay
+import com.streambd.iptv.utils.PlaybackLogger
 
 // Max bytes read when sniffing a response body (playlists/JSON are small)
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
@@ -475,12 +476,12 @@ fun VodPlayerScreen(
                 isLoading = false
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e.printStackTrace()
-            isLoading = false
-            resolveFailed = true
-        }
+    throw e
+} catch (e: Exception) {
+    e.printStackTrace()
+    isLoading = false
+    resolveFailed = true
+}
     }
 
     // ── Player listener ──
@@ -498,9 +499,19 @@ fun VodPlayerScreen(
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                playerError = error
-                isLoading = false
-            }
+    playerError = error
+    isLoading = false
+
+    // ── Firebase logging ──
+    PlaybackLogger.logVodPlaybackError(
+        context = context,
+        title = videoTitle ?: stream.provider,
+        streamProvider = stream.provider,
+        streamQuality = stream.quality,
+        streamUrl = stream.url,
+        error = error
+    )
+}
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
