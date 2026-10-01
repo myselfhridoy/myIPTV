@@ -470,7 +470,7 @@ fun LiveEventsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Category pill (was CategoryCircle) — custom focus + tvTouchClick
+// Category pill — solid-fill when selected (Netflix/TiviMate style)
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun CategoryPill(
@@ -480,72 +480,71 @@ private fun CategoryPill(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(
+
+    val bgColor by androidx.compose.animation.animateColorAsState(
         targetValue = when {
-            isFocused -> BioAccent.copy(alpha = 0.18f)
-            isSelected -> BioAccent.copy(alpha = 0.15f)
-            else -> Color(0xFF1E2638).copy(alpha = 0.5f)
-        },
-        animationSpec = tween(180),
-        label = "pillBg"
-    )
-    val border by androidx.compose.animation.animateColorAsState(
-        targetValue = when {
-            isFocused -> BioAccent
             isSelected -> BioAccent
-            else -> Color.White.copy(alpha = 0.1f)
+            isFocused -> Color.White.copy(alpha = 0.08f)
+            else -> Color(0xFF161D2D)
         },
-        animationSpec = tween(180),
-        label = "pillBorder"
+        animationSpec = tween(200),
+        label = "catPillBg"
+    )
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        targetValue = when {
+            isSelected -> BioAccent
+            isFocused -> BioAccent.copy(alpha = 0.7f)
+            else -> Color.White.copy(alpha = 0.08f)
+        },
+        animationSpec = tween(200),
+        label = "catPillBorder"
+    )
+    val mainTextColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF0A0E17) else WhiteText,
+        animationSpec = tween(200),
+        label = "catPillText"
+    )
+    val countTextColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF0A0E17).copy(alpha = 0.55f)
+        else WhiteText.copy(alpha = 0.45f),
+        animationSpec = tween(200),
+        label = "catPillCount"
     )
 
-    Box(
+    Row(
         modifier = Modifier
             .onFocusChanged { isFocused = it.hasFocus }
-            .clip(RoundedCornerShape(24.dp))
-            .background(bg)
+            .clip(RoundedCornerShape(50))
+            .background(bgColor)
             .border(
-                width = if (isFocused || isSelected) 2.dp else 1.dp,
-                color = border,
-                shape = RoundedCornerShape(24.dp)
+                width = 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(50)
             )
             .tvTouchClick(onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = name,
+            color = mainTextColor,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            fontSize = 14.sp
+        )
+        if (count > 0) {
+            Spacer(Modifier.width(8.dp))
             Text(
-                name,
-                color = if (isSelected) BioAccent else WhiteText,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                fontSize = 14.sp
+                text = count.toString(),
+                color = countTextColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
             )
-            if (count > 0) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFFFF4B2B), Color(0xFFFF416C))
-                            )
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        count.toString(),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                }
-            }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Status chip — custom focus + tvTouchClick
+// Status chip — subtle segmented-control look
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun StatusChip(
@@ -555,39 +554,57 @@ private fun StatusChip(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(
+
+    val bgColor by androidx.compose.animation.animateColorAsState(
         targetValue = when {
-            isFocused -> BioAccent.copy(alpha = 0.18f)
-            isSelected -> BioAccent.copy(alpha = 0.15f)
-            else -> Color.White.copy(alpha = 0.05f)
+            isSelected -> BioAccent.copy(alpha = 0.14f)
+            isFocused -> Color.White.copy(alpha = 0.06f)
+            else -> Color.Transparent
         },
         animationSpec = tween(180),
-        label = "chipBg"
+        label = "statusBg"
     )
     val borderColor by androidx.compose.animation.animateColorAsState(
         targetValue = when {
-            isFocused -> BioAccent
-            isSelected -> BioAccent
-            else -> Color.White.copy(alpha = 0.1f)
+            isSelected -> BioAccent.copy(alpha = 0.55f)
+            isFocused -> BioAccent.copy(alpha = 0.5f)
+            else -> Color.White.copy(alpha = 0.12f)
         },
         animationSpec = tween(180),
-        label = "chipBorder"
+        label = "statusBorder"
+    )
+    val textColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) BioAccent else WhiteText.copy(alpha = 0.7f),
+        animationSpec = tween(180),
+        label = "statusText"
     )
 
-    Box(
+    Row(
         modifier = Modifier
             .onFocusChanged { isFocused = it.hasFocus }
-            .clip(RoundedCornerShape(20.dp))
-            .background(bg)
-            .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(10.dp)
+            )
             .tvTouchClick(onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            "$name ($count)",
-            color = if (isSelected) BioAccent else Color.LightGray,
+            text = name,
+            color = textColor,
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = count.toString(),
+            color = textColor.copy(alpha = 0.55f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
         )
     }
 }
