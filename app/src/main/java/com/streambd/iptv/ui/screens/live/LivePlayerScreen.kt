@@ -1,13 +1,13 @@
 package com.streambd.iptv.ui.screens.live
 
 import android.content.Intent
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -167,10 +167,8 @@ fun LivePlayerScreen(
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
 
-    // Player reveal (rotation + fade + scale on entry/exit)
     var exitRequested by remember { mutableStateOf(false) }
 
-    // Start from sources[0] if available, not channel.url, so fallback works.
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
     }
@@ -214,7 +212,6 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    // Window effects (insets, cutout, PiP). NO orientation forcing.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
@@ -460,14 +457,13 @@ fun LivePlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // Style forces TextureView so the container rotation applies.
-                        PlayerView(ctx, null, 0, R.style.PlayerViewTextureStyle).apply {
+                        // Inflate XML layout so `app:surface_type="texture_view"` is honored.
+                        // Media3 1.2.1 has no programmatic API to switch SurfaceView → TextureView.
+                        val view = LayoutInflater.from(ctx)
+                            .inflate(R.layout.view_player_texture, null, false) as PlayerView
+                        view.apply {
                             player = exoPlayer
                             useController = false
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
                         }
                     },
                     update = { playerView ->
