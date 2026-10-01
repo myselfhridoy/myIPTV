@@ -2,8 +2,6 @@ package com.streambd.iptv.ui.screens.live
 
 import android.content.Intent
 import android.view.LayoutInflater
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -58,7 +56,6 @@ import com.streambd.iptv.utils.PlaybackLogger
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -166,13 +163,11 @@ fun LivePlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
-
     var exitRequested by remember { mutableStateOf(false) }
 
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
     }
-
     var failedSourceUrls by remember(channelKey) {
         mutableStateOf(setOf<String>())
     }
@@ -261,7 +256,6 @@ fun LivePlayerScreen(
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
-
         if (isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
                 message = "Stream resolver returned a page URL instead of a video stream.",
@@ -271,7 +265,6 @@ fun LivePlayerScreen(
             isBuffering = false
             return@LaunchedEffect
         }
-
         exoPlayer.setMediaSource(source)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
@@ -304,7 +297,6 @@ fun LivePlayerScreen(
 
             override fun onPlayerError(error: PlaybackException) {
                 val hls = isHlsFormatError(error)
-
                 PlaybackLogger.logLivePlaybackError(
                     context = context,
                     channelName = channel.name,
@@ -315,12 +307,10 @@ fun LivePlayerScreen(
                     error = error,
                     isHlsFormatError = hls
                 )
-
                 val allUrls = (listOf(channel.url) + channel.sources.values.toList())
                     .filter { it.isNotBlank() }
                     .distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
-
                 if (remaining.isNotEmpty()) {
                     failedSourceUrls = failedSourceUrls + currentSourceUrl
                     currentSourceUrl = remaining.first()
@@ -375,9 +365,7 @@ fun LivePlayerScreen(
             } else {
                 backPressedTime = now
                 android.widget.Toast.makeText(
-                    context,
-                    "Press back again to exit app",
-                    android.widget.Toast.LENGTH_SHORT
+                    context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
         } else {
@@ -457,8 +445,6 @@ fun LivePlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // Inflate XML layout so `app:surface_type="texture_view"` is honored.
-                        // Media3 1.2.1 has no programmatic API to switch SurfaceView → TextureView.
                         val view = LayoutInflater.from(ctx)
                             .inflate(R.layout.view_player_texture, null, false) as PlayerView
                         view.apply {
@@ -494,10 +480,9 @@ fun LivePlayerScreen(
                                 .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                                 .focusRequester(unlockFocusRequester)
                         ) {
-                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
+                            Icon(Icons.Default.Lock, "Unlock", tint = Color.White)
                         }
                     } else {
-                        // Top bar
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -546,11 +531,7 @@ fun LivePlayerScreen(
                                         if (intent != null) context.startActivity(intent)
                                         (context as? ComponentActivity)?.finishAndRemoveTask()
                                     }) {
-                                        Icon(
-                                            Icons.Default.PowerSettingsNew,
-                                            "Turn Off TV Mode",
-                                            tint = BioAccent
-                                        )
+                                        Icon(Icons.Default.PowerSettingsNew, "Turn Off TV Mode", tint = BioAccent)
                                     }
                                 }
                                 if (channel.sources.isNotEmpty()) {
@@ -571,7 +552,6 @@ fun LivePlayerScreen(
                                 }) {
                                     Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
                                 }
-
                                 TvIconButton(onClick = {
                                     val activity = context as? ComponentActivity
                                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -583,14 +563,12 @@ fun LivePlayerScreen(
                                 }) {
                                     Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
                                 }
-
                                 TvIconButton(onClick = { showTrackSelector = true }) {
                                     Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
                                 }
                             }
                         }
 
-                        // Center controls
                         Row(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -598,21 +576,18 @@ fun LivePlayerScreen(
                         ) {
                             TvIconButton(
                                 onClick = { viewModel.tuneToPrevChannel() },
-                                modifier = Modifier
-                                    .size(48.dp)
+                                modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    "Prev Channel",
-                                    tint = Color.White,
+                                    "Prev Channel", tint = Color.White,
                                     modifier = Modifier.size(28.dp)
                                 )
                             }
                             TvIconButton(
                                 onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                modifier = Modifier
-                                    .size(64.dp)
+                                modifier = Modifier.size(64.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                                     .focusRequester(playPauseFocusRequester)
                             ) {
@@ -625,20 +600,17 @@ fun LivePlayerScreen(
                             }
                             TvIconButton(
                                 onClick = { viewModel.tuneToNextChannel() },
-                                modifier = Modifier
-                                    .size(48.dp)
+                                modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    "Next Channel",
-                                    tint = Color.White,
+                                    "Next Channel", tint = Color.White,
                                     modifier = Modifier.size(28.dp)
                                 )
                             }
                         }
 
-                        // Bottom bar
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -656,8 +628,7 @@ fun LivePlayerScreen(
                                     (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
                                 LinearProgressIndicator(
                                     progress = { bufferFraction },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth()
                                         .padding(horizontal = 8.dp)
                                         .height(4.dp)
                                         .clip(CircleShape),
@@ -694,7 +665,6 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Status overlays
             val showError = playerError != null || isResolutionFailed
 
             if (!showError && (isResolving || isBuffering) && !isLocked) {
@@ -727,8 +697,7 @@ fun LivePlayerScreen(
                     if (lastHlsError || isResolutionFailed) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "Hint: The resolver could not extract a valid HLS/DASH manifest. " +
-                                "The provider page may be unreachable, or the stream format is unsupported.",
+                            "Hint: The resolver could not extract a valid HLS/DASH manifest.",
                             color = Color(0xFFFFC107),
                             fontSize = 11.sp
                         )
@@ -762,7 +731,6 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Channel info toast
             androidx.compose.animation.AnimatedVisibility(
                 visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
                 enter = androidx.compose.animation.fadeIn() +
@@ -796,7 +764,6 @@ fun LivePlayerScreen(
                 }
             }
 
-            // Channel number overlay
             androidx.compose.animation.AnimatedVisibility(
                 visible = channelNumberInput.isNotEmpty(),
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
@@ -816,26 +783,27 @@ fun LivePlayerScreen(
                     )
                 }
             }
+
+            // ── Dialogs (INSIDE PlayerRevealContainer → inherit 90° rotation) ──
+            if (showTrackSelector) {
+                TrackSelectionDialog(
+                    player = exoPlayer,
+                    onDismiss = { showTrackSelector = false }
+                )
+            }
+
+            if (showSourceSelector) {
+                SourceSelectionDialog(
+                    sources = channel.sources,
+                    currentSourceUrl = currentSourceUrl,
+                    onSourceSelected = { _, url ->
+                        failedSourceUrls = emptySet()
+                        currentSourceUrl = url
+                    },
+                    onDismiss = { showSourceSelector = false }
+                )
+            }
         }
-    }
-
-    if (showTrackSelector) {
-        TrackSelectionDialog(
-            player = exoPlayer,
-            onDismiss = { showTrackSelector = false }
-        )
-    }
-
-    if (showSourceSelector) {
-        SourceSelectionDialog(
-            sources = channel.sources,
-            currentSourceUrl = currentSourceUrl,
-            onSourceSelected = { _, url ->
-                failedSourceUrls = emptySet()
-                currentSourceUrl = url
-            },
-            onDismiss = { showSourceSelector = false }
-        )
     }
 }
 
