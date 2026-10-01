@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.screens.live
 
+import com.streambd.iptv.ui.components.PlayerRevealContainer
 import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -395,6 +396,7 @@ LaunchedEffect(isResolutionFailed) {
         }
     }
 
+    PlayerRevealContainer {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -823,7 +825,7 @@ LaunchedEffect(isResolutionFailed) {
             }
         }
     }
-
+    }
     if (showTrackSelector) {
         TrackSelectionDialog(
             player = exoPlayer,
