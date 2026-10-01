@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.screens.vod
 
 import android.content.res.Configuration
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -36,9 +37,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -65,32 +65,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
-import androidx.tv.material3.ExperimentalTvMaterial3Api
 import coil.compose.AsyncImage
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.PremiumOptionRow
 import com.streambd.iptv.ui.components.TvFocusableItem
 import com.streambd.iptv.ui.components.TvIconButton
+import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
-// Local palette (kept here until we consolidate into Theme.kt)
+// Local palette
 // ─────────────────────────────────────────────────────────────
-private val SurfaceElevated = Color(0xFF151A25)
 private val SurfaceChip = Color(0xFF1E2633)
 private val BioAccentDim = Color(0xFF008D94)
 private val StarGold = Color(0xFFFFC43D)
 
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TmdbDetailsScreen(
     mainViewModel: MainViewModel,
@@ -311,7 +307,6 @@ fun TmdbDetailsScreen(
                         else Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Rating
                         if (m.vote_average != null && m.vote_average > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -330,7 +325,6 @@ fun TmdbDetailsScreen(
                             }
                         }
 
-                        // Year
                         if (m.displayDate.isNotEmpty()) {
                             Text(
                                 text = m.displayDate.take(4),
@@ -340,7 +334,6 @@ fun TmdbDetailsScreen(
                             )
                         }
 
-                        // Runtime / Seasons
                         if (m.isMovie && runtime != null && runtime > 0) {
                             Text(
                                 text = "${runtime / 60}h ${runtime % 60}m",
@@ -357,7 +350,6 @@ fun TmdbDetailsScreen(
                             )
                         }
 
-                        // Type chip
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -417,13 +409,6 @@ fun TmdbDetailsScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // ── Action row ──
-                    var watchBtnFocused by remember { mutableStateOf(false) }
-                    val buttonScale by animateFloatAsState(
-                        targetValue = if (watchBtnFocused) 1.04f else 1f,
-                        animationSpec = tween(durationMillis = 180),
-                        label = "watchBtnScale"
-                    )
-
                     FlowRow(
                         horizontalArrangement = if (isPortrait)
                             Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)
@@ -431,52 +416,28 @@ fun TmdbDetailsScreen(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // ── Play button ──
-                        Button(
+                        // ── Play button (own component → works on TV + mobile) ──
+                        PlayButton(
+                            isCompact = isCompact,
                             onClick = {
                                 mainViewModel.setSelectedSeason(effectiveSeason)
                                 mainViewModel.setSelectedEpisode(effectiveEpisode)
                                 navController.navigate(Routes.SOURCE_SELECTION)
                             },
-                            modifier = Modifier
-                                .focusRequester(watchButtonFocusRequester)
-                                .focusProperties {
-                                    up = backButtonFocusRequester
-                                },
-                            colors = ButtonDefaults.colors(
-                                containerColor = BioAccent,
-                                focusedContainerColor = BioAccentDim
-                            ),
-                            shape = ButtonDefaults.shape(RoundedCornerShape(50.dp)),
-                            contentPadding = PaddingValues(
-                                horizontal = if (isCompact) 22.dp else 28.dp,
-                                vertical = if (isCompact) 12.dp else 14.dp
-                            )
-                        ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Play",
-                                color = Color.Black,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.3.sp
-                            )
-                        }
+                            focusRequester = watchButtonFocusRequester,
+                            modifier = Modifier.focusProperties {
+                                up = backButtonFocusRequester
+                            }
+                        )
 
-                        // ── Season + Episode pills (TV only) ──
+                        // ── Season + Episode pills (TV shows only) ──
                         if (!m.isMovie && validSeasons.isNotEmpty()) {
-                            SeasonPill(
+                            Pill(
                                 label = "Season ${effectiveSeason ?: 1}",
                                 isCompact = isCompact,
                                 onClick = { expandedSeason = true }
                             )
-                            EpisodePill(
+                            Pill(
                                 label = "Ep $effectiveEpisode",
                                 isCompact = isCompact,
                                 onClick = { expandedEpisode = true }
@@ -544,7 +505,10 @@ fun TmdbDetailsScreen(
                 .padding(if (isPortrait) 16.dp else 28.dp)
                 .size(if (isPortrait) 44.dp else 48.dp)
                 .align(Alignment.TopStart)
-                .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
+                .background(
+                    Color.Black.copy(alpha = 0.35f),
+                    androidx.compose.foundation.shape.CircleShape
+                )
                 .focusRequester(backButtonFocusRequester)
                 .focusProperties {
                     down = watchButtonFocusRequester
@@ -636,30 +600,67 @@ fun TmdbDetailsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Glassmorphic pill buttons for Season / Episode
+// Play button — own component so TV + mobile behave identically
 // ─────────────────────────────────────────────────────────────
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SeasonPill(
-    label: String,
+private fun PlayButton(
     isCompact: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
 ) {
-    PillBase(label = label, isCompact = isCompact, onClick = onClick)
+    var isFocused by remember { mutableStateOf(false) }
+    val bg by animateColorAsState(
+        targetValue = if (isFocused) BioAccentDim else BioAccent,
+        animationSpec = tween(180),
+        label = "playBg"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1f,
+        animationSpec = tween(180),
+        label = "playScale"
+    )
+
+    Row(
+        modifier = modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { isFocused = it.hasFocus }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .tvTouchClick(onClick)
+            .padding(
+                horizontal = if (isCompact) 22.dp else 28.dp,
+                vertical = if (isCompact) 12.dp else 14.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = Color.Black,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Play",
+            color = Color.Black,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.3.sp
+        )
+    }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+// ─────────────────────────────────────────────────────────────
+// Season / Episode pill
+// ─────────────────────────────────────────────────────────────
 @Composable
-private fun EpisodePill(
-    label: String,
-    isCompact: Boolean,
-    onClick: () -> Unit
-) {
-    PillBase(label = label, isCompact = isCompact, onClick = onClick)
-}
-
-@Composable
-private fun PillBase(
+private fun Pill(
     label: String,
     isCompact: Boolean,
     onClick: () -> Unit
