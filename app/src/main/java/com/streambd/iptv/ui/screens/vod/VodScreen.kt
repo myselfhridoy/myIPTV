@@ -610,7 +610,11 @@ fun TmdbMediaCard(
         onClick = onClick,
         modifier = modifier
             .width(cardWidth)
-            .height(cardHeight),
+            .height(cardHeight)
+            // FIX: Card.onClick handles D-pad ENTER on TV, but touch taps on
+            // mobile need tvTouchClick. Both coexist safely — on TV the Card
+            // consumes the key event first, so only one handler fires.
+            .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = SurfaceDark,
             focusedContainerColor = SurfaceDark
@@ -639,7 +643,7 @@ fun TmdbMediaCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Bottom gradient — stays compact so the poster breathes
+            // Bottom gradient
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -656,7 +660,7 @@ fun TmdbMediaCard(
                     )
             )
 
-            // Rating chip — subtle, gold star + score
+            // Rating chip
             if (media.vote_average != null && media.vote_average > 0) {
                 Row(
                     modifier = Modifier
@@ -683,7 +687,7 @@ fun TmdbMediaCard(
                 }
             }
 
-            // Title — bold, 2 lines, ellipsis
+            // Title
             Text(
                 text = media.displayTitle,
                 color = WhiteText,
