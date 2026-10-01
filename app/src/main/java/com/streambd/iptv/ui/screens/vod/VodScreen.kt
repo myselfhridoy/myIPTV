@@ -2,7 +2,6 @@ package com.streambd.iptv.ui.screens.vod
 
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -10,7 +9,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,7 +33,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,7 +82,7 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
-// Shared palette for this screen only (keep theme pristine)
+// Local palette
 // ─────────────────────────────────────────────────────────────
 private val SearchHintText = Color(0xFF999999)
 private val SearchContainerFocused = Color(0xFF1E2638)
@@ -93,7 +91,7 @@ private val StarGold = Color(0xFFFFC43D)
 private val SkeletonBase = Color.White
 
 // ─────────────────────────────────────────────────────────────
-// Data class to eliminate copy-pasted row blocks
+// Row wrapper
 // ─────────────────────────────────────────────────────────────
 private data class MediaRow(
     val key: String,
@@ -125,12 +123,20 @@ fun VodScreen(
     var isSearchExpanded by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
 
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val focusManager = LocalFocusManager.current
 
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
     var pendingFocus by remember { mutableStateOf<String?>(null) }
+
+    // ── Helper: fully close search ──
+    // Used by back handler, close icon, and Option A card-tap flow.
+    val closeSearch: () -> Unit = {
+        isSearchExpanded = false
+        searchQuery = ""
+        viewModel.search("")
+    }
 
     // ── Back handler: two-step (typing → results card → home) ──
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
@@ -138,9 +144,7 @@ fun VodScreen(
             focusManager.clearFocus()
             pendingFocus = "results"
         } else {
-            isSearchExpanded = false
-            searchQuery = ""
-            viewModel.search("")
+            closeSearch()
             pendingFocus = "home"
         }
     }
@@ -243,6 +247,8 @@ fun VodScreen(
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
+                                // ── Option A: auto-close search on card tap ──
+                                closeSearch()
                                 navController.navigate(Routes.TMDB_DETAILS)
                             }
                         }
@@ -264,6 +270,10 @@ fun VodScreen(
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
+                                // ── Option A: if search was somehow open, close it ──
+                                if (isSearchExpanded || searchQuery.isNotEmpty()) {
+                                    closeSearch()
+                                }
                                 navController.navigate(Routes.TMDB_DETAILS)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -301,11 +311,7 @@ fun VodScreen(
                     },
                     isFocused = isSearchFocused,
                     onFocusChange = { isSearchFocused = it },
-                    onClose = {
-                        isSearchExpanded = false
-                        searchQuery = ""
-                        viewModel.search("")
-                    },
+                    onClose = closeSearch,
                     focusRequester = searchFieldFocusRequester
                 )
             } else {
@@ -611,9 +617,9 @@ fun TmdbMediaCard(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
-            // FIX: Card.onClick handles D-pad ENTER on TV, but touch taps on
-            // mobile need tvTouchClick. Both coexist safely — on TV the Card
-            // consumes the key event first, so only one handler fires.
+            // Card.onClick handles D-pad ENTER on TV; tvTouchClick handles touch
+            // on mobile. Both coexist — the Card consumes the key event first on
+            // TV, so only one handler fires per interaction.
             .tvTouchClick(onClick),
         colors = CardDefaults.colors(
             containerColor = SurfaceDark,
