@@ -1,6 +1,5 @@
 package com.streambd.iptv.ui.screens.live
 
-import com.streambd.iptv.ui.components.PlayerRevealContainer
 import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -47,17 +46,18 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
+import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import com.streambd.iptv.utils.PlaybackLogger
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import com.streambd.iptv.utils.PlaybackLogger
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -74,7 +74,6 @@ private data class UiPlaybackError(
     val isHlsFormat: Boolean = false
 )
 
-/** Rejects only URLs we *know* are pages, not media. */
 private fun isKnownPageUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val lower = url.lowercase()
@@ -167,6 +166,9 @@ fun LivePlayerScreen(
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
 
+    // Player reveal (rotation + fade + scale on entry/exit)
+    var exitRequested by remember { mutableStateOf(false) }
+
     // Start from sources[0] if available, not channel.url, so fallback works.
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
@@ -187,17 +189,17 @@ fun LivePlayerScreen(
     val isResolving by playerViewModel.isLoading.collectAsState()
     val isResolutionFailed by playerViewModel.resolutionFailed.collectAsState()
 
-// Log resolver failure once per occurrence (Firebase).
-LaunchedEffect(isResolutionFailed) {
-    if (isResolutionFailed) {
-        PlaybackLogger.logResolutionFailed(
-            context = context,
-            channelName = channel.name,
-            sourceUrl = currentSourceUrl,
-            reason = "resolver_returned_null"
-        )
+    LaunchedEffect(isResolutionFailed) {
+        if (isResolutionFailed) {
+            PlaybackLogger.logResolutionFailed(
+                context = context,
+                channelName = channel.name,
+                sourceUrl = currentSourceUrl,
+                reason = "resolver_returned_null"
+            )
+        }
     }
-}
+
     val currentPlaylist by viewModel.currentPlaylist.collectAsState()
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FILL) }
@@ -212,24 +214,30 @@ LaunchedEffect(isResolutionFailed) {
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    // ── Window: orientation, insets, cutout, PiP ──
+    // Window effects (insets, cutout, PiP). NO orientation forcing anymore.
     PlayerWindowEffect { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
 
-    // ── Prefetch cleanup only ──
+    // Prefetch cleanup only.
     DisposableEffect(playerViewModel) {
         onDispose { playerViewModel.stopPrefetch() }
     }
 
-    val exitPlayer: () -> Unit = {
+    // Real exit (called by PlayerRevealContainer after the reverse animation).
+    val finishExit: () -> Unit = {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
         navController.popBackStack()
     }
 
-    // ── Numeric channel input (2s timeout) ──
+    // Request exit — starts the reverse animation. Container invokes finishExit.
+    val requestExit: () -> Unit = {
+        if (!exitRequested) exitRequested = true
+    }
+
+    // Numeric channel input (2s timeout).
     LaunchedEffect(channelNumberInput) {
         if (channelNumberInput.isNotEmpty()) {
             delay(2000L)
@@ -238,20 +246,17 @@ LaunchedEffect(isResolutionFailed) {
         }
     }
 
-    // Request focus once on entry.
     LaunchedEffect(Unit) {
         delay(100)
         try { mainFocusRequester.requestFocus() } catch (_: Exception) {}
     }
 
-    // Channel info overlay on channel change.
     LaunchedEffect(channel) {
         showChannelInfoOverlay = true
         delay(4000L)
         showChannelInfoOverlay = false
     }
 
-    // Reset per-channel state and kick off resolution.
     LaunchedEffect(channelKey, currentSourceUrl) {
         playerError = null
         lastHlsError = false
@@ -260,7 +265,6 @@ LaunchedEffect(isResolutionFailed) {
         playerViewModel.resolveChannel(channel, currentSourceUrl)
     }
 
-    // Apply resolved MediaSource — never hand a page URL to ExoPlayer.
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
@@ -280,7 +284,6 @@ LaunchedEffect(isResolutionFailed) {
         exoPlayer.playWhenReady = true
     }
 
-    // Prefetch neighbours.
     LaunchedEffect(channel, currentPlaylist) {
         val index = currentPlaylist.indexOfChannel(channel)
         if (index != -1) {
@@ -288,7 +291,7 @@ LaunchedEffect(isResolutionFailed) {
         }
     }
 
-    // ── Player listener ──
+    // Player listener.
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -296,8 +299,6 @@ LaunchedEffect(isResolutionFailed) {
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
                     lastHlsError = false
-                    // failedSourceUrls intentionally NOT reset here —
-                    // keep it so we don't re-try known-dead URLs during this session.
                 }
             }
 
@@ -310,21 +311,20 @@ LaunchedEffect(isResolutionFailed) {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-    val hls = isHlsFormatError(error)
+                val hls = isHlsFormatError(error)
 
-    // ── Firebase logging (throttled inside PlaybackLogger) ──
-    PlaybackLogger.logLivePlaybackError(
-        context = context,
-        channelName = channel.name,
-        channelGroup = channel.group,
-        channelUrl = channel.url,
-        sourceUrl = currentSourceUrl,
-        sourcesCount = channel.sources.size,
-        error = error,
-        isHlsFormatError = hls
-    )
+                PlaybackLogger.logLivePlaybackError(
+                    context = context,
+                    channelName = channel.name,
+                    channelGroup = channel.group,
+                    channelUrl = channel.url,
+                    sourceUrl = currentSourceUrl,
+                    sourcesCount = channel.sources.size,
+                    error = error,
+                    isHlsFormatError = hls
+                )
 
-    val allUrls = (listOf(channel.url) + channel.sources.values.toList())
+                val allUrls = (listOf(channel.url) + channel.sources.values.toList())
                     .filter { it.isNotBlank() }
                     .distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
@@ -392,440 +392,450 @@ LaunchedEffect(isResolutionFailed) {
                 ).show()
             }
         } else {
-            exitPlayer()
+            requestExit()
         }
     }
 
-    PlayerRevealContainer {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp) {
-                    when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (!showOverlay) { viewModel.tuneToNextChannel(); true } else false
-                        }
-                        android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
-                            viewModel.tuneToNextChannel(); true
-                        }
-                        android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (!showOverlay) { viewModel.tuneToPrevChannel(); true } else false
-                        }
-                        android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                            viewModel.tuneToPrevChannel(); true
-                        }
-                        android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                        android.view.KeyEvent.KEYCODE_ENTER -> {
-                            if (!showOverlay) { showOverlay = true; true } else false
-                        }
-                        in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
-                            val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0
-                            channelNumberInput += digit.toString()
-                            true
-                        }
-                        in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
-                            val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0
-                            channelNumberInput += digit.toString()
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
-            .focusRequester(mainFocusRequester)
-            .focusable()
-            .pointerInput(Unit) { detectTapGestures(onTap = { showOverlay = !showOverlay }) }
-            .pointerInput(Unit) {
-                var totalDrag = 0f
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        if (totalDrag > 150f) viewModel.tuneToPrevChannel()
-                        else if (totalDrag < -150f) viewModel.tuneToNextChannel()
-                        totalDrag = 0f
-                    },
-                    onDragCancel = { totalDrag = 0f }
-                ) { change, dragAmount ->
-                    change.consume()
-                    totalDrag += dragAmount
-                }
-            }
+    PlayerRevealContainer(
+        exitRequested = exitRequested,
+        forceUpright = isInPiP,
+        onExitComplete = finishExit
     ) {
-        val isCinema = scaleMode == VideoScaleMode.CINEMA
-
         Box(
-            modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
-                       else Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyUp) {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                if (!showOverlay) { viewModel.tuneToNextChannel(); true } else false
+                            }
+                            android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                                viewModel.tuneToNextChannel(); true
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                if (!showOverlay) { viewModel.tuneToPrevChannel(); true } else false
+                            }
+                            android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                                viewModel.tuneToPrevChannel(); true
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                            android.view.KeyEvent.KEYCODE_ENTER -> {
+                                if (!showOverlay) { showOverlay = true; true } else false
+                            }
+                            in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
+                                val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0
+                                channelNumberInput += digit.toString()
+                                true
+                            }
+                            in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
+                                val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0
+                                channelNumberInput += digit.toString()
+                                true
+                            }
+                            else -> false
+                        }
+                    } else false
+                }
+                .focusRequester(mainFocusRequester)
+                .focusable()
+                .pointerInput(Unit) { detectTapGestures(onTap = { showOverlay = !showOverlay }) }
+                .pointerInput(Unit) {
+                    var totalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (totalDrag > 150f) viewModel.tuneToPrevChannel()
+                            else if (totalDrag < -150f) viewModel.tuneToNextChannel()
+                            totalDrag = 0f
+                        },
+                        onDragCancel = { totalDrag = 0f }
+                    ) { change, dragAmount ->
+                        change.consume()
+                        totalDrag += dragAmount
+                    }
+                }
         ) {
-            AndroidView(
-                modifier = if (isCinema)
-                    Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
-                else Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { playerView ->
-                    val exoResizeMode = when (scaleMode) {
-                        VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    }
-                    if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
-                    if (playerView.player != exoPlayer) playerView.player = exoPlayer
-                }
-            )
-        }
+            val isCinema = scaleMode == VideoScaleMode.CINEMA
 
-        // Static noise on error / resolution failure.
-        if (playerError != null || isResolutionFailed) {
-            StaticNoiseBackground(Modifier.fillMaxSize())
-        }
-
-        if (showOverlay && !isInPiP) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
-                if (isLocked) {
-                    TvIconButton(
-                        onClick = { isLocked = false },
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp)
-                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                            .focusRequester(unlockFocusRequester)
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
-                    }
-                } else {
-                    // ── Top bar ──
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.displayCutout)
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TvIconButton(
-                            onClick = { exitPlayer() },
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-                        }
-                        Spacer(Modifier.width(12.dp))
-
-                        Box(
-                            modifier = Modifier.weight(1f).padding(end = 16.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = channel.name,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (isTvModeEnabled) {
-                                TvIconButton(onClick = {
-                                    viewModel.toggleTvMode(false)
-                                    val intent = context.packageManager
-                                        .getLaunchIntentForPackage(context.packageName)
-                                    intent?.addFlags(
-                                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                            Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                    )
-                                    if (intent != null) context.startActivity(intent)
-                                    (context as? ComponentActivity)?.finishAndRemoveTask()
-                                }) {
-                                    Icon(
-                                        Icons.Default.PowerSettingsNew,
-                                        "Turn Off TV Mode",
-                                        tint = BioAccent
-                                    )
-                                }
-                            }
-                            if (channel.sources.isNotEmpty()) {
-                                TvIconButton(onClick = { showSourceSelector = true }) {
-                                    Icon(Icons.Default.Dns, "Sources", tint = Color.White)
-                                }
-                            }
-                            TvIconButton(onClick = { isLocked = true }) {
-                                Icon(Icons.Default.Lock, "Lock", tint = Color.White)
-                            }
-                            TvIconButton(onClick = {
-                                val modes = VideoScaleMode.entries.toTypedArray()
-                                val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
-                                scaleMode = modes[nextIndex]
-                                android.widget.Toast.makeText(
-                                    context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
-                                ).show()
-                            }) {
-                                Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
-                            }
-
-                            TvIconButton(onClick = {
-                                val activity = context as? ComponentActivity
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                    val params = android.app.PictureInPictureParams.Builder().build()
-                                    activity?.enterPictureInPictureMode(params)
-                                } else {
-                                    onEnterPiP()
-                                }
-                            }) {
-                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
-                            }
-
-                            TvIconButton(onClick = { showTrackSelector = true }) {
-                                Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
-                            }
-                        }
-                    }
-
-                    // ── Center controls ──
-                    Row(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TvIconButton(
-                            onClick = { viewModel.tuneToPrevChannel() },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                "Prev Channel",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        TvIconButton(
-                            onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                            modifier = Modifier
-                                .size(64.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                .focusRequester(playPauseFocusRequester)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-                        TvIconButton(
-                            onClick = { viewModel.tuneToNextChannel() },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                "Next Channel",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-
-                    // ── Bottom bar ──
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.displayCutout)
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val bufferFraction = if (duration > 0)
-                                (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                            LinearProgressIndicator(
-                                progress = { bufferFraction },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp)
-                                    .height(4.dp)
-                                    .clip(CircleShape),
-                                color = Color.White.copy(alpha = 0.4f),
-                                trackColor = Color.Gray.copy(alpha = 0.3f)
-                            )
-                            Slider(
-                                value = (if (duration > 0) currentPosition.toFloat() / duration else 0f)
-                                    .coerceIn(0f, 1f),
-                                onValueChange = { value -> exoPlayer.seekTo((value * duration).toLong()) },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color.White,
-                                    activeTrackColor = Color.Red,
-                                    inactiveTrackColor = Color.Transparent
-                                )
-                            )
-                        }
-                        Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
-                        Spacer(Modifier.width(16.dp))
-                        TvIconButton(onClick = {
-                            val newMuted = !isMuted
-                            exoPlayer.volume = if (newMuted) 0f else 1f
-                        }) {
-                            Icon(
-                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                                else Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = "Volume",
-                                tint = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Status overlays: spinner OR error card ──
-        val showError = playerError != null || isResolutionFailed
-
-        if (!showError && (isResolving || isBuffering) && !isLocked) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = Color.Red
-            )
-        } else if (showError) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(12.dp))
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
+                           else Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-
-                val primaryText = when {
-                    playerError != null -> playerError?.message ?: "Unknown error"
-                    isResolutionFailed ->
-                        "Stream resolver could not extract a playable URL.\n" +
-                            "The provider page may be unreachable, blocked, or behind a captcha."
-                    else -> "Unknown error"
-                }
-                Text(primaryText, color = Color.White, fontSize = 12.sp)
-
-                if (lastHlsError || isResolutionFailed) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Hint: The resolver could not extract a valid HLS/DASH manifest. " +
-                            "The provider page may be unreachable, or the stream format is unsupported.",
-                        color = Color(0xFFFFC107),
-                        fontSize = 11.sp
-                    )
-                }
-
-                val causeText = playerError?.causeMessage
-                if (!causeText.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(causeText, color = Color.LightGray, fontSize = 10.sp)
-                }
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        playerError = null
-                        lastHlsError = false
-                        isBuffering = true
-                        failedSourceUrls = emptySet()
-                        val retryUrl = channel.sources.values.firstOrNull() ?: channel.url
-                        if (currentSourceUrl != retryUrl) {
-                            currentSourceUrl = retryUrl
-                        } else {
-                            playerViewModel.retryResolution(channel, currentSourceUrl)
+                AndroidView(
+                    modifier = if (isCinema)
+                        Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
+                    else Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            // Required so the container rotation applies to the video
+                            // (SurfaceView would stay un-rotated).
+                            setUseTextureView(true)
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
-                ) {
-                    Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Retry", color = Color.White)
-                }
-            }
-        }
-
-        // Channel info toast.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
-            enter = androidx.compose.animation.fadeIn() +
-                androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
-            exit = androidx.compose.animation.fadeOut() +
-                androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
-            modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (channel.logo.isNotEmpty()) {
-                    coil.compose.AsyncImage(
-                        model = channel.logo,
-                        contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
-                    )
-                    Spacer(Modifier.width(16.dp))
-                }
-                Column {
-                    Text(channel.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    if (channel.group.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(channel.group, color = Color.LightGray, fontSize = 16.sp)
+                    update = { playerView ->
+                        val exoResizeMode = when (scaleMode) {
+                            VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        }
+                        if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
+                        if (playerView.player != exoPlayer) playerView.player = exoPlayer
+                        // Defensive: ensure TextureView mode every recomposition.
+                        playerView.setUseTextureView(true)
                     }
-                }
-            }
-        }
-
-        // Channel-number input overlay.
-        androidx.compose.animation.AnimatedVisibility(
-            visible = channelNumberInput.isNotEmpty(),
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
-            modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .background(BioAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
-            ) {
-                Text(
-                    text = channelNumberInput,
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold
                 )
             }
+
+            // Static noise on error / resolution failure.
+            if (playerError != null || isResolutionFailed) {
+                StaticNoiseBackground(Modifier.fillMaxSize())
+            }
+
+            if (showOverlay && !isInPiP) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
+                    if (isLocked) {
+                        TvIconButton(
+                            onClick = { isLocked = false },
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(16.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                .focusRequester(unlockFocusRequester)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
+                        }
+                    } else {
+                        // Top bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.displayCutout)
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TvIconButton(
+                                onClick = { requestExit() },
+                                modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                            }
+                            Spacer(Modifier.width(12.dp))
+
+                            Box(
+                                modifier = Modifier.weight(1f).padding(end = 16.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = channel.name,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isTvModeEnabled) {
+                                    TvIconButton(onClick = {
+                                        viewModel.toggleTvMode(false)
+                                        val intent = context.packageManager
+                                            .getLaunchIntentForPackage(context.packageName)
+                                        intent?.addFlags(
+                                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                                Intent.FLAG_ACTIVITY_NEW_TASK or
+                                                Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                        )
+                                        if (intent != null) context.startActivity(intent)
+                                        (context as? ComponentActivity)?.finishAndRemoveTask()
+                                    }) {
+                                        Icon(
+                                            Icons.Default.PowerSettingsNew,
+                                            "Turn Off TV Mode",
+                                            tint = BioAccent
+                                        )
+                                    }
+                                }
+                                if (channel.sources.isNotEmpty()) {
+                                    TvIconButton(onClick = { showSourceSelector = true }) {
+                                        Icon(Icons.Default.Dns, "Sources", tint = Color.White)
+                                    }
+                                }
+                                TvIconButton(onClick = { isLocked = true }) {
+                                    Icon(Icons.Default.Lock, "Lock", tint = Color.White)
+                                }
+                                TvIconButton(onClick = {
+                                    val modes = VideoScaleMode.entries.toTypedArray()
+                                    val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
+                                    scaleMode = modes[nextIndex]
+                                    android.widget.Toast.makeText(
+                                        context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }) {
+                                    Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
+                                }
+
+                                TvIconButton(onClick = {
+                                    val activity = context as? ComponentActivity
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        val params = android.app.PictureInPictureParams.Builder().build()
+                                        activity?.enterPictureInPictureMode(params)
+                                    } else {
+                                        onEnterPiP()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
+                                }
+
+                                TvIconButton(onClick = { showTrackSelector = true }) {
+                                    Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
+                                }
+                            }
+                        }
+
+                        // Center controls
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TvIconButton(
+                                onClick = { viewModel.tuneToPrevChannel() },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    "Prev Channel",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            TvIconButton(
+                                onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                    .focusRequester(playPauseFocusRequester)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            TvIconButton(
+                                onClick = { viewModel.tuneToNextChannel() },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    "Next Channel",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+
+                        // Bottom bar
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.displayCutout)
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val bufferFraction = if (duration > 0)
+                                    (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                LinearProgressIndicator(
+                                    progress = { bufferFraction },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp)
+                                        .height(4.dp)
+                                        .clip(CircleShape),
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    trackColor = Color.Gray.copy(alpha = 0.3f)
+                                )
+                                Slider(
+                                    value = (if (duration > 0) currentPosition.toFloat() / duration else 0f)
+                                        .coerceIn(0f, 1f),
+                                    onValueChange = { value -> exoPlayer.seekTo((value * duration).toLong()) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color.White,
+                                        activeTrackColor = Color.Red,
+                                        inactiveTrackColor = Color.Transparent
+                                    )
+                                )
+                            }
+                            Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+                            Spacer(Modifier.width(16.dp))
+                            TvIconButton(onClick = {
+                                val newMuted = !isMuted
+                                exoPlayer.volume = if (newMuted) 0f else 1f
+                            }) {
+                                Icon(
+                                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
+                                    else Icons.AutoMirrored.Filled.VolumeUp,
+                                    contentDescription = "Volume",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Status overlays: spinner OR error card
+            val showError = playerError != null || isResolutionFailed
+
+            if (!showError && (isResolving || isBuffering) && !isLocked) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color.Red
+                )
+            } else if (showError) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(12.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    val primaryText = when {
+                        playerError != null -> playerError?.message ?: "Unknown error"
+                        isResolutionFailed ->
+                            "Stream resolver could not extract a playable URL.\n" +
+                                "The provider page may be unreachable, blocked, or behind a captcha."
+                        else -> "Unknown error"
+                    }
+                    Text(primaryText, color = Color.White, fontSize = 12.sp)
+
+                    if (lastHlsError || isResolutionFailed) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Hint: The resolver could not extract a valid HLS/DASH manifest. " +
+                                "The provider page may be unreachable, or the stream format is unsupported.",
+                            color = Color(0xFFFFC107),
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    val causeText = playerError?.causeMessage
+                    if (!causeText.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(causeText, color = Color.LightGray, fontSize = 10.sp)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            playerError = null
+                            lastHlsError = false
+                            isBuffering = true
+                            failedSourceUrls = emptySet()
+                            val retryUrl = channel.sources.values.firstOrNull() ?: channel.url
+                            if (currentSourceUrl != retryUrl) {
+                                currentSourceUrl = retryUrl
+                            } else {
+                                playerViewModel.retryResolution(channel, currentSourceUrl)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
+                    ) {
+                        Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Retry", color = Color.White)
+                    }
+                }
+            }
+
+            // Channel info toast.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
+                enter = androidx.compose.animation.fadeIn() +
+                    androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+                exit = androidx.compose.animation.fadeOut() +
+                    androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+                modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (channel.logo.isNotEmpty()) {
+                        coil.compose.AsyncImage(
+                            model = channel.logo,
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
+                        )
+                        Spacer(Modifier.width(16.dp))
+                    }
+                    Column {
+                        Text(channel.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        if (channel.group.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(channel.group, color = Color.LightGray, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+
+            // Channel-number input overlay.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = channelNumberInput.isNotEmpty(),
+                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+                modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(BioAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 24.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        text = channelNumberInput,
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
-    }
+
     if (showTrackSelector) {
         TrackSelectionDialog(
             player = exoPlayer,
