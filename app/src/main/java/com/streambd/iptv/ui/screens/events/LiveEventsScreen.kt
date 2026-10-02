@@ -255,13 +255,13 @@ fun LiveEventsScreen(
         if (!isLoading) pullToRefreshState.endRefresh()
     }
 
-    // ── Focus first card once loading completes (TV) ──
-    LaunchedEffect(isLoading, filteredEvents.isNotEmpty()) {
-        if (!isLoading && filteredEvents.isNotEmpty() && !isSearchActive) {
-            delay(180)
-            try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
+    // ── Focus first card once loading completes (TV only) ──
+LaunchedEffect(isLoading, filteredEvents.isNotEmpty()) {
+    if (isTv && !isLoading && filteredEvents.isNotEmpty() && !isSearchActive) {
+        delay(180)
+        try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
     }
+}
 
     BackHandler(enabled = isSearchActive) {
         if (isSearchFocused) {
