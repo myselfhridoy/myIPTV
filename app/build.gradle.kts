@@ -64,7 +64,8 @@ android {
     }
 
     composeOptions {
-        // ⚠️ Kotlin 1.9.22 এর সাথে সামঞ্জস্যপূর্ণ Compose Compiler
+        // Kotlin 1.9.22-এর সাথে সামঞ্জস্যপূর্ণ Compose Compiler
+        // Compatibility map: 1.5.8 / 1.5.9 / 1.5.10 — সবই Kotlin 1.9.22-এর জন্য
         kotlinCompilerExtensionVersion = "1.5.10"
     }
 
@@ -106,11 +107,13 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // ⚠️ TV Material — BOM-এর বাইরে, তাই আলাদা ভার্সন
-    // alpha10 → alpha12-তে আপগ্রেড (ফোকাস বাগ ফিক্স)
-    val tvComposeVersion = "1.0.0-alpha12"
-    implementation("androidx.tv:tv-foundation:$tvComposeVersion")
-    implementation("androidx.tv:tv-material:$tvComposeVersion")
+    // ═══════════════════════════════════════════════════════════════
+    // TV Material & Foundation — stable releases
+    // ═══════════════════════════════════════════════════════════════
+    // tv-material: 1.1.0 (stable), tv-foundation: 1.0.0 (stable)
+    // আগের `alpha12` ভার্সনটি কখনো প্রকাশিত হয়নি — এটাই বিল্ড ফেলের কারণ ছিল।
+    implementation("androidx.tv:tv-foundation:1.0.0")
+    implementation("androidx.tv:tv-material:1.1.0")
 
     // Media3
     implementation("androidx.media3:media3-exoplayer:$media3Version")
