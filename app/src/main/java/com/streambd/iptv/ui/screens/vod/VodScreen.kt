@@ -229,7 +229,7 @@ fun VodScreen(
                     // Also reduces Compose's beyond-bounds focus searches,
                     // which is where the `LayoutCoordinate...isAttached`
                     // crash originates.
-                    .focusRestorer(firstCardFocusRequester),
+                    .focusRestorer { firstCardFocusRequester },
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(key = "top_spacer") {
