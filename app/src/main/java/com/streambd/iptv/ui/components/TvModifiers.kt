@@ -32,14 +32,20 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.streambd.iptv.ui.theme.TvFocusedBorder
 import com.streambd.iptv.utils.DeviceType
 
 /**
- * Focus decoration modifier.
- *   • TV  → cyan border + subtle scale on focus (D-pad users need this).
- *   • Mobile → no-op (touch has no focus ring; keeps UI clean).
+ * Focus decoration modifier for TV (mobile: no-op).
+ *
+ * FIX: Border was applied via `if (isFocused) Modifier.border(...)` which made
+ * the border disappear instantly (before its color animation could finish).
+ * Now the border is ALWAYS applied; only its color animates. When unfocused
+ * the color is `Color.Transparent`, so it's visually identical to no border.
  */
 fun Modifier.tvFocusBorder(
     shape: Shape = RoundedCornerShape(8.dp),
@@ -67,25 +73,24 @@ fun Modifier.tvFocusBorder(
             scaleX = scale
             scaleY = scale
         }
-        .then(
-            if (isFocused) Modifier.border(2.dp, borderColor, shape)
-            else Modifier
-        )
+        // Border always present — animated color handles the transition.
+        .border(2.dp, borderColor, shape)
 }
 
 /**
- * TV icon button.
- *   • TV  → scale + tinted bg + cyan border on focus.
- *   • Mobile → clean, no focus ring.
+ * TV icon button (mobile: no focus ring).
  *
- * Still fully functional on both:
- *   • D-pad ENTER / DPAD_CENTER fires onClick (via tvTouchClick)
- *   • Tap fires onClick
+ * FIXES:
+ *   • Border is now always applied (animated color) — no more vanishing.
+ *   • `zIndex` on focus so the scaled button renders above neighbours.
+ *   • `contentDescription` parameter sets accessibility semantics explicitly,
+ *     instead of relying on the caller's icon() lambda.
  */
 @Composable
 fun TvIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
     icon: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -114,6 +119,9 @@ fun TvIconButton(
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            // Focused item renders above neighbours — important because
+            // the 1.08x scale can otherwise be clipped by adjacent items.
+            .zIndex(if (showFocus) 1f else 0f)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -121,9 +129,12 @@ fun TvIconButton(
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(CircleShape)
             .background(bg, CircleShape)
+            // Border always present; only its color animates.
+            .border(2.dp, borderColor, CircleShape)
             .then(
-                if (showFocus) Modifier.border(2.dp, borderColor, CircleShape)
-                else Modifier
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else Modifier
             )
             .tvTouchClick(onClick),
         contentAlignment = Alignment.Center
@@ -133,10 +144,8 @@ fun TvIconButton(
 }
 
 /**
- * Tap + D-pad ENTER handler.
- *   • Adds `focusable()` so D-pad focus can land here.
- *   • Consumes KeyUp for ENTER/CENTER (no double-fire).
- *   • Uses `rememberUpdatedState` so callers don't need to remember the lambda.
+ * Tap + D-pad ENTER handler — unchanged for now.
+ * (A future iteration may switch to Modifier.clickable for accessibility.)
  */
 fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = composed {
     val currentOnClick by rememberUpdatedState(onClick)
