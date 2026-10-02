@@ -136,11 +136,11 @@ fun LiveTvScreen(
 
     // ── NEW: Focus first card on entry (TV). Re-runs when loading finishes. ──
     LaunchedEffect(isLoading, displayedCategories.isNotEmpty()) {
-        if (!isLoading && displayedCategories.isNotEmpty()) {
-            delay(180)
-            try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
+    if (isTV && !isLoading && displayedCategories.isNotEmpty()) {
+        delay(180)
+        try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
     }
+}
 
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
