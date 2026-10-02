@@ -1,6 +1,8 @@
 package com.streambd.iptv.ui.screens.vod
 
 import android.view.LayoutInflater
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -591,11 +593,20 @@ fun VodPlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
+                        // ⚠️ Pass a real parent FrameLayout so `match_parent` in
+                        // the XML resolves properly. Passing `null` makes
+                        // `match_parent` degrade to `wrap_content`, which is why
+                        // the video was appearing as a small rectangle.
+                        val parent = FrameLayout(ctx)
                         val view = LayoutInflater.from(ctx)
-                            .inflate(R.layout.view_player_texture, null, false) as PlayerView
+                            .inflate(R.layout.view_player_texture, parent, false) as PlayerView
                         view.apply {
                             player = exoPlayer
                             useController = false
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
                         }
                     },
                     update = { playerView ->
@@ -820,7 +831,7 @@ fun VodPlayerScreen(
                 }
             }
 
-            // ── Dialogs (INSIDE PlayerRevealContainer → inherit 90° rotation) ──
+            // ── Dialogs (inside PlayerRevealContainer → inherit 90° rotation) ──
             if (showTrackSelector) {
                 TrackSelectionDialog(
                     player = exoPlayer,
