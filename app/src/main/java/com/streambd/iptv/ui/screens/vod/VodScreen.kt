@@ -12,6 +12,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -126,8 +127,6 @@ fun VodScreen(
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
-
-    // Focus routing requesters — the reviewer's suggestion.
     val menuRequester = remember { FocusRequester() }
     val searchBtnRequester = remember { FocusRequester() }
     val contentRequester = remember { FocusRequester() }
@@ -152,25 +151,8 @@ fun VodScreen(
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
+            // Safe focus request — requester node may not be attached yet.
             runCatching { searchFieldFocusRequester.requestFocus() }
-        }
-    }
-
-    LaunchedEffect(pendingFocus, searchResults) {
-        when (pendingFocus) {
-            "results" -> {
-                if (searchResults.isNotEmpty()) {
-                    delay(50)
-                    runCatching { resultsFocusRequester.requestFocus() }
-                }
-                pendingFocus = null
-            }
-            "home" -> {
-                delay(150)
-                runCatching { firstCardFocusRequester.requestFocus() }
-                pendingFocus = null
-            }
-            else -> Unit
         }
     }
 
@@ -197,9 +179,39 @@ fun VodScreen(
         ).filter { it.list.isNotEmpty() }
     }
 
-    // Focus first card only when TV + rows are ready + not searching.
-    LaunchedEffect(isTV, mediaRows.isNotEmpty(), isSearchExpanded, searchQuery) {
-        if (isTV && mediaRows.isNotEmpty() && !isSearchExpanded && searchQuery.isEmpty()) {
+    val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
+    val showEmptyNoResults = searchQuery.isNotEmpty() &&
+            searchResults.isEmpty() && !isLoading
+
+    // Content is really rendered only when skeleton is NOT shown.
+    val contentVisible = !showInitialSkeleton && mediaRows.isNotEmpty()
+
+    LaunchedEffect(pendingFocus, searchResults) {
+        when (pendingFocus) {
+            "results" -> {
+                if (searchResults.isNotEmpty()) {
+                    delay(50)
+                    runCatching { resultsFocusRequester.requestFocus() }
+                }
+                pendingFocus = null
+            }
+            "home" -> {
+                // Only try when we know content is composed — otherwise
+                // the requester's node is detached and requesting focus is
+                // a wasted / risky operation.
+                if (contentVisible) {
+                    delay(150)
+                    runCatching { firstCardFocusRequester.requestFocus() }
+                }
+                pendingFocus = null
+            }
+            else -> Unit
+        }
+    }
+
+    // Focus first card only when TV + rows ready + not searching + skeleton gone.
+    LaunchedEffect(isTV, contentVisible, isSearchExpanded, searchQuery) {
+        if (isTV && contentVisible && !isSearchExpanded && searchQuery.isEmpty()) {
             delay(180)
             runCatching { firstCardFocusRequester.requestFocus() }
         }
@@ -210,26 +222,24 @@ fun VodScreen(
             .fillMaxSize()
             .background(DarkNavyBackground)
     ) {
-        val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
-        val showEmptyNoResults = searchQuery.isNotEmpty() &&
-                searchResults.isEmpty() && !isLoading
-
         if (showInitialSkeleton) {
             VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Content anchor — top bar's Down target.
                     .focusRequester(contentRequester)
-                    // If a focused card scrolls out of view (or its row is
-                    // removed), focus restores to the last-focused child; if
-                    // that's gone, to `firstCardFocusRequester`.
-                    //
-                    // Also reduces Compose's beyond-bounds focus searches,
-                    // which is where the `LayoutCoordinate...isAttached`
-                    // crash originates.
-                    .focusRestorer { firstCardFocusRequester },
+                    // ⬇️ CRITICAL FIX:
+                    // Previously: `.focusRestorer { firstCardFocusRequester }`
+                    // That fallback requester could be attached to a node that
+                    // is no longer in the composition (e.g. row removed, search
+                    // opened, scroll recycling), and Compose's focus search
+                    // would crash with:
+                    //   IllegalStateException: LayoutCoordinate operations are
+                    //   only valid when isAttached is true
+                    // Using the default restorer (no explicit fallback) avoids
+                    // ever pointing the search at a detached node.
+                    .focusRestorer(),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(key = "top_spacer") {
@@ -285,7 +295,6 @@ fun VodScreen(
                                     Modifier.focusRequester(firstCardFocusRequester)
                                 else Modifier,
                                 isMobilePortrait = isMobilePortrait,
-                                // First row's cards → Up goes to the menu button.
                                 upRequester = if (rowIndex == 0) menuRequester else null
                             ) { media ->
                                 viewModel.selectMedia(media)
@@ -359,7 +368,12 @@ private fun VodTopBar(
     downRequester: FocusRequester
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // ⬇️ NEW: focusGroup prevents 2D focus search from walking into
+            // unrelated LazyLayout beyond-bounds trees when moving between
+            // the top-bar buttons.
+            .focusGroup(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onMenuClick != null) {
@@ -598,6 +612,11 @@ private fun MediaSection(
         }
 
         LazyRow(
+            // ⬇️ NEW: focusGroup keeps focus search scoped to this row when
+            // navigating horizontally. It also prevents the beyond-bounds
+            // focus search (which triggered the crash) from crossing into
+            // sibling rows unnecessarily.
+            modifier = Modifier.focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(spacing),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
         ) {
