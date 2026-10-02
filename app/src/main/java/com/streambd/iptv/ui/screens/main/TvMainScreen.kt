@@ -2,7 +2,6 @@
 
 package com.streambd.iptv.ui.screens.main
 
-import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -32,6 +31,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,10 +51,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.streambd.iptv.BuildConfig
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.screens.events.LiveEventsScreen
 import com.streambd.iptv.ui.screens.live.LiveTvScreen
@@ -70,61 +72,96 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// ─────────────────────────────────────────────────────────────
+// Drawer entry indices — no more magic numbers scattered around.
+// ─────────────────────────────────────────────────────────────
+private object DrawerIndex {
+    const val EVENTS = 0
+    const val LIVE_TV = 1
+    const val MEDIA = 2
+    const val STREAM = 3
+    const val PLAYLISTS = 4
+    const val CHECK_UPDATE = 5
+    const val MORE = 6
+    const val EXIT = 7
+}
+
+/** Number of "primary" tabs that map 1:1 to the top-level screens. */
+private const val PRIMARY_TAB_COUNT = 4
+
+// ─────────────────────────────────────────────────────────────
+// Drawer palette
+// ─────────────────────────────────────────────────────────────
 private val DrawerBg = Color(0xFF0D1220)
 private val DrawerSelectedBg = BioAccent.copy(alpha = 0.14f)
 private val DrawerSectionLabel = Color(0xFF6B7280)
 private val DrawerFocusedBg = BioAccent.copy(alpha = 0.08f)
 private val DrawerFocusedBorder = BioAccent
 
+// ─────────────────────────────────────────────────────────────
+// A single drawer entry (icon + label + stable index).
+// ─────────────────────────────────────────────────────────────
+private data class DrawerEntry(
+    val index: Int,
+    val icon: ImageVector,
+    val label: String,
+    val danger: Boolean = false
+)
+
 @Composable
 fun TvMainScreen(
     mainViewModel: MainViewModel,
     tmdbViewModel: TmdbViewModel,
     navController: NavController,
-    context: Context,
     tvTabs: List<TabItem>,
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     onCheckUpdate: () -> Unit,
     onShowMore: () -> Unit,
-    onShowExitDialog: () -> Unit,
-    onRestartApp: () -> Unit
+    onShowExitDialog: () -> Unit
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var lastBackTime by remember { mutableStateOf(0L) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-    // ── Back behavior on TV (drawer open OR closed) ──
-    //   Drawer closed + Back       → open drawer
-    //   Drawer open   + Back #1    → "Press again to exit" toast, start 2s timer
-    //   Drawer open   + Back #2    → exit dialog
-    //   Drawer open   + Back after 2s → reset timer, show toast again
+    var lastBackTime by remember { mutableLongStateOf(0L) }
+
+    // ── Back behavior (drawer-aware) ──
+    //   Drawer closed + Back      → open drawer
+    //   Drawer open   + Back      → close drawer
+    //                               (toggle — matches Smarttube & most TV apps)
+    //   Exit is done via the "Exit App" drawer item.
     BackHandler(enabled = true) {
-        val now = System.currentTimeMillis()
         if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            val now = System.currentTimeMillis()
             if (now - lastBackTime in 1..2000) {
                 lastBackTime = 0L
                 onShowExitDialog()
             } else {
                 lastBackTime = now
-                android.widget.Toast.makeText(
-                    context,
-                    "Press BACK again to exit",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
+                scope.launch { drawerState.open() }
             }
-        } else {
-            scope.launch { drawerState.open() }
-            lastBackTime = 0L
         }
     }
 
     val drawerFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(drawerState.isOpen) {
-        if (drawerState.isOpen) {
-            delay(220)
-            try { drawerFocusRequester.requestFocus() } catch (_: Exception) {}
+    // Which drawer item should receive initial focus when the drawer opens.
+    // → the currently-selected primary tab (or the first primary tab if
+    //   selection is outside 0..3).
+    val focusAnchorIndex = if (selectedTab in 0 until PRIMARY_TAB_COUNT) selectedTab
+    else DrawerIndex.EVENTS
+
+    // ── Focus the anchor item once the drawer animation SETTLES ──
+    // Keyed on currentValue so it fires when Open is reached, not while
+    // animating. No magic delay.
+    LaunchedEffect(drawerState.currentValue) {
+        if (drawerState.currentValue == DrawerValue.Open) {
+            // one extra frame after settle, so layout bounds are final
+            delay(60)
+            runCatching { drawerFocusRequester.requestFocus() }
         }
     }
 
@@ -139,15 +176,31 @@ fun TvMainScreen(
                 tvTabs = tvTabs,
                 selectedTab = selectedTab,
                 isDrawerOpen = drawerState.isOpen,
-                firstItemFocusRequester = drawerFocusRequester,
+                focusAnchorIndex = focusAnchorIndex,
+                anchorFocusRequester = drawerFocusRequester,
                 onCloseDrawer = { scope.launch { drawerState.close() } },
                 onItemClick = { index ->
                     when (index) {
-                        4 -> { scope.launch { drawerState.close() }; navController.navigate("playlists") }
-                        5 -> { scope.launch { drawerState.close() }; onCheckUpdate() }
-                        6 -> { scope.launch { drawerState.close() }; onShowMore() }
-                        7 -> { scope.launch { drawerState.close() }; onShowExitDialog() }
-                        else -> { onTabSelected(index); scope.launch { drawerState.close() } }
+                        DrawerIndex.PLAYLISTS -> {
+                            scope.launch { drawerState.close() }
+                            navController.navigate("playlists")
+                        }
+                        DrawerIndex.CHECK_UPDATE -> {
+                            scope.launch { drawerState.close() }
+                            onCheckUpdate()
+                        }
+                        DrawerIndex.MORE -> {
+                            scope.launch { drawerState.close() }
+                            onShowMore()
+                        }
+                        DrawerIndex.EXIT -> {
+                            scope.launch { drawerState.close() }
+                            onShowExitDialog()
+                        }
+                        else -> {
+                            onTabSelected(index)
+                            scope.launch { drawerState.close() }
+                        }
                     }
                 }
             )
@@ -157,19 +210,16 @@ fun TvMainScreen(
             .fillMaxSize()
             .background(DarkNavyBackground)
     ) {
-        // ── Block focus into main content while drawer is open ──
-        // This prevents the source screen's focused card from keeping its
-        // focus ring visible behind the drawer scrim.
+        // Main content. The source screen's own focus ring might still be
+        // around, but it will be invisible: the drawer's scrim covers it and
+        // focus is moved into the drawer as soon as `currentValue == Open`.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp, vertical = 20.dp)
-                .focusProperties {
-                    canFocus = !drawerState.isOpen
-                }
         ) {
             when (selectedTab) {
-                0 -> {
+                DrawerIndex.EVENTS -> {
                     val eventsViewModel: LiveEventsViewModel =
                         androidx.lifecycle.viewmodel.compose.viewModel()
                     LiveEventsScreen(
@@ -177,38 +227,52 @@ fun TvMainScreen(
                         onMenuClick = openDrawer
                     )
                 }
-                1 -> LiveTvScreen(mainViewModel, navController, onMenuClick = openDrawer)
-                2 -> VodScreen(tmdbViewModel, navController, onMenuClick = openDrawer)
-                3 -> StreamScreen(mainViewModel, tmdbViewModel, navController, onMenuClick = openDrawer)
+                DrawerIndex.LIVE_TV -> LiveTvScreen(
+                    mainViewModel, navController, onMenuClick = openDrawer
+                )
+                DrawerIndex.MEDIA -> VodScreen(
+                    tmdbViewModel, navController, onMenuClick = openDrawer
+                )
+                DrawerIndex.STREAM -> StreamScreen(
+                    mainViewModel, tmdbViewModel, navController, onMenuClick = openDrawer
+                )
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Drawer content
+// ─────────────────────────────────────────────────────────────
 @Composable
 private fun TvDrawerContent(
     tvTabs: List<TabItem>,
     selectedTab: Int,
     isDrawerOpen: Boolean,
-    firstItemFocusRequester: FocusRequester,
+    focusAnchorIndex: Int,
+    anchorFocusRequester: FocusRequester,
     onCloseDrawer: () -> Unit,
     onItemClick: (Int) -> Unit
 ) {
+    // Compose the full item list once so the body is a single loop.
+    val entries: List<DrawerEntry> = remember(tvTabs) {
+        val primary = tvTabs.take(PRIMARY_TAB_COUNT).mapIndexed { i, tab ->
+            DrawerEntry(i, tab.selectedIcon, tab.title)
+        }
+        primary + listOf(
+            DrawerEntry(DrawerIndex.PLAYLISTS, Icons.Filled.Folder, "Playlists"),
+            DrawerEntry(DrawerIndex.CHECK_UPDATE, Icons.Filled.Refresh, "Check Update"),
+            DrawerEntry(DrawerIndex.MORE, Icons.Outlined.MoreVert, "More"),
+            DrawerEntry(DrawerIndex.EXIT, Icons.AutoMirrored.Filled.ExitToApp, "Exit App", danger = true)
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxHeight()
             .width(268.dp)
             .background(DrawerBg)
-            // ── Right key anywhere in the drawer closes it ──
-            // Placed on the top-level container so it catches Right no matter
-            // which drawer item currently has focus.
-            .focusProperties {
-                if (isDrawerOpen) {
-                    // Prevent focus from escaping to the main content via D-pad.
-                    left = FocusRequester.Cancel
-                    right = FocusRequester.Cancel
-                }
-            }
+            // Right from anywhere in the drawer closes it.
             .onKeyEvent { ev ->
                 if (isDrawerOpen &&
                     ev.type == KeyEventType.KeyUp &&
@@ -231,64 +295,53 @@ private fun TvDrawerContent(
             Spacer(Modifier.height(12.dp))
 
             DrawerSectionLabelText("CONTENT")
-            DrawerItem(
-                icon = Icons.Filled.Event, label = tvTabs[0].title,
-                selected = selectedTab == 0, isDrawerOpen = isDrawerOpen,
-                focusRequester = if (selectedTab != 0) firstItemFocusRequester else null,
-                onClick = { onItemClick(0) }
-            )
-            DrawerItem(
-                icon = Icons.Filled.LiveTv, label = tvTabs[1].title,
-                selected = selectedTab == 1, isDrawerOpen = isDrawerOpen,
-                focusRequester = if (selectedTab != 1) firstItemFocusRequester else null,
-                onClick = { onItemClick(1) }
-            )
-            DrawerItem(
-                icon = Icons.Filled.MovieFilter, label = tvTabs[2].title,
-                selected = selectedTab == 2, isDrawerOpen = isDrawerOpen,
-                focusRequester = if (selectedTab != 2) firstItemFocusRequester else null,
-                onClick = { onItemClick(2) }
-            )
-            DrawerItem(
-                icon = Icons.Filled.NetworkWifi, label = tvTabs[3].title,
-                selected = selectedTab == 3, isDrawerOpen = isDrawerOpen,
-                focusRequester = if (selectedTab != 3) firstItemFocusRequester else null,
-                onClick = { onItemClick(3) }
-            )
+            entries.take(PRIMARY_TAB_COUNT).forEach { entry ->
+                DrawerItem(
+                    entry = entry,
+                    selected = selectedTab == entry.index,
+                    isDrawerOpen = isDrawerOpen,
+                    focusRequester = if (entry.index == focusAnchorIndex) anchorFocusRequester else null,
+                    onClick = { onItemClick(entry.index) }
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             DrawerSectionLabelText("LIBRARY")
             DrawerItem(
-                icon = Icons.Filled.Folder, label = "Playlists",
-                selected = false, isDrawerOpen = isDrawerOpen,
-                onClick = { onItemClick(4) }
+                entry = entries[DrawerIndex.PLAYLISTS],
+                selected = false,
+                isDrawerOpen = isDrawerOpen,
+                onClick = { onItemClick(DrawerIndex.PLAYLISTS) }
             )
 
             Spacer(Modifier.height(16.dp))
             DrawerSectionLabelText("SETTINGS")
             DrawerItem(
-                icon = Icons.Filled.Refresh, label = "Check Update",
-                selected = false, isDrawerOpen = isDrawerOpen,
-                onClick = { onItemClick(5) }
+                entry = entries[DrawerIndex.CHECK_UPDATE],
+                selected = false,
+                isDrawerOpen = isDrawerOpen,
+                onClick = { onItemClick(DrawerIndex.CHECK_UPDATE) }
             )
             DrawerItem(
-                icon = Icons.Outlined.MoreVert, label = "More",
-                selected = false, isDrawerOpen = isDrawerOpen,
-                onClick = { onItemClick(6) }
+                entry = entries[DrawerIndex.MORE],
+                selected = false,
+                isDrawerOpen = isDrawerOpen,
+                onClick = { onItemClick(DrawerIndex.MORE) }
             )
 
             Spacer(Modifier.height(16.dp))
             DrawerDivider()
             Spacer(Modifier.height(8.dp))
             DrawerItem(
-                icon = Icons.AutoMirrored.Filled.ExitToApp, label = "Exit App",
-                selected = false, isDrawerOpen = isDrawerOpen, danger = true,
-                onClick = { onItemClick(7) }
+                entry = entries[DrawerIndex.EXIT],
+                selected = false,
+                isDrawerOpen = isDrawerOpen,
+                onClick = { onItemClick(DrawerIndex.EXIT) }
             )
 
             Spacer(Modifier.height(24.dp))
             Text(
-                text = "StreamBD IPTV • v4.0",
+                text = "StreamBD IPTV • v${BuildConfig.VERSION_NAME}",
                 color = GrayText.copy(alpha = 0.4f),
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 24.dp)
@@ -304,23 +357,41 @@ private fun DrawerHeader() {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(46.dp).clip(CircleShape)
+            modifier = Modifier
+                .size(46.dp)
+                .clip(CircleShape)
                 .background(BioAccent.copy(alpha = 0.15f))
                 .border(1.dp, BioAccent.copy(alpha = 0.35f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.LiveTv, null, tint = BioAccent, modifier = Modifier.size(24.dp))
+            Icon(
+                imageVector = Icons.Filled.LiveTv,
+                contentDescription = null,
+                tint = BioAccent,
+                modifier = Modifier.size(24.dp)
+            )
         }
         Spacer(Modifier.width(14.dp))
         Column {
-            Text("StreamBD IPTV", color = WhiteText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "StreamBD IPTV",
+                color = WhiteText,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(Modifier.height(2.dp))
             Box(
-                modifier = Modifier.clip(RoundedCornerShape(4.dp))
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
                     .background(BioAccent.copy(alpha = 0.15f))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text("v4.0", color = BioAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}",
+                    color = BioAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -329,8 +400,11 @@ private fun DrawerHeader() {
 @Composable
 private fun DrawerSectionLabelText(text: String) {
     Text(
-        text = text, color = DrawerSectionLabel, fontSize = 10.sp,
-        fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
+        text = text,
+        color = DrawerSectionLabel,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.2.sp,
         modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 6.dp)
     )
 }
@@ -339,42 +413,58 @@ private fun DrawerSectionLabelText(text: String) {
 private fun DrawerDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(horizontal = 24.dp),
-        thickness = 1.dp, color = Color.White.copy(alpha = 0.05f)
+        thickness = 1.dp,
+        color = Color.White.copy(alpha = 0.05f)
     )
 }
 
 @Composable
 private fun DrawerItem(
-    icon: ImageVector,
-    label: String,
+    entry: DrawerEntry,
     selected: Boolean,
     isDrawerOpen: Boolean,
-    badge: String? = null,
-    danger: Boolean = false,
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
     val bgColor by animateColorAsState(
-        when { isFocused -> DrawerFocusedBg; selected -> DrawerSelectedBg; else -> Color.Transparent },
-        tween(180), label = "dbg"
+        targetValue = when {
+            isFocused -> DrawerFocusedBg
+            selected -> DrawerSelectedBg
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "drawerBg"
     )
     val contentColor by animateColorAsState(
-        when { danger -> Color(0xFFFF6B6B); isFocused || selected -> BioAccent; else -> WhiteText.copy(alpha = 0.85f) },
-        tween(180), label = "dcc"
+        targetValue = when {
+            entry.danger -> Color(0xFFFF6B6B)
+            isFocused || selected -> BioAccent
+            else -> WhiteText.copy(alpha = 0.85f)
+        },
+        animationSpec = tween(180),
+        label = "drawerContent"
     )
     val accentBarColor by animateColorAsState(
-        if (isFocused || selected) BioAccent else Color.Transparent, tween(180), label = "dab"
+        targetValue = if (isFocused || selected) BioAccent else Color.Transparent,
+        animationSpec = tween(180),
+        label = "drawerAccent"
     )
     val borderColor by animateColorAsState(
-        if (isFocused) DrawerFocusedBorder else Color.Transparent, tween(180), label = "dbc"
+        targetValue = if (isFocused) DrawerFocusedBorder else Color.Transparent,
+        animationSpec = tween(180),
+        label = "drawerBorder"
     )
     val liftY by animateFloatAsState(
-        if (isFocused) -6f else 0f, tween(200), label = "dly"
+        targetValue = if (isFocused) -6f else 0f,
+        animationSpec = tween(200),
+        label = "drawerLift"
     )
     val scale by animateFloatAsState(
-        if (isFocused) 1.03f else 1f, tween(200), label = "dsc"
+        targetValue = if (isFocused) 1.03f else 1f,
+        animationSpec = tween(200),
+        label = "drawerScale"
     )
 
     Box(
@@ -382,15 +472,23 @@ private fun DrawerItem(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
             .focusProperties {
+                // Prevent focus from escaping into the main content while open.
                 canFocus = isDrawerOpen
                 if (isDrawerOpen) {
                     left = FocusRequester.Cancel
                     right = FocusRequester.Cancel
                 }
             }
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .then(
+                if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                else Modifier
+            )
             .onFocusChanged { isFocused = it.hasFocus }
-            .graphicsLayer { scaleX = scale; scaleY = scale; translationY = liftY }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationY = liftY
+            }
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
             .border(2.dp, borderColor, RoundedCornerShape(10.dp))
@@ -400,24 +498,28 @@ private fun DrawerItem(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.width(4.dp).height(24.dp).clip(RoundedCornerShape(2.dp)).background(accentBarColor))
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accentBarColor)
+            )
             Spacer(Modifier.width(12.dp))
-            Icon(icon, null, tint = contentColor, modifier = Modifier.size(20.dp))
+            Icon(
+                imageVector = entry.icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
             Spacer(Modifier.width(14.dp))
             Text(
-                label, color = contentColor, fontSize = 14.sp,
+                text = entry.label,
+                color = contentColor,
+                fontSize = 14.sp,
                 fontWeight = if (selected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
                 modifier = Modifier.weight(1f)
             )
-            if (badge != null) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(10.dp))
-                        .background(BioAccent.copy(alpha = 0.18f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Text(badge, color = BioAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-            }
             Spacer(Modifier.width(12.dp))
         }
     }
