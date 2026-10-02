@@ -403,6 +403,48 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         _selectedEpisode.value = episode
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // VOD selection persistence
+    //
+    // Tracks which TMDB id the current season/episode selection belongs
+    // to, so switching to a different title doesn't inherit the previous
+    // title's S/E. Returning from SourceSelection on the SAME title
+    // restores the last pick instead of resetting to S1E1.
+    // ═══════════════════════════════════════════════════════════════
+    private var vodSelectionMediaId: Int? = null
+
+    /**
+     * Returns the persisted (season, episode) pair only if it belongs
+     * to the requested media id. Otherwise returns null so the caller
+     * can fall back to defaults.
+     */
+    fun getVodSelectionFor(mediaId: Int): Pair<Int?, Int?>? {
+        if (vodSelectionMediaId != mediaId) return null
+        return _selectedSeason.value to _selectedEpisode.value
+    }
+
+    /**
+     * Persists the user's S/E choice, scoped to a specific media id.
+     * Also mirrors into `_selectedSeason` / `_selectedEpisode` so any
+     * downstream consumer that reads those flows keeps working.
+     */
+    fun setVodSelection(mediaId: Int, season: Int?, episode: Int?) {
+        vodSelectionMediaId = mediaId
+        _selectedSeason.value = season
+        _selectedEpisode.value = episode
+    }
+
+    /**
+     * Clears the persisted S/E selection. Call when leaving VOD
+     * entirely, or when the user navigates away from a title they no
+     * longer intend to resume.
+     */
+    fun clearVodSelection() {
+        vodSelectionMediaId = null
+        _selectedSeason.value = null
+        _selectedEpisode.value = null
+    }
+
     /** Call this when leaving SourceSelectionScreen or resetting streams so the next entry triggers a fresh fetch. */
     fun resetVodStreams() {
         // Stop any in-flight fetch so it can't add streams after the reset
