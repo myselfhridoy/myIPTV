@@ -64,26 +64,13 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        // ⚠️ Kotlin 1.9.22 এর সাথে সামঞ্জস্যপূর্ণ Compose Compiler
+        kotlinCompilerExtensionVersion = "1.5.10"
     }
 
     lint {
-        // ─────────────────────────────────────────────────────────────
-        // Fixes the CI failure on `registerForActivityResult`:
-        //   InvalidFragmentVersionForActivityResult
-        //
-        // We use ComponentActivity (Fragment-free), so this Fragment-version
-        // check does not apply. It's a Google-recognized false positive.
-        // ─────────────────────────────────────────────────────────────
         disable += "InvalidFragmentVersionForActivityResult"
-
-        // Keep failing on real lint errors — only the false positive is silenced.
         abortOnError = true
-
-        // Optional: also silence other noise if CI complains
-        // disable += "GradleDependency"
-        // disable += "OldTargetApi"
-        // disable += "AndroidGradlePluginVersion"
     }
 }
 
@@ -104,15 +91,24 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Compose
-implementation("androidx.compose.ui:ui:1.6.8")
-implementation("androidx.compose.ui:ui-graphics:1.6.8")
-implementation("androidx.compose.ui:ui-tooling-preview:1.6.8")
-implementation("androidx.compose.material3:material3:1.2.1")
-implementation("androidx.compose.material:material-icons-extended:1.6.8")
+    // ═══════════════════════════════════════════════════════════════
+    // Compose — BOM ব্যবহার করে ভার্সন ম্যানেজ করা হচ্ছে
+    // ═══════════════════════════════════════════════════════════════
+    // BOM 2024.10.01 → Compose UI 1.7.4, Material3 1.3.0
+    // 1.7.4+ এ focusRestorer-এর isAttached ক্র্যাশ ফিক্স করা হয়েছে
+    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    implementation(composeBom)
 
-    // TV Material & Foundation
-    val tvComposeVersion = "1.0.0-alpha10"
+    // BOM ব্যবহার করলে আলাদা করে ভার্সন দিতে হয় না
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // ⚠️ TV Material — BOM-এর বাইরে, তাই আলাদা ভার্সন
+    // alpha10 → alpha12-তে আপগ্রেড (ফোকাস বাগ ফিক্স)
+    val tvComposeVersion = "1.0.0-alpha12"
     implementation("androidx.tv:tv-foundation:$tvComposeVersion")
     implementation("androidx.tv:tv-material:$tvComposeVersion")
 
