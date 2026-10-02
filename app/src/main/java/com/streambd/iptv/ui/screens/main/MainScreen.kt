@@ -20,10 +20,12 @@ import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MovieFilter
 import androidx.compose.material.icons.filled.NetworkWifi
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Copyright
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.LiveTv
@@ -62,8 +64,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -90,34 +90,13 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// ─────────────────────────────────────────────────────────────
-// Top-level tab catalogue — computed ONCE for the process lifetime.
-// Compose `Icons.*` are just static ImageVector references, safe here.
-// ─────────────────────────────────────────────────────────────
 data class TabItem(
     val title: String,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 )
 
-private val TvTabs: List<TabItem> = listOf(
-    TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
-    TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
-    TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
-    TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi),
-    TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder),
-    TabItem("Check Update", Icons.Filled.Refresh, Icons.Filled.Refresh),
-    TabItem("More", Icons.Filled.MoreVert, Icons.Outlined.MoreVert),
-    TabItem("Exit App", Icons.AutoMirrored.Filled.ExitToApp, Icons.AutoMirrored.Outlined.ExitToApp)
-)
-
-/** Mobile bottom-nav only shows the four primary screens. */
-private val MobileTabs: List<TabItem> = TvTabs.take(4)
-
-// ─────────────────────────────────────────────────────────────
-// Shared menu action model for both the mobile drawer and the
-// "More" dialog — previously two parallel anonymous lists.
-// ─────────────────────────────────────────────────────────────
+// MenuAction model for shared drawer/more-dialog items.
 private data class MenuAction(
     val label: String,
     val icon: ImageVector,
@@ -133,7 +112,7 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
 
-    // ── TV detection — recomputed only if the Activity context changes. ──
+    // ── TV detection ──
     val isTv = remember(context) { com.streambd.iptv.utils.DeviceType.isTv(context) }
 
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -142,16 +121,36 @@ fun MainScreen(
     var showCopyrightDialog by remember { mutableStateOf(false) }
     var showTvModeConfigDialog by remember { mutableStateOf(false) }
 
-    // ── Hoisted state — safe to read anywhere, no reads inside `if`. ──
     val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // ── Tab lists built INSIDE Composable scope so Icons resolve. ──
+    val tvTabs = remember {
+        listOf(
+            TabItem("Events", Icons.Filled.Event, Icons.Outlined.Event),
+            TabItem("Live TV", Icons.Filled.LiveTv, Icons.Outlined.LiveTv),
+            TabItem("Media", Icons.Filled.MovieFilter, Icons.Outlined.MovieFilter),
+            TabItem("Stream", Icons.Filled.NetworkWifi, Icons.Outlined.NetworkWifi),
+            TabItem("Playlists", Icons.Filled.Folder, Icons.Outlined.Folder),
+            TabItem("Check Update", Icons.Filled.Refresh, Icons.Filled.Refresh),
+            TabItem("More", Icons.Filled.MoreVert, Icons.Outlined.MoreVert),
+            TabItem(
+                "Exit App",
+                Icons.AutoMirrored.Filled.ExitToApp,
+                Icons.AutoMirrored.Outlined.ExitToApp
+            )
+        )
+    }
+    val mobileTabs = remember(tvTabs) { tvTabs.take(4) }
+
     // ── Shared actions ──
     val openTelegram: () -> Unit = {
         runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, "https://t.me/streamBD".toUri()))
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/streamBD"))
+            )
         }
     }
 
@@ -178,7 +177,6 @@ fun MainScreen(
         ).show()
     }
 
-    // ── Restart the app cleanly (process survives, task is recreated). ──
     val restartApp: () -> Unit = {
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         intent?.addFlags(
@@ -190,13 +188,10 @@ fun MainScreen(
         (context as? android.app.Activity)?.finishAffinity()
     }
 
-    // ── Toggle TV Mode OFF safely: give SharedPreferences.apply() a chance
-    //    to flush before we tear the Activity down. ──
+    // Safe TV mode toggle off — grace window for the async write.
     val turnOffTvMode: () -> Unit = {
         scope.launch {
             mainViewModel.toggleTvMode(false)
-            // Small grace window for the async SharedPreferences write.
-            // (Best long-term fix: make toggleTvMode suspend + use commit().)
             delay(150)
             restartApp()
         }
@@ -321,7 +316,6 @@ fun MainScreen(
             onDismiss = { showTvModeConfigDialog = false },
             onConfirm = {
                 showTvModeConfigDialog = false
-                // Give `saveTvModeConfig` a beat to flush before restart.
                 scope.launch {
                     delay(150)
                     restartApp()
@@ -338,7 +332,7 @@ fun MainScreen(
             mainViewModel = mainViewModel,
             tmdbViewModel = tmdbViewModel,
             navController = navController,
-            tvTabs = TvTabs,
+            tvTabs = tvTabs,
             selectedTab = selectedTab,
             onTabSelected = { selectedTab = it },
             onCheckUpdate = onCheckUpdate,
@@ -460,7 +454,6 @@ fun MainScreen(
                 containerColor = DarkNavyBackground,
                 bottomBar = {
                     Box(modifier = Modifier.fillMaxWidth().background(Color.Transparent)) {
-                        // Gradient fade above the bar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -502,7 +495,7 @@ fun MainScreen(
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            MobileTabs.forEachIndexed { index, tab ->
+                            mobileTabs.forEachIndexed { index, tab ->
                                 val isSelected = selectedTab == index
                                 val bgColor by animateColorAsState(
                                     targetValue = if (isSelected) BioAccent.copy(alpha = 0.15f) else Color.Transparent,
@@ -636,8 +629,6 @@ private fun TvModeConfigDialog(
         }
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            // Live Events toggle — checkbox itself is decorative so D-pad
-            // only stops once on the whole row.
             TvFocusableItem(
                 onClick = { includeEvents = !includeEvents },
                 modifier = Modifier.fillMaxWidth()
@@ -700,8 +691,3 @@ private fun TvModeConfigDialog(
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────
-// Small helpers
-// ─────────────────────────────────────────────────────────────
-private fun String.toUri() = android.net.Uri.parse(this)
