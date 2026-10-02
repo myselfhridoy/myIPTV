@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════
+// Root project build file — plugins are declared here with
+// `apply false`, so each module can apply only what it needs.
+// ═══════════════════════════════════════════════════════════════
+
 plugins {
     id("com.android.application") version "8.6.0" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
@@ -9,9 +14,9 @@ plugins {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Kotlin stdlib ভার্সন জোরপূর্বক 2.2.20-এ নামিয়ে আনা হচ্ছে
-// যাতে ট্রানজিটিভ ডিপেন্ডেন্সি থেকে আসা 2.4.10 মেটাডেটা
-// কম্পাইলার 2.2.20-এর সাথে সংঘর্ষ না করে।
+// Force Kotlin stdlib to match the Kotlin compiler version, so
+// transitive dependencies that pull newer stdlib metadata don't
+// break the compiler.
 // ═══════════════════════════════════════════════════════════════
 allprojects {
     configurations.all {
@@ -21,4 +26,8 @@ allprojects {
             force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20")
         }
     }
+}
+
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
 }
