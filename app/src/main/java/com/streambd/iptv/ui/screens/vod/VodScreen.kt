@@ -127,8 +127,6 @@ fun VodScreen(
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
-
-    // Focus routing requesters — cross-composable navigation anchors.
     val menuRequester = remember { FocusRequester() }
     val searchBtnRequester = remember { FocusRequester() }
     val contentRequester = remember { FocusRequester() }
@@ -153,7 +151,7 @@ fun VodScreen(
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
-            // Requester's node may not be attached yet — safe request.
+            // Safe: requester's node may not be attached yet.
             runCatching { searchFieldFocusRequester.requestFocus() }
         }
     }
@@ -229,17 +227,20 @@ fun VodScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    // Content anchor — top bar's Down target.
                     .focusRequester(contentRequester)
-                    // Focus restorer: if a focused card scrolls out of view
-                    // or its row is removed, restore to the last-focused
-                    // child; if that's gone, fall back to the first card.
+                    // ═══════════════════════════════════════════════════════
+                    // CRITICAL FIX: Was `.focusRestorer { firstCardFocusRequester }`
                     //
-                    // Signature: focusRestorer(fallback: (() -> FocusRequester)?)
-                    // The fallback is a LAMBDA that's evaluated lazily, so the
-                    // requester is only resolved when needed (avoiding detached
-                    // node access during composition).
-                    .focusRestorer { firstCardFocusRequester },
+                    // That fallback requester could become detached (row removed,
+                    // search opened, scroll recycling), and Compose's 2D focus
+                    // search would then crash with:
+                    //   IllegalStateException: LayoutCoordinate operations
+                    //   are only valid when isAttached is true
+                    //
+                    // The default restorer (no explicit fallback) always restores
+                    // to the last-focused *attached* child, avoiding the crash.
+                    // ═══════════════════════════════════════════════════════
+                    .focusRestorer(),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(key = "top_spacer") {
@@ -295,7 +296,6 @@ fun VodScreen(
                                     Modifier.focusRequester(firstCardFocusRequester)
                                 else Modifier,
                                 isMobilePortrait = isMobilePortrait,
-                                // First row's cards → Up goes to the menu button.
                                 upRequester = if (rowIndex == 0) menuRequester else null
                             ) { media ->
                                 viewModel.selectMedia(media)
