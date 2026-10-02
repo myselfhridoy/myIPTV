@@ -151,7 +151,7 @@ fun VodScreen(
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
-            // Safe focus request — requester node may not be attached yet.
+            // Safe focus request — requester's node may not be attached yet.
             runCatching { searchFieldFocusRequester.requestFocus() }
         }
     }
@@ -183,9 +183,14 @@ fun VodScreen(
     val showEmptyNoResults = searchQuery.isNotEmpty() &&
             searchResults.isEmpty() && !isLoading
 
-    // Content is really rendered only when skeleton is NOT shown.
+    // ⬇️ Content is actually composed only when the skeleton is NOT shown.
+    // Guard focus requests with this so we never target a detached node.
     val contentVisible = !showInitialSkeleton && mediaRows.isNotEmpty()
 
+    // ── Deferred focus restoration ──
+    // Every `requestFocus()` here is wrapped in runCatching, and the target
+    // list's presence is verified before requesting. This prevents
+    // `LayoutCoordinate operations are only valid when isAttached is true`.
     LaunchedEffect(pendingFocus, searchResults) {
         when (pendingFocus) {
             "results" -> {
@@ -196,9 +201,6 @@ fun VodScreen(
                 pendingFocus = null
             }
             "home" -> {
-                // Only try when we know content is composed — otherwise
-                // the requester's node is detached and requesting focus is
-                // a wasted / risky operation.
                 if (contentVisible) {
                     delay(150)
                     runCatching { firstCardFocusRequester.requestFocus() }
@@ -209,7 +211,7 @@ fun VodScreen(
         }
     }
 
-    // Focus first card only when TV + rows ready + not searching + skeleton gone.
+    // Focus first card only when TV + content ready + not searching.
     LaunchedEffect(isTV, contentVisible, isSearchExpanded, searchQuery) {
         if (isTV && contentVisible && !isSearchExpanded && searchQuery.isEmpty()) {
             delay(180)
@@ -229,16 +231,20 @@ fun VodScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .focusRequester(contentRequester)
-                    // ⬇️ CRITICAL FIX:
-                    // Previously: `.focusRestorer { firstCardFocusRequester }`
-                    // That fallback requester could be attached to a node that
-                    // is no longer in the composition (e.g. row removed, search
-                    // opened, scroll recycling), and Compose's focus search
-                    // would crash with:
-                    //   IllegalStateException: LayoutCoordinate operations are
-                    //   only valid when isAttached is true
-                    // Using the default restorer (no explicit fallback) avoids
-                    // ever pointing the search at a detached node.
+                    // ═══════════════════════════════════════════════════════
+                    // CRITICAL FIX:
+                    // The original code was:
+                    //     .focusRestorer { firstCardFocusRequester }
+                    //
+                    // That fallback requester could become detached (row
+                    // removed, search opened, scroll recycling), and
+                    // Compose's 2D focus search would then crash with:
+                    //     IllegalStateException: LayoutCoordinate operations
+                    //     are only valid when isAttached is true
+                    //
+                    // The default restorer (no explicit fallback) always
+                    // restores to the last-focused *attached* child.
+                    // ═══════════════════════════════════════════════════════
                     .focusRestorer(),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
@@ -370,9 +376,9 @@ private fun VodTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // ⬇️ NEW: focusGroup prevents 2D focus search from walking into
-            // unrelated LazyLayout beyond-bounds trees when moving between
-            // the top-bar buttons.
+            // NEW: focusGroup keeps the 2D focus search scoped to this bar
+            // when navigating between its buttons, reducing beyond-bounds
+            // searches into the LazyColumn tree.
             .focusGroup(),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -612,10 +618,9 @@ private fun MediaSection(
         }
 
         LazyRow(
-            // ⬇️ NEW: focusGroup keeps focus search scoped to this row when
-            // navigating horizontally. It also prevents the beyond-bounds
-            // focus search (which triggered the crash) from crossing into
-            // sibling rows unnecessarily.
+            // NEW: focusGroup scopes horizontal focus navigation to this row,
+            // preventing Compose from triggering the beyond-bounds focus
+            // search that caused the LayoutCoordinate crash.
             modifier = Modifier.focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(spacing),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
