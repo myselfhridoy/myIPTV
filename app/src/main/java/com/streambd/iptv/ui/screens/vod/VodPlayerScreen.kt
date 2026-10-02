@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.screens.vod
 
+import android.content.pm.ActivityInfo
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -54,6 +55,7 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
@@ -66,6 +68,7 @@ fun VodPlayerScreen(
     exoPlayer: ExoPlayer
 ) {
     val context = LocalContext.current
+    val exitScope = rememberCoroutineScope()
     val selectedStream by mainViewModel.selectedStream.collectAsState()
     val selectedMedia by tmdbViewModel.selectedMedia.collectAsState()
 
@@ -528,10 +531,16 @@ fun VodPlayerScreen(
         }
     }
 
+    // ── Real exit ──
     val finishExit: () -> Unit = {
-        exoPlayer.stop()
-        exoPlayer.clearMediaItems()
-        navController.popBackStack()
+        exitScope.launch {
+            (context as? ComponentActivity)?.requestedOrientation =
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            delay(400)
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            navController.popBackStack()
+        }
     }
 
     val requestExit: () -> Unit = {
@@ -593,10 +602,6 @@ fun VodPlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // ⚠️ Pass a real parent FrameLayout so `match_parent` in
-                        // the XML resolves properly. Passing `null` makes
-                        // `match_parent` degrade to `wrap_content`, which is why
-                        // the video was appearing as a small rectangle.
                         val parent = FrameLayout(ctx)
                         val view = LayoutInflater.from(ctx)
                             .inflate(R.layout.view_player_texture, parent, false) as PlayerView
@@ -831,7 +836,7 @@ fun VodPlayerScreen(
                 }
             }
 
-            // ── Dialogs (inside PlayerRevealContainer → inherit 90° rotation) ──
+            // Dialogs (Activity is landscape now, so standard Dialog is landscape too)
             if (showTrackSelector) {
                 TrackSelectionDialog(
                     player = exoPlayer,
