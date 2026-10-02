@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -48,10 +47,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -69,7 +71,6 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.components.tvFocusBorder
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
@@ -81,28 +82,21 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-// Local palette
 private val SearchHintText = Color(0xFF999999)
 private val SearchContainerFocused = Color(0xFF1E2638)
 private val SearchContainerIdle = Color(0xFF141A24)
 private val StarGold = Color(0xFFFFC43D)
 private val SkeletonBase = Color.White
 
-// Row wrapper
 private data class MediaRow(
     val key: String,
     val title: String,
     val list: List<TmdbMedia>
 )
 
-/**
- * Stable per-item key across search results — TMDB movie & TV ids can
- * numerically collide (e.g. movie 12345 vs TV 12345). Prefacing with the
- * media_type keeps the key unique in mixed search results.
- */
 private fun TmdbMedia.stableKey(): String = "${media_type ?: "unknown"}_$id"
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun VodScreen(
     viewModel: TmdbViewModel,
@@ -128,9 +122,16 @@ fun VodScreen(
 
     val focusManager = LocalFocusManager.current
 
+    // ── Focus anchors ──
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
+
+    // Focus routing requesters — the reviewer's suggestion.
+    val menuRequester = remember { FocusRequester() }
+    val searchBtnRequester = remember { FocusRequester() }
+    val contentRequester = remember { FocusRequester() }
+
     var pendingFocus by remember { mutableStateOf<String?>(null) }
 
     val closeSearch: () -> Unit = {
@@ -165,7 +166,6 @@ fun VodScreen(
                 pendingFocus = null
             }
             "home" -> {
-                // Wait for the first home row to actually compose before focusing.
                 delay(150)
                 runCatching { firstCardFocusRequester.requestFocus() }
                 pendingFocus = null
@@ -197,8 +197,8 @@ fun VodScreen(
         ).filter { it.list.isNotEmpty() }
     }
 
-    // ── FIX #2: Fire focus only after home rows have composed. ──
-    LaunchedEffect(isTV, mediaRows.isNotEmpty(), isSearchExpanded) {
+    // Focus first card only when TV + rows are ready + not searching.
+    LaunchedEffect(isTV, mediaRows.isNotEmpty(), isSearchExpanded, searchQuery) {
         if (isTV && mediaRows.isNotEmpty() && !isSearchExpanded && searchQuery.isEmpty()) {
             delay(180)
             runCatching { firstCardFocusRequester.requestFocus() }
@@ -218,7 +218,18 @@ fun VodScreen(
             VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Content anchor — top bar's Down target.
+                    .focusRequester(contentRequester)
+                    // If a focused card scrolls out of view (or its row is
+                    // removed), focus restores to the last-focused child; if
+                    // that's gone, to `firstCardFocusRequester`.
+                    //
+                    // Also reduces Compose's beyond-bounds focus searches,
+                    // which is where the `LayoutCoordinate...isAttached`
+                    // crash originates.
+                    .focusRestorer(firstCardFocusRequester),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(key = "top_spacer") {
@@ -248,7 +259,8 @@ fun VodScreen(
                                 count = searchResults.size,
                                 mediaList = searchResults,
                                 firstItemModifier = Modifier.focusRequester(resultsFocusRequester),
-                                isMobilePortrait = isMobilePortrait
+                                isMobilePortrait = isMobilePortrait,
+                                upRequester = null
                             ) { media ->
                                 viewModel.selectMedia(media)
                                 closeSearch()
@@ -272,7 +284,9 @@ fun VodScreen(
                                 firstItemModifier = if (rowIndex == 0)
                                     Modifier.focusRequester(firstCardFocusRequester)
                                 else Modifier,
-                                isMobilePortrait = isMobilePortrait
+                                isMobilePortrait = isMobilePortrait,
+                                // First row's cards → Up goes to the menu button.
+                                upRequester = if (rowIndex == 0) menuRequester else null
                             ) { media ->
                                 viewModel.selectMedia(media)
                                 if (isSearchExpanded || searchQuery.isNotEmpty()) {
@@ -318,16 +332,18 @@ fun VodScreen(
                     onFocusChange = { isSearchFocused = it },
                     onClose = closeSearch,
                     onSubmit = {
-                        if (searchResults.isNotEmpty()) {
-                            pendingFocus = "results"
-                        }
+                        if (searchResults.isNotEmpty()) pendingFocus = "results"
                     },
-                    focusRequester = searchFieldFocusRequester
+                    focusRequester = searchFieldFocusRequester,
+                    downRequester = contentRequester
                 )
             } else {
                 VodTopBar(
                     onMenuClick = onMenuClick,
-                    onSearchClick = { isSearchExpanded = true }
+                    onSearchClick = { isSearchExpanded = true },
+                    menuRequester = menuRequester,
+                    searchRequester = searchBtnRequester,
+                    downRequester = contentRequester
                 )
             }
         }
@@ -337,7 +353,10 @@ fun VodScreen(
 @Composable
 private fun VodTopBar(
     onMenuClick: (() -> Unit)?,
-    onSearchClick: () -> Unit
+    onSearchClick: () -> Unit,
+    menuRequester: FocusRequester,
+    searchRequester: FocusRequester,
+    downRequester: FocusRequester
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -346,7 +365,10 @@ private fun VodTopBar(
         if (onMenuClick != null) {
             TvIconButton(
                 onClick = onMenuClick,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier
+                    .size(44.dp)
+                    .focusRequester(menuRequester)
+                    .focusProperties { down = downRequester }
             ) {
                 Icon(
                     imageVector = Icons.Default.Menu,
@@ -366,7 +388,10 @@ private fun VodTopBar(
         )
         TvIconButton(
             onClick = onSearchClick,
-            modifier = Modifier.size(44.dp)
+            modifier = Modifier
+                .size(44.dp)
+                .focusRequester(searchRequester)
+                .focusProperties { down = downRequester }
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
@@ -387,7 +412,8 @@ private fun SearchField(
     onFocusChange: (Boolean) -> Unit,
     onClose: () -> Unit,
     onSubmit: () -> Unit,
-    focusRequester: FocusRequester
+    focusRequester: FocusRequester,
+    downRequester: FocusRequester
 ) {
     OutlinedTextField(
         value = query,
@@ -405,16 +431,10 @@ private fun SearchField(
         },
         trailingIcon = {
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .tvTouchClick(onClose),
+                modifier = Modifier.size(48.dp).tvTouchClick(onClose),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = WhiteText
-                )
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = WhiteText)
             }
         },
         colors = OutlinedTextFieldDefaults.colors(
@@ -437,6 +457,7 @@ private fun SearchField(
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
+            .focusProperties { down = downRequester }
             .onFocusChanged { onFocusChange(it.hasFocus) }
     )
 }
@@ -451,7 +472,7 @@ private fun EmptySearchState(query: String) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                imageVector = Icons.Default.Search,
+                Icons.Default.Search,
                 contentDescription = null,
                 tint = GrayText.copy(alpha = 0.4f),
                 modifier = Modifier.size(56.dp)
@@ -538,6 +559,7 @@ private fun MediaSection(
     mediaList: List<TmdbMedia>,
     firstItemModifier: Modifier = Modifier,
     isMobilePortrait: Boolean,
+    upRequester: FocusRequester? = null,
     onClick: (TmdbMedia) -> Unit
 ) {
     val spacing = if (isMobilePortrait) 12.dp else 24.dp
@@ -581,15 +603,17 @@ private fun MediaSection(
         ) {
             itemsIndexed(
                 items = mediaList,
-                // FIX #3: stable key — avoids "Key was already used" crash
-                // when a search result mixes a movie and a TV show that share
-                // the same numeric TMDB id.
                 key = { _, media -> media.stableKey() }
             ) { index, media ->
                 TmdbMediaCard(
                     media = media,
                     isMobilePortrait = isMobilePortrait,
-                    modifier = if (index == 0) firstItemModifier else Modifier
+                    modifier = (if (index == 0) firstItemModifier else Modifier)
+                        .then(
+                            if (upRequester != null) {
+                                Modifier.focusProperties { up = upRequester }
+                            } else Modifier
+                        )
                 ) { onClick(media) }
             }
         }
@@ -622,7 +646,6 @@ private fun TmdbMediaCard(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
-            // FIX: focused card renders above neighbours to avoid overlap clip.
             .zIndex(if (isFocused) 1f else 0f)
             .graphicsLayer {
                 scaleX = scale
@@ -675,7 +698,6 @@ private fun TmdbMediaCard(
                 )
                 Spacer(Modifier.width(3.dp))
                 Text(
-                    // FIX #4: locale-stable formatting.
                     text = String.format(Locale.US, "%.1f", media.vote_average),
                     color = WhiteText,
                     fontSize = 10.sp,
