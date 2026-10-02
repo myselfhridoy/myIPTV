@@ -64,10 +64,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.components.TvIconButton
+import com.streambd.iptv.ui.components.tvFocusBorder
 import com.streambd.iptv.ui.components.tvTouchClick
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.BioAccent
@@ -77,24 +79,28 @@ import com.streambd.iptv.ui.theme.SurfaceDark
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
+import java.util.Locale
 
-// ─────────────────────────────────────────────────────────────
 // Local palette
-// ─────────────────────────────────────────────────────────────
 private val SearchHintText = Color(0xFF999999)
 private val SearchContainerFocused = Color(0xFF1E2638)
 private val SearchContainerIdle = Color(0xFF141A24)
 private val StarGold = Color(0xFFFFC43D)
 private val SkeletonBase = Color.White
 
-// ─────────────────────────────────────────────────────────────
 // Row wrapper
-// ─────────────────────────────────────────────────────────────
 private data class MediaRow(
     val key: String,
     val title: String,
     val list: List<TmdbMedia>
 )
+
+/**
+ * Stable per-item key across search results — TMDB movie & TV ids can
+ * numerically collide (e.g. movie 12345 vs TV 12345). Prefacing with the
+ * media_type keeps the key unique in mixed search results.
+ */
+private fun TmdbMedia.stableKey(): String = "${media_type ?: "unknown"}_$id"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -124,19 +130,15 @@ fun VodScreen(
 
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
-    val firstRowFocusRequester = remember { FocusRequester() }
-    var pendingFocus by remember { mutableStateOf<String?>(null) }
     val firstCardFocusRequester = remember { FocusRequester() }
+    var pendingFocus by remember { mutableStateOf<String?>(null) }
 
-    // Helper: fully close search
     val closeSearch: () -> Unit = {
         isSearchExpanded = false
         searchQuery = ""
         viewModel.search("")
     }
 
-
-    // Back handler: two-step (typing → results card → home)
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
             focusManager.clearFocus()
@@ -149,7 +151,7 @@ fun VodScreen(
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
-            try { searchFieldFocusRequester.requestFocus() } catch (_: Exception) {}
+            runCatching { searchFieldFocusRequester.requestFocus() }
         }
     }
 
@@ -158,13 +160,14 @@ fun VodScreen(
             "results" -> {
                 if (searchResults.isNotEmpty()) {
                     delay(50)
-                    try { resultsFocusRequester.requestFocus() } catch (_: Exception) {}
+                    runCatching { resultsFocusRequester.requestFocus() }
                 }
                 pendingFocus = null
             }
             "home" -> {
-                delay(100)
-                try { firstRowFocusRequester.requestFocus() } catch (_: Exception) {}
+                // Wait for the first home row to actually compose before focusing.
+                delay(150)
+                runCatching { firstCardFocusRequester.requestFocus() }
                 pendingFocus = null
             }
             else -> Unit
@@ -172,17 +175,10 @@ fun VodScreen(
     }
 
     val configuration = LocalConfiguration.current
-val context = LocalContext.current
-val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
-val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val context = LocalContext.current
+    val isTV = remember(context) { com.streambd.iptv.utils.DeviceType.isTv(context) }
+    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
-// ── TV-only: focus first card on entry ──
-LaunchedEffect(Unit) {
-    if (!isTV) return@LaunchedEffect
-    delay(200)
-    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
-}
-    // Single source of truth for rows
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -201,6 +197,14 @@ LaunchedEffect(Unit) {
         ).filter { it.list.isNotEmpty() }
     }
 
+    // ── FIX #2: Fire focus only after home rows have composed. ──
+    LaunchedEffect(isTV, mediaRows.isNotEmpty(), isSearchExpanded) {
+        if (isTV && mediaRows.isNotEmpty() && !isSearchExpanded && searchQuery.isEmpty()) {
+            delay(180)
+            runCatching { firstCardFocusRequester.requestFocus() }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -213,18 +217,16 @@ LaunchedEffect(Unit) {
         if (showInitialSkeleton) {
             VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 32.dp)
-    ) {
-                // Top spacer for the fixed nav bar
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
                 item(key = "top_spacer") {
                     Spacer(
                         modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp)
                     )
                 }
 
-                // Gradient transition into rows
                 item(key = "gradient_transition") {
                     Box(
                         modifier = Modifier
@@ -249,7 +251,6 @@ LaunchedEffect(Unit) {
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
-                                // Option A: auto-close search on card tap
                                 closeSearch()
                                 navController.navigate(Routes.TMDB_DETAILS) {
                                     launchSingleTop = true
@@ -263,14 +264,14 @@ LaunchedEffect(Unit) {
                     }
                 } else {
                     mediaRows.forEachIndexed { rowIndex, row ->
-    item(key = "row_${row.key}") {
-        MediaSection(
-            title = row.title,
-            count = row.list.size,
-            mediaList = row.list,
-            firstItemModifier = if (rowIndex == 0)
-                Modifier.focusRequester(firstCardFocusRequester)
-            else Modifier,
+                        item(key = "row_${row.key}") {
+                            MediaSection(
+                                title = row.title,
+                                count = row.list.size,
+                                mediaList = row.list,
+                                firstItemModifier = if (rowIndex == 0)
+                                    Modifier.focusRequester(firstCardFocusRequester)
+                                else Modifier,
                                 isMobilePortrait = isMobilePortrait
                             ) { media ->
                                 viewModel.selectMedia(media)
@@ -292,7 +293,6 @@ LaunchedEffect(Unit) {
             }
         }
 
-        // Fixed top bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -317,33 +317,33 @@ LaunchedEffect(Unit) {
                     isFocused = isSearchFocused,
                     onFocusChange = { isSearchFocused = it },
                     onClose = closeSearch,
+                    onSubmit = {
+                        if (searchResults.isNotEmpty()) {
+                            pendingFocus = "results"
+                        }
+                    },
                     focusRequester = searchFieldFocusRequester
                 )
             } else {
-    VodTopBar(
-        onMenuClick = onMenuClick,
-        isTv = isTV,
-        onSearchClick = { isSearchExpanded = true }
-    )
-}
+                VodTopBar(
+                    onMenuClick = onMenuClick,
+                    onSearchClick = { isSearchExpanded = true }
+                )
+            }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Top bar — uses TvIconButton for reliable TV focus
-// ─────────────────────────────────────────────────────────────
 @Composable
 private fun VodTopBar(
     onMenuClick: (() -> Unit)?,
-    isTv: Boolean,
     onSearchClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (onMenuClick != null && !isTv) {
+        if (onMenuClick != null) {
             TvIconButton(
                 onClick = onMenuClick,
                 modifier = Modifier.size(44.dp)
@@ -378,9 +378,6 @@ private fun VodTopBar(
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Search field
-// ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchField(
@@ -389,17 +386,14 @@ private fun SearchField(
     isFocused: Boolean,
     onFocusChange: (Boolean) -> Unit,
     onClose: () -> Unit,
+    onSubmit: () -> Unit,
     focusRequester: FocusRequester
 ) {
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
         placeholder = {
-            Text(
-                "Search movies, TV shows…",
-                color = SearchHintText,
-                fontSize = 16.sp
-            )
+            Text("Search movies, TV shows…", color = SearchHintText, fontSize = 16.sp)
         },
         leadingIcon = {
             Icon(
@@ -434,6 +428,12 @@ private fun SearchField(
         ),
         shape = RoundedCornerShape(10.dp),
         singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = androidx.compose.ui.text.input.ImeAction.Search
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSearch = { onSubmit() }
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -441,9 +441,6 @@ private fun SearchField(
     )
 }
 
-// ─────────────────────────────────────────────────────────────
-// Empty state
-// ─────────────────────────────────────────────────────────────
 @Composable
 private fun EmptySearchState(query: String) {
     Box(
@@ -476,9 +473,6 @@ private fun EmptySearchState(query: String) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Skeleton
-// ─────────────────────────────────────────────────────────────
 @Composable
 private fun VodSkeleton(isMobilePortrait: Boolean) {
     Column(
@@ -537,11 +531,8 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Section
-// ─────────────────────────────────────────────────────────────
 @Composable
-fun MediaSection(
+private fun MediaSection(
     title: String,
     count: Int,
     mediaList: List<TmdbMedia>,
@@ -553,7 +544,6 @@ fun MediaSection(
     val verticalPadding = if (isMobilePortrait) 8.dp else 16.dp
 
     Column {
-        // Section header: accent bar + title + subtle count
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -591,7 +581,10 @@ fun MediaSection(
         ) {
             itemsIndexed(
                 items = mediaList,
-                key = { _, media -> media.id }
+                // FIX #3: stable key — avoids "Key was already used" crash
+                // when a search result mixes a movie and a TV show that share
+                // the same numeric TMDB id.
+                key = { _, media -> media.stableKey() }
             ) { index, media ->
                 TmdbMediaCard(
                     media = media,
@@ -603,11 +596,8 @@ fun MediaSection(
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Card — custom Box (works on all TV boxes including TX3 Mini)
-// ─────────────────────────────────────────────────────────────
 @Composable
-fun TmdbMediaCard(
+private fun TmdbMediaCard(
     media: TmdbMedia,
     isMobilePortrait: Boolean,
     modifier: Modifier = Modifier,
@@ -632,6 +622,8 @@ fun TmdbMediaCard(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
+            // FIX: focused card renders above neighbours to avoid overlap clip.
+            .zIndex(if (isFocused) 1f else 0f)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -639,11 +631,7 @@ fun TmdbMediaCard(
             .onFocusChanged { isFocused = it.hasFocus }
             .clip(RoundedCornerShape(12.dp))
             .background(SurfaceDark)
-            .border(
-                width = 3.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(12.dp)
-            )
+            .border(3.dp, borderColor, RoundedCornerShape(12.dp))
             .tvTouchClick(onClick)
     ) {
         AsyncImage(
@@ -653,7 +641,6 @@ fun TmdbMediaCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Bottom gradient
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -670,7 +657,6 @@ fun TmdbMediaCard(
                 )
         )
 
-        // Rating chip
         if (media.vote_average != null && media.vote_average > 0) {
             Row(
                 modifier = Modifier
@@ -689,7 +675,8 @@ fun TmdbMediaCard(
                 )
                 Spacer(Modifier.width(3.dp))
                 Text(
-                    text = String.format("%.1f", media.vote_average),
+                    // FIX #4: locale-stable formatting.
+                    text = String.format(Locale.US, "%.1f", media.vote_average),
                     color = WhiteText,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -697,7 +684,6 @@ fun TmdbMediaCard(
             }
         }
 
-        // Title
         Text(
             text = media.displayTitle,
             color = WhiteText,
