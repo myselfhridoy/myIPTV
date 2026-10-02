@@ -140,13 +140,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // ═══════════════════════════════════════════════════════════════
-    // Room
-    // ═══════════════════════════════════════════════════════════════
-    val roomVersion = "2.6.1"
-    implementation("androidx.room:room-runtime:$roomVersion")
-    implementation("androidx.room:room-ktx:$roomVersion")
-    ksp("androidx.room:room-compiler:$roomVersion")
+// ═══════════════════════════════════════════════════════════════
+// Room — KSP2-সামঞ্জস্যপূর্ণ ভার্সন
+// Kotlin 2.2.20 + KSP2-এর সাথে কাজ করার জন্য কমপক্ষে 2.7.0 দরকার
+// ═══════════════════════════════════════════════════════════════
+val roomVersion = "2.8.5"
+implementation("androidx.room:room-runtime:$roomVersion")
+implementation("androidx.room:room-ktx:$roomVersion")
+ksp("androidx.room:room-compiler:$roomVersion")
 
     // ═══════════════════════════════════════════════════════════════
     // QuickJS — VOD addon system
