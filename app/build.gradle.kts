@@ -2,27 +2,25 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
     id("com.google.firebase.crashlytics")
 }
 
-// ⚠️ এই লাইনটি অবশ্যই থাকতে হবে — plugins ব্লকের পরে, android ব্লকের আগে
 val media3Version = "1.2.1"
 
 android {
     namespace = "com.streambd.iptv"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.streambd.iptv"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 7
         versionName = "4.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
@@ -62,9 +60,10 @@ android {
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10"
-    }
+    // ⚠️ Kotlin 2.x এ আপগ্রেড করলে composeOptions ব্লক লাগে না
+    // composeOptions {
+    //     kotlinCompilerExtensionVersion = "1.5.10"
+    // }
 
     lint {
         disable += "InvalidFragmentVersionForActivityResult"
@@ -88,7 +87,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Compose BOM — 2024.05.00 (Compose UI 1.6.8 আনবে)
+    // Compose BOM — 2024.05.00
     val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
     implementation(composeBom)
 
@@ -98,7 +97,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // TV Material & Foundation (AGP 8.6.0 সামঞ্জস্যপূর্ণ)
+    // TV Material & Foundation
     implementation("androidx.tv:tv-foundation:1.0.0")
     implementation("androidx.tv:tv-material:1.1.0")
 
@@ -121,7 +120,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // QuickJS
+    // ✅ QuickJS — সর্বশেষ ভার্সন (compileSdk 36 প্রয়োজন)
     implementation("io.github.dokar3:quickjs-kt-android:1.0.15")
     testImplementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
 
