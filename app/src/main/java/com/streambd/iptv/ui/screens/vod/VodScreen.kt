@@ -135,11 +135,6 @@ fun VodScreen(
         viewModel.search("")
     }
 
-    LaunchedEffect(Unit) {
-    if (!isTv) return@LaunchedEffect
-    delay(200)
-    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
-}
 
     // Back handler: two-step (typing → results card → home)
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
@@ -177,10 +172,16 @@ fun VodScreen(
     }
 
     val configuration = LocalConfiguration.current
-    val context = LocalContext.current
-    val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
-    val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+val context = LocalContext.current
+val isTV = remember { com.streambd.iptv.utils.DeviceType.isTv(context) }
+val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
+// ── TV-only: focus first card on entry ──
+LaunchedEffect(Unit) {
+    if (!isTV) return@LaunchedEffect
+    delay(200)
+    try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
+}
     // Single source of truth for rows
     val mediaRows = remember(
         trendingMovies, trendingTv,
