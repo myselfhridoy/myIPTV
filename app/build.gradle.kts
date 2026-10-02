@@ -11,12 +11,12 @@ val media3Version = "1.2.1"
 
 android {
     namespace = "com.streambd.iptv"
-    compileSdk = 36
+    compileSdk = 35 // Android 15 (API 35) — স্থিতিশীল ও নিরাপদ
 
     defaultConfig {
         applicationId = "com.streambd.iptv"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 7
         versionName = "4.0"
 
@@ -47,7 +47,6 @@ android {
     }
 
     compileOptions {
-        // Java 11+ APIs (e.g. URLDecoder.decode(String, Charset)) on old Android
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -55,7 +54,7 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += listOf("-Xskip-metadata-version-check")
+        // "-Xskip-metadata-version-check" সরানো হয়েছে — এটি বিপজ্জনক
     }
 
     buildFeatures {
@@ -65,7 +64,6 @@ android {
 
     composeOptions {
         // Kotlin 1.9.22-এর সাথে সামঞ্জস্যপূর্ণ Compose Compiler
-        // Compatibility map: 1.5.8 / 1.5.9 / 1.5.10 — সবই Kotlin 1.9.22-এর জন্য
         kotlinCompilerExtensionVersion = "1.5.10"
     }
 
@@ -86,21 +84,20 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-config")
 
-    // AndroidX core
-    implementation("androidx.core:core-ktx:1.12.0")
+    // AndroidX core — পিন করা ভার্সন (১.১৩.১, AGP 8.5.2 এর সাথে সামঞ্জস্যপূর্ণ)
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // ═══════════════════════════════════════════════════════════════
-    // Compose — BOM ব্যবহার করে ভার্সন ম্যানেজ করা হচ্ছে
+    // Compose — BOM 2024.05.00 ব্যবহার করা হচ্ছে
+    // এটি Compose UI 1.6.8 এবং androidx.core 1.13.0 আনবে,
+    // যা AGP 8.5.2-এর সাথে সম্পূর্ণ সামঞ্জস্যপূর্ণ।
     // ═══════════════════════════════════════════════════════════════
-    // BOM 2024.10.01 → Compose UI 1.7.4, Material3 1.3.0
-    // 1.7.4+ এ focusRestorer-এর isAttached ক্র্যাশ ফিক্স করা হয়েছে
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
     implementation(composeBom)
 
-    // BOM ব্যবহার করলে আলাদা করে ভার্সন দিতে হয় না
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -108,12 +105,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     // ═══════════════════════════════════════════════════════════════
-    // TV Material & Foundation — stable releases
+    // TV Material & Foundation — stable releases (AGP 8.5.2 সামঞ্জস্যপূর্ণ)
+    // tv-material: 1.0.0 এবং tv-foundation: 1.0.0 উভয়ই AGP 8.5.2-এর সাথে কাজ করে।
     // ═══════════════════════════════════════════════════════════════
-    // tv-material: 1.1.0 (stable), tv-foundation: 1.0.0 (stable)
-    // আগের `alpha12` ভার্সনটি কখনো প্রকাশিত হয়নি — এটাই বিল্ড ফেলের কারণ ছিল।
     implementation("androidx.tv:tv-foundation:1.0.0")
-    implementation("androidx.tv:tv-material:1.1.0")
+    implementation("androidx.tv:tv-material:1.0.0")
 
     // Media3
     implementation("androidx.media3:media3-exoplayer:$media3Version")
