@@ -64,6 +64,12 @@ android {
         disable += "InvalidFragmentVersionForActivityResult"
         abortOnError = true
     }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 kotlin {
@@ -96,9 +102,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // ═══════════════════════════════════════════════════════════════
-    // Compose BOM
+    // Compose BOM — Kotlin 2.2.20-compatible Compose 1.7.x
     // ═══════════════════════════════════════════════════════════════
-    val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
 
     implementation("androidx.compose.ui:ui")
@@ -107,11 +113,15 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
     // ═══════════════════════════════════════════════════════════════
-    // TV Material & Foundation
+    // TV Material & Foundation — 1.0.0 stable (compatible with
+    // the Compose 1.7.x versions pulled by the BOM)
     // ═══════════════════════════════════════════════════════════════
     implementation("androidx.tv:tv-foundation:1.0.0")
-    implementation("androidx.tv:tv-material:1.1.0")
+    implementation("androidx.tv:tv-material:1.0.0")
 
     // ═══════════════════════════════════════════════════════════════
     // Media3
@@ -131,9 +141,9 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
 
     // ═══════════════════════════════════════════════════════════════
-    // Room — Kotlin 2.2.x + KSP2 সামঞ্জস্যপূর্ণ ভার্সন
+    // Room
     // ═══════════════════════════════════════════════════════════════
-    val roomVersion = "2.8.5"
+    val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
@@ -145,9 +155,9 @@ dependencies {
     testImplementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
 
     // ═══════════════════════════════════════════════════════════════
-    // Coroutines — Kotlin 2.2.20 সামঞ্জস্যপূর্ণ
+    // Coroutines
     // ═══════════════════════════════════════════════════════════════
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     // ═══════════════════════════════════════════════════════════════
     // Image loading & Navigation
