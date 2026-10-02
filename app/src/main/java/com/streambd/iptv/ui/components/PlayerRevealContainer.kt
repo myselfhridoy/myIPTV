@@ -25,33 +25,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.delay
 
-/**
- * True when we are inside the rotated player container.
- *
- * Dialogs read this via `LocalPlayerIsRotated.current`:
- *   • true  → render INLINE (as an overlay inside this container) so the dialog
- *             inherits the 90° rotation and appears in landscape like the player.
- *   • false → render as a normal Dialog window (default behaviour on mobile
- *             outside the player, and always on TV which is not rotated).
- */
 val LocalPlayerIsRotated = compositionLocalOf { false }
 
 /**
- * Rotates the player content 90° inside a PORTRAIT Activity instead of
- * requesting an Activity-level orientation change.
+ * ⚠️ DEBUG BUILD — background colors mark each layout layer.
+ *    RED   = outer BoxWithConstraints (should be full screen)
+ *    GREEN = rotated inner Box       (should visually fill screen after 90° rotate)
+ *    BLUE  = inner content wrapper   (should exactly match GREEN)
  *
- * Why: on phones, letting the Activity rotate spins the whole screen
- * (including the previous screen that is sliding away) → looks messy.
- * Rotating the player content ourselves keeps the Activity in portrait,
- * so only the player appears to "turn sideways".
- *
- * Size trick: inner Box gets LANDSCAPE logical dimensions
- * (width = parent height, height = parent width). After 90° rotation it
- * visually fills the portrait parent exactly.
- *
- * @param exitRequested caller sets true when back was pressed; container runs
- *                      the reverse animation then invokes onExitComplete.
- * @param forceUpright  disable rotation (used in PiP where the OS owns layout).
+ * Screenshot what you see and share — we'll know which layer collapses.
+ * REMOVE the background colors once we identify the bug.
  */
 @Composable
 fun PlayerRevealContainer(
@@ -69,13 +52,11 @@ fun PlayerRevealContainer(
 
     var revealed by remember { mutableStateOf(false) }
 
-    // Flip after the first frame so 0° is painted as the starting state.
     LaunchedEffect(Unit) {
         delay(16)
         revealed = true
     }
 
-    // Reverse on exit, then notify the caller.
     LaunchedEffect(exitRequested) {
         if (exitRequested) {
             revealed = false
@@ -105,20 +86,24 @@ fun PlayerRevealContainer(
         label = "revealAlpha"
     )
 
+    // ─────────────────────────────────────────────────────────────
+    // DEBUG LAYER 1: outer BoxWithConstraints  → RED
+    // ─────────────────────────────────────────────────────────────
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Red),
         contentAlignment = Alignment.Center
     ) {
         val parentW = maxWidth
         val parentH = maxHeight
 
-        // Swap logical size only when we're going to rotate, so after rotation
-        // the content exactly covers the parent.
         val innerW = if (shouldRotate) parentH else parentW
         val innerH = if (shouldRotate) parentW else parentH
 
+        // ─────────────────────────────────────────────────────────
+        // DEBUG LAYER 2: rotated inner Box  → GREEN
+        // ─────────────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .width(innerW)
@@ -129,10 +114,19 @@ fun PlayerRevealContainer(
                     scaleY = scale
                     this.alpha = alpha
                 }
+                .background(Color.Green)
         ) {
-            // Expose rotation state to any child (dialogs) via CompositionLocal.
-            CompositionLocalProvider(LocalPlayerIsRotated provides shouldRotate) {
-                content()
+            // ────────────────────────────────────────────────────
+            // DEBUG LAYER 3: content wrapper  → BLUE
+            // ────────────────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Blue)
+            ) {
+                CompositionLocalProvider(LocalPlayerIsRotated provides shouldRotate) {
+                    content()
+                }
             }
         }
     }
