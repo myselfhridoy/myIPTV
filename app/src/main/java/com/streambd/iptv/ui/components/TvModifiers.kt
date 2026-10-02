@@ -1,7 +1,6 @@
 package com.streambd.iptv.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -32,36 +31,56 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.theme.TvFocusedBorder
+import com.streambd.iptv.utils.DeviceType
 
 /**
- * Focus decoration modifier for TV + touch.
- *
- * NOTE: Now intentionally VISUAL-FREE on both TV and mobile.
- *   • No scale animation.
- *   • No border.
- *   • No shadow elevation.
- * Kept as a callable no-op so existing call sites continue to compile —
- * but if you want to fully remove it later, simply delete all usages.
- *
- * The element is still focusable (D-pad navigation works) because the
- * `tvTouchClick` inside the button provides the `focusable()` modifier.
+ * Focus decoration modifier.
+ *   • TV  → cyan border + subtle scale on focus (D-pad users need this).
+ *   • Mobile → no-op (touch has no focus ring; keeps UI clean).
  */
-@Suppress("UNUSED_PARAMETER")
 fun Modifier.tvFocusBorder(
     shape: Shape = RoundedCornerShape(8.dp),
     focusScale: Float = 1.05f
-): Modifier = this
-// ↑ no-op: no visual focus ring anywhere.
+): Modifier = composed {
+    val context = LocalContext.current
+    val isTv = remember { DeviceType.isTv(context) }
+    if (!isTv) return@composed this
+
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) focusScale else 1f,
+        animationSpec = tween(200),
+        label = "tvFocusScale"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) TvFocusedBorder else Color.Transparent,
+        animationSpec = tween(200),
+        label = "tvFocusBorderColor"
+    )
+
+    this
+        .onFocusChanged { isFocused = it.hasFocus }
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .then(
+            if (isFocused) Modifier.border(2.dp, borderColor, shape)
+            else Modifier
+        )
+}
 
 /**
- * TV icon button — no focus ring, still fully functional.
+ * TV icon button.
+ *   • TV  → scale + tinted bg + cyan border on focus.
+ *   • Mobile → clean, no focus ring.
  *
- *   • D-pad navigation still moves focus into the button.
- *   • ENTER / CENTER on the remote still fires `onClick` (via `tvTouchClick`).
- *   • Tap works on mobile.
- *   • `defaultMinSize` preserves the 48dp touch target.
+ * Still fully functional on both:
+ *   • D-pad ENTER / DPAD_CENTER fires onClick (via tvTouchClick)
+ *   • Tap fires onClick
  */
 @Composable
 fun TvIconButton(
@@ -69,9 +88,43 @@ fun TvIconButton(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val isTv = remember { DeviceType.isTv(context) }
+
+    var isFocused by remember { mutableStateOf(false) }
+    val showFocus = isTv && isFocused
+
+    val scale by animateFloatAsState(
+        targetValue = if (showFocus) 1.08f else 1f,
+        animationSpec = tween(180),
+        label = "tvIconScale"
+    )
+    val bg by animateColorAsState(
+        targetValue = if (showFocus) TvFocusedBorder.copy(alpha = 0.22f)
+        else Color.Transparent,
+        animationSpec = tween(180),
+        label = "tvIconBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (showFocus) TvFocusedBorder else Color.Transparent,
+        animationSpec = tween(180),
+        label = "tvIconBorder"
+    )
+
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clip(CircleShape)
+            .background(bg, CircleShape)
+            .then(
+                if (showFocus) Modifier.border(2.dp, borderColor, CircleShape)
+                else Modifier
+            )
             .tvTouchClick(onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -81,11 +134,9 @@ fun TvIconButton(
 
 /**
  * Tap + D-pad ENTER handler.
- *
- *  - Adds `Modifier.focusable()` so `onKeyEvent` actually receives events and
- *    so D-pad focus can land on the element at all.
- *  - Consumes only KeyUp for ENTER/CENTER to avoid double-firing with `clickable`.
- *  - Uses `rememberUpdatedState` so callers don't need to remember the lambda.
+ *   • Adds `focusable()` so D-pad focus can land here.
+ *   • Consumes KeyUp for ENTER/CENTER (no double-fire).
+ *   • Uses `rememberUpdatedState` so callers don't need to remember the lambda.
  */
 fun Modifier.tvTouchClick(onClick: () -> Unit): Modifier = composed {
     val currentOnClick by rememberUpdatedState(onClick)
