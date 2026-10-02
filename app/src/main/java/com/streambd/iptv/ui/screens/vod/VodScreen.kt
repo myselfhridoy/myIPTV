@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,16 +27,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
@@ -105,16 +101,19 @@ private fun TmdbMedia.stableKey(): String = "${media_type ?: "unknown"}_$id"
 /**
  * Top-level VOD screen.
  *
- * Structure:
- *   - Skeleton            → while initial content is loading
- *   - SearchMode          → user is searching (own focus tree)
- *   - BrowseMode          → normal browsing (own focus tree)
+ * IMPORTANT: This screen deliberately uses NO Lazy containers.
  *
- * The two modes are mutually exclusive. Because only one is composed
- * at a time, focus search never crosses between the top bar, the
- * search field, and the content — that's what caused the previous
- * `LayoutCoordinate … isAttached` and `CompositionLocal … attached`
- * crashes.
+ * Compose 1.6.x has a bug in LazyLayoutBeyondBoundsModifierLocal that
+ * crashes the focus system on Android TV when D-pad navigation triggers
+ * a beyond-bounds focus search. The crash is:
+ *   IllegalStateException: LayoutCoordinate operations are only valid
+ *   when isAttached is true
+ *
+ * The fix requires Compose Foundation 1.7.0+, which needs Kotlin 1.9.23+
+ * and Compose Compiler 1.5.11+. To avoid bumping the whole toolchain we
+ * replaced every LazyRow / LazyColumn / LazyVerticalGrid with a plain
+ * Column/Row + scroll modifier. Focus traversal then walks a fully
+ * composed tree — no beyond-bounds prefetch, no crash.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -123,7 +122,6 @@ fun VodScreen(
     navController: NavController,
     onMenuClick: (() -> Unit)? = null
 ) {
-    // ── Data ──
     val trendingMovies by viewModel.trendingMovies.collectAsState()
     val trendingTv by viewModel.trendingTv.collectAsState()
 
@@ -137,21 +135,16 @@ fun VodScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    // ── UI state ──
     var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Only requester left: seeds focus on first card after initial load
-    // or after returning from a modal state like search.
     val firstCardRequester = remember { FocusRequester() }
 
-    // ── Device ──
     val context = LocalContext.current
     val isTV = remember(context) { com.streambd.iptv.utils.DeviceType.isTv(context) }
     val configuration = LocalConfiguration.current
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
-    // ── Rows ──
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -172,7 +165,6 @@ fun VodScreen(
 
     val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
 
-    // ── Actions ──
     val handleItemClick: (TmdbMedia) -> Unit = { media ->
         viewModel.selectMedia(media)
         navController.navigate(Routes.TMDB_DETAILS) { launchSingleTop = true }
@@ -184,7 +176,6 @@ fun VodScreen(
         viewModel.search("")
     }
 
-    // ── Render ──
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -220,11 +211,6 @@ fun VodScreen(
         }
     }
 
-    // Seed focus on the first card whenever browse mode is active and
-    // content is ready. Fires on:
-    //   • initial load completes
-    //   • user exits search
-    //   • user returns from TmdbDetailsScreen (composable recreated)
     LaunchedEffect(isSearching, mediaRows.isNotEmpty(), isTV) {
         if (isTV && !isSearching && mediaRows.isNotEmpty()) {
             delay(300)
@@ -234,15 +220,7 @@ fun VodScreen(
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- * BROWSE MODE
- *
- * One LazyColumn that contains:
- *   1. Top bar (first item — natural focus flow to the rows below)
- *   2. Spacer
- *   3. One item per media row
- *   4. Bottom padding
- *
- * No overlays, no cross-composable focus properties.
+ * BROWSE MODE — non-lazy
  * ═══════════════════════════════════════════════════════════════════ */
 
 @Composable
@@ -254,40 +232,37 @@ private fun BrowseMode(
     firstCardRequester: FocusRequester,
     onClickItem: (TmdbMedia) -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 32.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
     ) {
-        item(key = "top_bar") {
-            BrowseTopBar(
-                onMenuClick = onMenuClick,
-                onSearchClick = onSearchClick
-            )
-        }
+        BrowseTopBar(
+            onMenuClick = onMenuClick,
+            onSearchClick = onSearchClick
+        )
 
-        item(key = "top_spacer") {
-            Spacer(
-                modifier = Modifier.height(if (isMobilePortrait) 8.dp else 16.dp)
-            )
-        }
+        Spacer(
+            modifier = Modifier.height(if (isMobilePortrait) 8.dp else 16.dp)
+        )
 
         mediaRows.forEachIndexed { index, row ->
-            item(key = "row_${row.key}") {
-                MediaSection(
-                    title = row.title,
-                    count = row.list.size,
-                    mediaList = row.list,
-                    firstItemModifier = if (index == 0)
-                        Modifier.focusRequester(firstCardRequester)
-                    else Modifier,
-                    isMobilePortrait = isMobilePortrait,
-                    onClick = onClickItem
-                )
-                Spacer(
-                    modifier = Modifier.height(if (isMobilePortrait) 16.dp else 24.dp)
-                )
-            }
+            MediaSection(
+                title = row.title,
+                count = row.list.size,
+                mediaList = row.list,
+                firstItemModifier = if (index == 0)
+                    Modifier.focusRequester(firstCardRequester)
+                else Modifier,
+                isMobilePortrait = isMobilePortrait,
+                onClick = onClickItem
+            )
+            Spacer(
+                modifier = Modifier.height(if (isMobilePortrait) 16.dp else 24.dp)
+            )
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
@@ -300,7 +275,6 @@ private fun BrowseTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
-            // focusGroup scopes the 2D focus search to these two buttons.
             .focusGroup(),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -342,12 +316,7 @@ private fun BrowseTopBar(
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- * SEARCH MODE
- *
- * Fixed search field at the top + grid of results below.
- * Pressing Back exits search mode.
- * Pressing the IME Search action hides the keyboard and jumps focus
- * to the first result card.
+ * SEARCH MODE — non-lazy, manual grid
  * ═══════════════════════════════════════════════════════════════════ */
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -365,19 +334,13 @@ private fun SearchMode(
     val firstResultRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // Flag: user pressed the IME Search action; we want to move focus
-    // to the first result after the IME collapse animation completes.
     var pendingJumpToResults by remember { mutableStateOf(false) }
 
-    // Focus the search field as soon as SearchMode mounts.
     LaunchedEffect(Unit) {
         delay(150)
         runCatching { searchFieldRequester.requestFocus() }
     }
 
-    // Deferred jump to first result. Waits for the IME to actually
-    // collapse (200 ms) and for the results list to be populated.
-    // `requestFocus()` on an off-screen Lazy item also scrolls it in.
     LaunchedEffect(pendingJumpToResults, results) {
         if (pendingJumpToResults && results.isNotEmpty()) {
             delay(200)
@@ -390,7 +353,6 @@ private fun SearchMode(
     BackHandler { onClose() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── Search field (fixed at top) ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -445,9 +407,6 @@ private fun SearchMode(
                 keyboardActions = KeyboardActions(
                     onSearch = {
                         keyboard?.hide()
-                        // Only jump if we actually have something to jump to.
-                        // If results haven't arrived yet, the deferred effect
-                        // will fire as soon as they do.
                         if (results.isNotEmpty()) {
                             pendingJumpToResults = true
                         }
@@ -459,43 +418,48 @@ private fun SearchMode(
             )
         }
 
-        // ── Body ──
         when {
             results.isNotEmpty() -> {
                 val columns = if (isMobilePortrait) 3 else 5
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(columns),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 32.dp
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    gridItemsIndexed(
-                        items = results,
-                        key = { _, media -> media.stableKey() }
-                    ) { index, media ->
-                        TmdbMediaCard(
-                            media = media,
-                            isMobilePortrait = isMobilePortrait,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(2f / 3f)
-                                .then(
-                                    if (index == 0)
-                                        Modifier.focusRequester(firstResultRequester)
-                                    else Modifier
-                                ),
-                            focusScale = 1.04f,
-                            onClick = { onClickItem(media) }
-                        )
+                    val chunks = results.chunked(columns)
+                    chunks.forEachIndexed { rowIdx, rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            rowItems.forEachIndexed { colIdx, media ->
+                                val isFirst = rowIdx == 0 && colIdx == 0
+                                Box(modifier = Modifier.weight(1f)) {
+                                    TmdbMediaCard(
+                                        media = media,
+                                        isMobilePortrait = isMobilePortrait,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(2f / 3f)
+                                            .then(
+                                                if (isFirst)
+                                                    Modifier.focusRequester(firstResultRequester)
+                                                else Modifier
+                                            ),
+                                        focusScale = 1.04f,
+                                        onClick = { onClickItem(media) }
+                                    )
+                                }
+                            }
+                            repeat(columns - rowItems.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
 
@@ -586,7 +550,6 @@ private fun MediaSection(
     val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
 
     Column {
-        // ── Row header ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -618,22 +581,17 @@ private fun MediaSection(
             }
         }
 
-        // ── Cards ──
-        LazyRow(
-            // focusGroup keeps horizontal focus traversal scoped to this
-            // row; without it Compose would run a beyond-bounds search
-            // that occasionally touches detached nodes.
-            modifier = Modifier.focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(spacing),
-            contentPadding = PaddingValues(
-                horizontal = 16.dp,
-                vertical = verticalPadding
-            )
+        // ── Non-lazy horizontal row ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .focusGroup()
+                .padding(vertical = verticalPadding),
+            horizontalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            itemsIndexed(
-                items = mediaList,
-                key = { _, media -> media.stableKey() }
-            ) { index, media ->
+            Spacer(modifier = Modifier.width(16.dp))
+            mediaList.forEachIndexed { index, media ->
                 TmdbMediaCard(
                     media = media,
                     isMobilePortrait = isMobilePortrait,
@@ -645,6 +603,7 @@ private fun MediaSection(
                     onClick = { onClick(media) }
                 )
             }
+            Spacer(modifier = Modifier.width(16.dp))
         }
     }
 }
@@ -689,7 +648,6 @@ private fun TmdbMediaCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Bottom gradient
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -706,7 +664,6 @@ private fun TmdbMediaCard(
                 )
         )
 
-        // Rating chip
         if (media.vote_average != null && media.vote_average > 0) {
             Row(
                 modifier = Modifier
@@ -733,7 +690,6 @@ private fun TmdbMediaCard(
             }
         }
 
-        // Title
         Text(
             text = media.displayTitle,
             color = WhiteText,
@@ -750,7 +706,7 @@ private fun TmdbMediaCard(
 }
 
 /* ═══════════════════════════════════════════════════════════════════
- * SKELETON
+ * SKELETON — non-lazy
  * ═══════════════════════════════════════════════════════════════════ */
 
 @Composable
@@ -793,12 +749,14 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
                 .clip(RoundedCornerShape(4.dp))
                 .background(SkeletonBase.copy(alpha = alpha * 0.5f))
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(spacing),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
-            userScrollEnabled = false
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            items(6) {
+            repeat(6) {
                 Box(
                     modifier = Modifier
                         .width(cardWidth)
