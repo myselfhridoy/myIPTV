@@ -7,9 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,6 +70,22 @@ private val SurfaceChip = Color(0xFF1E2633)
 private val BioAccentDim = Color(0xFF008D94)
 private val StarGold = Color(0xFFFFC43D)
 
+/**
+ * TmdbDetailsScreen
+ *
+ * NOTE: This screen uses no Lazy containers.
+ *
+ * Compose 1.6.x has a bug in LazyLayoutBeyondBoundsModifierLocal that
+ * crashes the focus system on Android TV when D-pad navigation triggers
+ * a beyond-bounds focus search:
+ *   IllegalStateException: LayoutCoordinate operations are only valid
+ *   when isAttached is true
+ *
+ * The fix requires Compose Foundation 1.7.0+, which needs Kotlin 1.9.23+
+ * and Compose Compiler 1.5.11+. To keep the current toolchain we replaced
+ * every LazyColumn in this screen with a plain Column + verticalScroll.
+ * Season/episode lists are small enough that eager composition is cheap.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TmdbDetailsScreen(
@@ -95,12 +108,7 @@ fun TmdbDetailsScreen(
 
     val mediaId = media?.id
 
-    // ═══════════════════════════════════════════════════════════════
-    // PERSISTENCE
-    // Restore last S/E for THIS media id. On a fresh title the VM
-    // returns null, so we fall back to defaults from the fetched
-    // details (S1E1).
-    // ═══════════════════════════════════════════════════════════════
+    // ── Persistence: restore last S/E for THIS media id ──
     val savedSelection = remember(mediaId) {
         mediaId?.let { mainViewModel.getVodSelectionFor(it) }
     }
@@ -109,7 +117,7 @@ fun TmdbDetailsScreen(
     var expandedSeason by remember(mediaId) { mutableStateOf(false) }
     var expandedEpisode by remember(mediaId) { mutableStateOf(false) }
 
-    // Fetch details for the current title.
+    // ── Fetch details for the current title ──
     LaunchedEffect(mediaId) {
         val current = media ?: return@LaunchedEffect
         if (current.isMovie) {
@@ -121,9 +129,7 @@ fun TmdbDetailsScreen(
 
     val m = media ?: return
 
-    // ── FOCUS ON PLAY BUTTON ──
-    // Retry a few times because on first frame the button isn't attached
-    // to the composition yet (details may still be loading).
+    // ── Focus Play button (retry because it may not be attached on first frame) ──
     LaunchedEffect(mediaId, m) {
         repeat(6) { attempt ->
             delay(120L + attempt * 80L)
@@ -132,6 +138,7 @@ fun TmdbDetailsScreen(
         }
     }
 
+    // ── Only trust details that match the current media ──
     val currentTvDetails = tvDetails?.takeIf { it.id == m.id && !m.isMovie }
     val currentMovieDetails = movieDetails?.takeIf { it.id == m.id && m.isMovie }
 
@@ -152,20 +159,14 @@ fun TmdbDetailsScreen(
         ?.takeIf { it in 1..(selectedSeasonObj?.episode_count ?: 0) }
         ?: 1
 
-    // ── Persist any user-visible change back into the VM ──
-    // This fires when details have loaded and effective values are known,
-    // so re-entering this screen later restores exactly this state.
+    // ── Persist any user-visible change into the VM ──
     LaunchedEffect(m.id, effectiveSeason, effectiveEpisode, validSeasons.isNotEmpty()) {
         if (!m.isMovie && validSeasons.isNotEmpty() && effectiveSeason != null) {
             mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
         }
     }
 
-    // ── Season dialog ──
-    val seasonInitialIndex = remember(effectiveSeason, validSeasons) {
-        validSeasons.indexOfFirst { it.season_number == effectiveSeason }.coerceAtLeast(0)
-    }
-    val seasonListState = rememberLazyListState(initialFirstVisibleItemIndex = seasonInitialIndex)
+    // ── Season dialog focus ──
     val seasonItemFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(expandedSeason) {
@@ -175,11 +176,7 @@ fun TmdbDetailsScreen(
         }
     }
 
-    // ── Episode dialog ──
-    val episodeInitialIndex = remember(effectiveEpisode) {
-        (effectiveEpisode - 1).coerceAtLeast(0)
-    }
-    val episodeListState = rememberLazyListState(initialFirstVisibleItemIndex = episodeInitialIndex)
+    // ── Episode dialog focus ──
     val episodeItemFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(expandedEpisode, selectedSeasonObj?.season_number) {
@@ -236,6 +233,7 @@ fun TmdbDetailsScreen(
             )
         }
 
+        // ── Main content (Column + verticalScroll, no Lazy) ──
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -285,8 +283,6 @@ fun TmdbDetailsScreen(
                     watchButtonFocusRequester = watchButtonFocusRequester,
                     backButtonFocusRequester = backButtonFocusRequester,
                     onPlay = {
-                        // Ensure VM has the exact current selection at
-                        // play time, then navigate.
                         if (!m.isMovie && effectiveSeason != null) {
                             mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
                         }
@@ -343,7 +339,7 @@ fun TmdbDetailsScreen(
         }
     }
 
-    // ── Season dialog ──
+    // ── Season dialog (non-lazy) ──
     if (expandedSeason && validSeasons.isNotEmpty()) {
         PremiumDialogScaffold(
             title = "Select Season",
@@ -351,16 +347,15 @@ fun TmdbDetailsScreen(
             onDismiss = { expandedSeason = false },
             scrollContent = false
         ) {
-            LazyColumn(
-                state = seasonListState,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(
-                    items = validSeasons,
-                    key = { it.season_number }
-                ) { season ->
+                validSeasons.forEach { season ->
                     val isSelected = effectiveSeason == season.season_number
                     PremiumOptionRow(
                         title = "Season ${season.season_number}",
@@ -372,7 +367,6 @@ fun TmdbDetailsScreen(
                         onClick = {
                             localSeason = season.season_number
                             localEpisode = 1
-                            // Persist immediately — user's intent is clear.
                             mainViewModel.setVodSelection(m.id, season.season_number, 1)
                             expandedSeason = false
                         }
@@ -382,7 +376,7 @@ fun TmdbDetailsScreen(
         }
     }
 
-    // ── Episode dialog ──
+    // ── Episode dialog (non-lazy) ──
     if (expandedEpisode && selectedSeasonObj != null) {
         PremiumDialogScaffold(
             title = "Select Episode",
@@ -390,16 +384,15 @@ fun TmdbDetailsScreen(
             onDismiss = { expandedEpisode = false },
             scrollContent = false
         ) {
-            LazyColumn(
-                state = episodeListState,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(
-                    count = selectedSeasonObj.episode_count,
-                    key = { index -> index + 1 }
-                ) { index ->
+                repeat(selectedSeasonObj.episode_count) { index ->
                     val ep = index + 1
                     val isSelected = effectiveEpisode == ep
                     PremiumOptionRow(
@@ -423,7 +416,7 @@ fun TmdbDetailsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Info body (unchanged — kept for brevity)
+// Info body
 // ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
