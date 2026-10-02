@@ -1,15 +1,18 @@
 plugins {
-    id("com.android.application") version "8.6.0"
-    id("org.jetbrains.kotlin.android") version "1.9.22"
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22"
-    id("com.google.devtools.ksp") version "1.9.22-1.0.17"
-    id("com.google.gms.google-services") version "4.4.4"
-    id("com.google.firebase.crashlytics") version "2.9.9"
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
+
+// ⚠️ এই লাইনটি অবশ্যই থাকতে হবে — plugins ব্লকের পরে, android ব্লকের আগে
+val media3Version = "1.2.1"
 
 android {
     namespace = "com.streambd.iptv"
-    compileSdk = 35 // Android 15 (API 35) — AGP 8.6.0 এর সাথে সামঞ্জস্যপূর্ণ
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.streambd.iptv"
@@ -60,7 +63,6 @@ android {
     }
 
     composeOptions {
-        // Kotlin 1.9.22 এর সাথে সামঞ্জস্যপূর্ণ Compose Compiler
         kotlinCompilerExtensionVersion = "1.5.10"
     }
 
@@ -71,7 +73,6 @@ android {
 }
 
 dependencies {
-    // Desugaring library
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
     // Firebase
@@ -87,11 +88,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // ═══════════════════════════════════════════════════════════════
-    // Compose — BOM 2024.05.00 ব্যবহার করা হচ্ছে
-    // এটি Compose UI 1.6.8 এবং androidx.core 1.13.0 আনবে,
-    // যা AGP 8.6.0-এর সাথে সম্পূর্ণ সামঞ্জস্যপূর্ণ।
-    // ═══════════════════════════════════════════════════════════════
+    // Compose BOM — 2024.05.00 (Compose UI 1.6.8 আনবে)
     val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
     implementation(composeBom)
 
@@ -101,10 +98,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // ═══════════════════════════════════════════════════════════════
-    // TV Material & Foundation — AGP 8.6.0 সামঞ্জস্যপূর্ণ
-    // tv-material: 1.1.0 এবং tv-foundation: 1.0.0
-    // ═══════════════════════════════════════════════════════════════
+    // TV Material & Foundation (AGP 8.6.0 সামঞ্জস্যপূর্ণ)
     implementation("androidx.tv:tv-foundation:1.0.0")
     implementation("androidx.tv:tv-material:1.1.0")
 
@@ -127,7 +121,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // QuickJS (VOD addon system) — compileSdk 35 এর সাথে সামঞ্জস্যপূর্ণ
+    // QuickJS
     implementation("io.github.dokar3:quickjs-kt-android:1.0.15")
     testImplementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
 
@@ -138,6 +132,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // NewPipeExtractor for YouTube Live & Video stream extraction
+    // NewPipeExtractor
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
 }
