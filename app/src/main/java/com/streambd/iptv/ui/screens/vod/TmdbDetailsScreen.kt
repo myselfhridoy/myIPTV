@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,13 +25,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -94,19 +93,25 @@ fun TmdbDetailsScreen(
     val backButtonFocusRequester = remember { FocusRequester() }
     val watchButtonFocusRequester = remember { FocusRequester() }
 
-    // FIX #2: use media?.id as the key everywhere so state resets when
-    // switching between media, and the effect doesn't race with a mid-flight
-    // change of `media`.
     val mediaId = media?.id
 
-    var localSeason by remember(mediaId) { mutableStateOf<Int?>(null) }
-    var localEpisode by remember(mediaId) { mutableStateOf<Int?>(null) }
+    // ═══════════════════════════════════════════════════════════════
+    // PERSISTENCE
+    // Restore last S/E for THIS media id. On a fresh title the VM
+    // returns null, so we fall back to defaults from the fetched
+    // details (S1E1).
+    // ═══════════════════════════════════════════════════════════════
+    val savedSelection = remember(mediaId) {
+        mediaId?.let { mainViewModel.getVodSelectionFor(it) }
+    }
+    var localSeason by remember(mediaId) { mutableStateOf<Int?>(savedSelection?.first) }
+    var localEpisode by remember(mediaId) { mutableStateOf<Int?>(savedSelection?.second) }
     var expandedSeason by remember(mediaId) { mutableStateOf(false) }
     var expandedEpisode by remember(mediaId) { mutableStateOf(false) }
 
+    // Fetch details for the current title.
     LaunchedEffect(mediaId) {
         val current = media ?: return@LaunchedEffect
-        runCatching { watchButtonFocusRequester.requestFocus() }
         if (current.isMovie) {
             tmdbViewModel.fetchMovieDetails(current.id)
         } else {
@@ -116,9 +121,17 @@ fun TmdbDetailsScreen(
 
     val m = media ?: return
 
-    // FIX #1: only trust details that match the current media. If the VM has
-    // stale data from a previously-viewed show, we ignore it until our fetch
-    // completes. This prevents wrong genres / runtime / seasons.
+    // ── FOCUS ON PLAY BUTTON ──
+    // Retry a few times because on first frame the button isn't attached
+    // to the composition yet (details may still be loading).
+    LaunchedEffect(mediaId, m) {
+        repeat(6) { attempt ->
+            delay(120L + attempt * 80L)
+            val ok = runCatching { watchButtonFocusRequester.requestFocus() }.isSuccess
+            if (ok) return@LaunchedEffect
+        }
+    }
+
     val currentTvDetails = tvDetails?.takeIf { it.id == m.id && !m.isMovie }
     val currentMovieDetails = movieDetails?.takeIf { it.id == m.id && m.isMovie }
 
@@ -139,7 +152,16 @@ fun TmdbDetailsScreen(
         ?.takeIf { it in 1..(selectedSeasonObj?.episode_count ?: 0) }
         ?: 1
 
-    // ── Season dialog: use rememberLazyListState(initial) — no scroll hack ──
+    // ── Persist any user-visible change back into the VM ──
+    // This fires when details have loaded and effective values are known,
+    // so re-entering this screen later restores exactly this state.
+    LaunchedEffect(m.id, effectiveSeason, effectiveEpisode, validSeasons.isNotEmpty()) {
+        if (!m.isMovie && validSeasons.isNotEmpty() && effectiveSeason != null) {
+            mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
+        }
+    }
+
+    // ── Season dialog ──
     val seasonInitialIndex = remember(effectiveSeason, validSeasons) {
         validSeasons.indexOfFirst { it.season_number == effectiveSeason }.coerceAtLeast(0)
     }
@@ -198,7 +220,6 @@ fun TmdbDetailsScreen(
                 )
         )
 
-        // FIX #4: fraction-based horizontal gradient (works on any screen size).
         if (!isPortrait) {
             Box(
                 modifier = Modifier
@@ -264,8 +285,11 @@ fun TmdbDetailsScreen(
                     watchButtonFocusRequester = watchButtonFocusRequester,
                     backButtonFocusRequester = backButtonFocusRequester,
                     onPlay = {
-                        mainViewModel.setSelectedSeason(effectiveSeason)
-                        mainViewModel.setSelectedEpisode(effectiveEpisode)
+                        // Ensure VM has the exact current selection at
+                        // play time, then navigate.
+                        if (!m.isMovie && effectiveSeason != null) {
+                            mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
+                        }
                         navController.navigate(Routes.SOURCE_SELECTION)
                     },
                     onOpenSeason = { expandedSeason = true },
@@ -303,7 +327,7 @@ fun TmdbDetailsScreen(
                 .padding(if (isPortrait) 16.dp else 28.dp)
                 .size(if (isPortrait) 44.dp else 48.dp)
                 .align(Alignment.TopStart)
-                .background(Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape)
+                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
                 .focusRequester(backButtonFocusRequester)
                 .focusProperties {
                     down = watchButtonFocusRequester
@@ -348,6 +372,8 @@ fun TmdbDetailsScreen(
                         onClick = {
                             localSeason = season.season_number
                             localEpisode = 1
+                            // Persist immediately — user's intent is clear.
+                            mainViewModel.setVodSelection(m.id, season.season_number, 1)
                             expandedSeason = false
                         }
                     )
@@ -364,7 +390,6 @@ fun TmdbDetailsScreen(
             onDismiss = { expandedEpisode = false },
             scrollContent = false
         ) {
-            // FIX: use items(count) instead of allocating a List<Int> per recomposition.
             LazyColumn(
                 state = episodeListState,
                 modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp),
@@ -383,6 +408,11 @@ fun TmdbDetailsScreen(
                         focusRequester = if (isSelected) episodeItemFocusRequester else null,
                         onClick = {
                             localEpisode = ep
+                            mainViewModel.setVodSelection(
+                                m.id,
+                                selectedSeasonObj.season_number,
+                                ep
+                            )
                             expandedEpisode = false
                         }
                     )
@@ -393,7 +423,7 @@ fun TmdbDetailsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Info body extracted for readability
+// Info body (unchanged — kept for brevity)
 // ─────────────────────────────────────────────────────────────
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -458,7 +488,6 @@ private fun DetailsInfoContent(
                     Icon(Icons.Default.Star, null, tint = StarGold, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        // FIX: locale-stable
                         text = String.format(Locale.US, "%.1f", media.vote_average),
                         color = StarGold,
                         fontSize = 16.sp,
@@ -594,6 +623,9 @@ private fun DetailsInfoContent(
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// REDESIGNED PLAY BUTTON
+// ═══════════════════════════════════════════════════════════════
 @Composable
 private fun PlayButton(
     isCompact: Boolean,
@@ -602,48 +634,71 @@ private fun PlayButton(
     focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bg by animateColorAsState(
+
+    val bgColor by animateColorAsState(
         targetValue = if (isFocused) BioAccentDim else BioAccent,
         animationSpec = tween(180),
         label = "playBg"
     )
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.04f else 1f,
+        targetValue = if (isFocused) 1.05f else 1f,
         animationSpec = tween(180),
         label = "playScale"
     )
+    val borderAlpha by animateFloatAsState(
+        targetValue = if (isFocused) 1f else 0f,
+        animationSpec = tween(180),
+        label = "playBorder"
+    )
+
+    val buttonHeight = if (isCompact) 46.dp else 52.dp
+    val iconCircleSize = if (isCompact) 30.dp else 34.dp
+    val iconSize = if (isCompact) 18.dp else 20.dp
 
     Row(
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .height(buttonHeight)
             .onFocusChanged { isFocused = it.hasFocus }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
             .clip(RoundedCornerShape(50))
-            .background(bg)
+            .background(bgColor)
+            .border(
+                width = 2.dp,
+                color = Color.White.copy(alpha = borderAlpha * 0.85f),
+                shape = RoundedCornerShape(50)
+            )
             .tvTouchClick(onClick)
             .padding(
-                horizontal = if (isCompact) 22.dp else 28.dp,
-                vertical = if (isCompact) 12.dp else 14.dp
+                start = if (isCompact) 8.dp else 10.dp,
+                end = if (isCompact) 22.dp else 26.dp
             ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.PlayArrow,
-            contentDescription = null,
-            tint = Color.Black,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(Modifier.width(6.dp))
+        Box(
+            modifier = Modifier
+                .size(iconCircleSize)
+                .background(Color.Black.copy(alpha = 0.15f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+        Spacer(Modifier.width(if (isCompact) 8.dp else 10.dp))
         Text(
-            "Play",
+            text = "Play",
             color = Color.Black,
-            fontSize = 16.sp,
+            fontSize = if (isCompact) 15.sp else 16.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.3.sp
+            letterSpacing = 0.4.sp
         )
     }
 }
