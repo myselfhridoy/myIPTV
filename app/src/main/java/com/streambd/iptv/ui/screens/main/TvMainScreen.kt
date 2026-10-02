@@ -94,18 +94,24 @@ fun TvMainScreen(
     val scope = rememberCoroutineScope()
     var lastBackTime by remember { mutableStateOf(0L) }
 
-    // ── Back behavior (Smarttube-style) ──
-    //   Drawer closed + Back  → open drawer
-    //   Drawer open  + Back #1 → record time (do nothing visible)
-    //   Drawer open  + Back #2 (within 2s) → exit dialog
+    // ── Back behavior on TV (drawer open OR closed) ──
+    //   Drawer closed + Back       → open drawer
+    //   Drawer open   + Back #1    → "Press again to exit" toast, start 2s timer
+    //   Drawer open   + Back #2    → exit dialog
+    //   Drawer open   + Back after 2s → reset timer, show toast again
     BackHandler(enabled = true) {
         val now = System.currentTimeMillis()
         if (drawerState.isOpen) {
-            if (now - lastBackTime < 2000) {
-                onShowExitDialog()
+            if (now - lastBackTime in 1..2000) {
                 lastBackTime = 0L
+                onShowExitDialog()
             } else {
                 lastBackTime = now
+                android.widget.Toast.makeText(
+                    context,
+                    "Press BACK again to exit",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
         } else {
             scope.launch { drawerState.open() }
@@ -122,7 +128,6 @@ fun TvMainScreen(
         }
     }
 
-    // Passed to screens so Left-from-leftmost opens the drawer.
     val openDrawer: () -> Unit = {
         scope.launch { drawerState.open() }
     }
@@ -152,10 +157,16 @@ fun TvMainScreen(
             .fillMaxSize()
             .background(DarkNavyBackground)
     ) {
+        // ── Block focus into main content while drawer is open ──
+        // This prevents the source screen's focused card from keeping its
+        // focus ring visible behind the drawer scrim.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp, vertical = 20.dp)
+                .focusProperties {
+                    canFocus = !drawerState.isOpen
+                }
         ) {
             when (selectedTab) {
                 0 -> {
@@ -188,6 +199,25 @@ private fun TvDrawerContent(
             .fillMaxHeight()
             .width(268.dp)
             .background(DrawerBg)
+            // ── Right key anywhere in the drawer closes it ──
+            // Placed on the top-level container so it catches Right no matter
+            // which drawer item currently has focus.
+            .focusProperties {
+                if (isDrawerOpen) {
+                    // Prevent focus from escaping to the main content via D-pad.
+                    left = FocusRequester.Cancel
+                    right = FocusRequester.Cancel
+                }
+            }
+            .onKeyEvent { ev ->
+                if (isDrawerOpen &&
+                    ev.type == KeyEventType.KeyUp &&
+                    ev.key == Key.DirectionRight
+                ) {
+                    onCloseDrawer()
+                    true
+                } else false
+            }
     ) {
         Column(
             modifier = Modifier
@@ -205,28 +235,24 @@ private fun TvDrawerContent(
                 icon = Icons.Filled.Event, label = tvTabs[0].title,
                 selected = selectedTab == 0, isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 0) firstItemFocusRequester else null,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(0) }
             )
             DrawerItem(
                 icon = Icons.Filled.LiveTv, label = tvTabs[1].title,
                 selected = selectedTab == 1, isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 1) firstItemFocusRequester else null,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(1) }
             )
             DrawerItem(
                 icon = Icons.Filled.MovieFilter, label = tvTabs[2].title,
                 selected = selectedTab == 2, isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 2) firstItemFocusRequester else null,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(2) }
             )
             DrawerItem(
                 icon = Icons.Filled.NetworkWifi, label = tvTabs[3].title,
                 selected = selectedTab == 3, isDrawerOpen = isDrawerOpen,
                 focusRequester = if (selectedTab != 3) firstItemFocusRequester else null,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(3) }
             )
 
@@ -235,7 +261,6 @@ private fun TvDrawerContent(
             DrawerItem(
                 icon = Icons.Filled.Folder, label = "Playlists",
                 selected = false, isDrawerOpen = isDrawerOpen,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(4) }
             )
 
@@ -244,13 +269,11 @@ private fun TvDrawerContent(
             DrawerItem(
                 icon = Icons.Filled.Refresh, label = "Check Update",
                 selected = false, isDrawerOpen = isDrawerOpen,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(5) }
             )
             DrawerItem(
                 icon = Icons.Outlined.MoreVert, label = "More",
                 selected = false, isDrawerOpen = isDrawerOpen,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(6) }
             )
 
@@ -260,7 +283,6 @@ private fun TvDrawerContent(
             DrawerItem(
                 icon = Icons.AutoMirrored.Filled.ExitToApp, label = "Exit App",
                 selected = false, isDrawerOpen = isDrawerOpen, danger = true,
-                onCloseDrawer = onCloseDrawer,
                 onClick = { onItemClick(7) }
             )
 
@@ -327,7 +349,6 @@ private fun DrawerItem(
     label: String,
     selected: Boolean,
     isDrawerOpen: Boolean,
-    onCloseDrawer: () -> Unit,
     badge: String? = null,
     danger: Boolean = false,
     focusRequester: FocusRequester? = null,
@@ -364,18 +385,11 @@ private fun DrawerItem(
                 canFocus = isDrawerOpen
                 if (isDrawerOpen) {
                     left = FocusRequester.Cancel
-                    // Right is intentionally NOT blocked — handled via onKeyEvent below
+                    right = FocusRequester.Cancel
                 }
             }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.hasFocus }
-            .onKeyEvent { ev ->
-                // Right from any drawer item → close drawer + return focus to screen
-                if (isDrawerOpen && ev.type == KeyEventType.KeyUp && ev.key == Key.DirectionRight) {
-                    onCloseDrawer()
-                    true
-                } else false
-            }
             .graphicsLayer { scaleX = scale; scaleY = scale; translationY = liftY }
             .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
