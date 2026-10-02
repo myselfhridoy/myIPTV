@@ -440,7 +440,7 @@ LaunchedEffect(isLoading, filteredEvents.isNotEmpty()) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // ── Content ──
             when {
