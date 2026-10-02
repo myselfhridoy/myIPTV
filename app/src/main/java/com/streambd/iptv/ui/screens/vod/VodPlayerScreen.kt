@@ -84,7 +84,6 @@ fun VodPlayerScreen(
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
-
     var exitRequested by remember { mutableStateOf(false) }
 
     var currentPosition by remember { mutableStateOf(0L) }
@@ -110,7 +109,6 @@ fun VodPlayerScreen(
         if (inPip) showOverlay = false
     }
 
-    // ── Handle ExoPlayer media setup ──
     LaunchedEffect(stream, retryToken) {
         isLoading = true
         resolveFailed = false
@@ -365,7 +363,6 @@ fun VodPlayerScreen(
                         return if (loadErrorInfo.errorCount <= 5) 1000L
                         else super.getRetryDelayMsFor(loadErrorInfo)
                     }
-
                     override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
                 }
 
@@ -381,8 +378,7 @@ fun VodPlayerScreen(
                 }
 
                 val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
-                    dataSourceFactory,
-                    extractorsFactory
+                    dataSourceFactory, extractorsFactory
                 ).setLoadErrorHandlingPolicy(loadErrorPolicy)
 
                 if (finalDrm != null && finalDrm.type != null) {
@@ -404,27 +400,19 @@ fun VodPlayerScreen(
                             try {
                                 val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
                                 val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-
                                 val kidB64 = android.util.Base64.encodeToString(
                                     kidBytes,
-                                    android.util.Base64.URL_SAFE or
-                                        android.util.Base64.NO_PADDING or
-                                        android.util.Base64.NO_WRAP
+                                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
                                 )
                                 val keyB64 = android.util.Base64.encodeToString(
                                     keyBytes,
-                                    android.util.Base64.URL_SAFE or
-                                        android.util.Base64.NO_PADDING or
-                                        android.util.Base64.NO_WRAP
+                                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
                                 )
-
                                 val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\"," +
                                     "\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
                                 clearKeyBytes = clearkeyJson.toByteArray()
                                 useLocalClearKey = true
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                            } catch (e: Exception) { e.printStackTrace() }
                         }
                     } else if (finalDrm.licenseServer != null) {
                         if (finalDrm.type.lowercase() == "clearkey" &&
@@ -570,22 +558,17 @@ fun VodPlayerScreen(
                         when (event.nativeKeyEvent.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (!showOverlay) {
-                                    currentPosition = seekBy(exoPlayer, -seekAmount)
-                                    true
+                                    currentPosition = seekBy(exoPlayer, -seekAmount); true
                                 } else false
                             }
                             android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                 if (!showOverlay) {
-                                    currentPosition = seekBy(exoPlayer, seekAmount)
-                                    true
+                                    currentPosition = seekBy(exoPlayer, seekAmount); true
                                 } else false
                             }
                             android.view.KeyEvent.KEYCODE_DPAD_CENTER,
                             android.view.KeyEvent.KEYCODE_ENTER -> {
-                                if (!showOverlay) {
-                                    showOverlay = true
-                                    true
-                                } else false
+                                if (!showOverlay) { showOverlay = true; true } else false
                             }
                             else -> false
                         }
@@ -594,16 +577,13 @@ fun VodPlayerScreen(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) {
-                    showOverlay = !showOverlay
-                }
+                ) { showOverlay = !showOverlay }
         ) {
             val isCinema = scaleMode == VideoScaleMode.CINEMA
 
             Box(
-                modifier = if (isCinema)
-                    Modifier.fillMaxSize(0.9f).align(Alignment.Center)
-                else Modifier.fillMaxSize(),
+                modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
+                           else Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 AndroidView(
@@ -611,7 +591,6 @@ fun VodPlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // Inflate XML layout so `app:surface_type="texture_view"` is honored.
                         val view = LayoutInflater.from(ctx)
                             .inflate(R.layout.view_player_texture, null, false) as PlayerView
                         view.apply {
@@ -626,12 +605,8 @@ fun VodPlayerScreen(
                             VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                         }
-                        if (playerView.resizeMode != exoResizeMode) {
-                            playerView.resizeMode = exoResizeMode
-                        }
-                        if (playerView.player != exoPlayer) {
-                            playerView.player = exoPlayer
-                        }
+                        if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
+                        if (playerView.player != exoPlayer) playerView.player = exoPlayer
                     }
                 )
             }
@@ -647,7 +622,7 @@ fun VodPlayerScreen(
                                 .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                                 .focusRequester(unlockFocusRequester)
                         ) {
-                            Icon(Icons.Default.Lock, contentDescription = "Unlock", tint = Color.White)
+                            Icon(Icons.Default.Lock, "Unlock", tint = Color.White)
                         }
                     } else {
                         Row(
@@ -661,41 +636,27 @@ fun VodPlayerScreen(
                                 onClick = { requestExit() },
                                 modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White
-                                )
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                             }
                             Spacer(modifier = Modifier.width(12.dp))
 
                             if (videoTitle != null) {
                                 Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 16.dp),
+                                    modifier = Modifier.weight(1f).padding(end = 16.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .background(
-                                                Color.Black.copy(alpha = 0.4f),
-                                                RoundedCornerShape(16.dp)
-                                            )
+                                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
                                             .padding(horizontal = 16.dp, vertical = 6.dp)
                                     ) {
                                         Text(
-                                            text = videoTitle,
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            text = videoTitle, color = Color.White,
+                                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
-                            } else {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
+                            } else Spacer(modifier = Modifier.weight(1f))
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TvIconButton(onClick = { isLocked = true }) {
@@ -706,18 +667,14 @@ fun VodPlayerScreen(
                                     val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
                                     scaleMode = modes[nextIndex]
                                     android.widget.Toast.makeText(
-                                        context,
-                                        scaleMode.title,
-                                        android.widget.Toast.LENGTH_SHORT
+                                        context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }) {
                                     Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
                                 }
                                 TvIconButton(onClick = {
                                     val activity = context as? ComponentActivity
-                                    if (android.os.Build.VERSION.SDK_INT >=
-                                        android.os.Build.VERSION_CODES.O
-                                    ) {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                         val params = android.app.PictureInPictureParams.Builder().build()
                                         activity?.enterPictureInPictureMode(params)
                                     }
@@ -737,46 +694,29 @@ fun VodPlayerScreen(
                         ) {
                             TvIconButton(
                                 onClick = { currentPosition = seekBy(exoPlayer, -seekAmount) },
-                                modifier = Modifier
-                                    .size(48.dp)
+                                modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    Icons.Default.Replay10,
-                                    contentDescription = "Seek Back 10s",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                Icon(Icons.Default.Replay10, "Seek Back 10s", tint = Color.White, modifier = Modifier.size(28.dp))
                             }
-
                             TvIconButton(
                                 onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                modifier = Modifier
-                                    .size(64.dp)
+                                modifier = Modifier.size(64.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                                     .focusRequester(playPauseFocusRequester)
                             ) {
                                 Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause
-                                    else Icons.Default.PlayArrow,
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = "Play/Pause",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
+                                    tint = Color.White, modifier = Modifier.size(36.dp)
                                 )
                             }
-
                             TvIconButton(
                                 onClick = { currentPosition = seekBy(exoPlayer, seekAmount) },
-                                modifier = Modifier
-                                    .size(48.dp)
+                                modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    Icons.Default.Forward10,
-                                    contentDescription = "Seek Forward 10s",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                Icon(Icons.Default.Forward10, "Seek Forward 10s", tint = Color.White, modifier = Modifier.size(28.dp))
                             }
                         }
 
@@ -792,9 +732,7 @@ fun VodPlayerScreen(
                                 (dragFraction * duration).toLong() else currentPosition
                             Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
                             Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 16.dp),
+                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 val bufferFraction = if (duration > 0)
@@ -803,8 +741,7 @@ fun VodPlayerScreen(
                                     (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
                                 LinearProgressIndicator(
                                     progress = { bufferFraction },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth()
                                         .padding(horizontal = 8.dp)
                                         .height(4.dp)
                                         .clip(CircleShape),
@@ -814,14 +751,12 @@ fun VodPlayerScreen(
                                 Slider(
                                     value = if (isDragging) dragFraction else playbackFraction,
                                     onValueChange = { value ->
-                                        isDragging = true
-                                        dragFraction = value
+                                        isDragging = true; dragFraction = value
                                     },
                                     onValueChangeFinished = {
                                         if (duration > 0) {
                                             val pos = (dragFraction * duration).toLong()
-                                            exoPlayer.seekTo(pos)
-                                            currentPosition = pos
+                                            exoPlayer.seekTo(pos); currentPosition = pos
                                         }
                                         isDragging = false
                                     },
@@ -842,8 +777,7 @@ fun VodPlayerScreen(
                                 Icon(
                                     if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
                                     else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = "Volume",
-                                    tint = Color.White
+                                    contentDescription = "Volume", tint = Color.White
                                 )
                             }
                         }
@@ -864,12 +798,7 @@ fun VodPlayerScreen(
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Default.Error,
-                        contentDescription = "Error",
-                        tint = Color.Red,
-                        modifier = Modifier.size(48.dp)
-                    )
+                    Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
@@ -884,31 +813,29 @@ fun VodPlayerScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Color.White)
+                        Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Retry", color = Color.White)
                     }
                 }
             }
-        }
-    }
 
-    if (showTrackSelector) {
-        TrackSelectionDialog(
-            player = exoPlayer,
-            onDismiss = { showTrackSelector = false }
-        )
+            // ── Dialogs (INSIDE PlayerRevealContainer → inherit 90° rotation) ──
+            if (showTrackSelector) {
+                TrackSelectionDialog(
+                    player = exoPlayer,
+                    onDismiss = { showTrackSelector = false }
+                )
+            }
+        }
     }
 }
 
 private fun seekBy(player: ExoPlayer, deltaMs: Long): Long {
     val duration = player.duration
     val raw = player.currentPosition + deltaMs
-    val target = if (duration != C.TIME_UNSET && duration > 0) {
-        raw.coerceIn(0L, duration)
-    } else {
-        raw.coerceAtLeast(0L)
-    }
+    val target = if (duration != C.TIME_UNSET && duration > 0) raw.coerceIn(0L, duration)
+                 else raw.coerceAtLeast(0L)
     player.seekTo(target)
     return target
 }
@@ -919,9 +846,6 @@ private fun formatVodTime(ms: Long): String {
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%02d:%02d", minutes, seconds)
-    }
+    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
+           else String.format("%02d:%02d", minutes, seconds)
 }
