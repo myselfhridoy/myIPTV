@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,7 +30,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
@@ -52,7 +58,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -61,9 +66,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,6 +102,20 @@ private data class MediaRow(
 
 private fun TmdbMedia.stableKey(): String = "${media_type ?: "unknown"}_$id"
 
+/**
+ * Top-level VOD screen.
+ *
+ * Structure:
+ *   - Skeleton            → while initial content is loading
+ *   - SearchMode          → user is searching (own focus tree)
+ *   - BrowseMode          → normal browsing (own focus tree)
+ *
+ * The two modes are mutually exclusive. Because only one is composed
+ * at a time, focus search never crosses between the top bar, the
+ * search field, and the content — that's what caused the previous
+ * `LayoutCoordinate … isAttached` and `CompositionLocal … attached`
+ * crashes.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun VodScreen(
@@ -104,6 +123,7 @@ fun VodScreen(
     navController: NavController,
     onMenuClick: (() -> Unit)? = null
 ) {
+    // ── Data ──
     val trendingMovies by viewModel.trendingMovies.collectAsState()
     val trendingTv by viewModel.trendingTv.collectAsState()
 
@@ -117,53 +137,21 @@ fun VodScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
+    // ── UI state ──
+    var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var isSearchExpanded by remember { mutableStateOf(false) }
-    var isSearchFocused by remember { mutableStateOf(false) }
 
-    // ── Focus anchors ──
-    val searchFieldFocusRequester = remember { FocusRequester() }
-    val resultsFocusRequester = remember { FocusRequester() }
-    val firstCardFocusRequester = remember { FocusRequester() }
-    val menuRequester = remember { FocusRequester() }
-    val searchBtnRequester = remember { FocusRequester() }
-    // NOTE: contentRequester removed — no longer needed after dropping
-    // focusRestorer and switching to a dynamic downTarget.
+    // Only requester left: seeds focus on first card after initial load
+    // or after returning from a modal state like search.
+    val firstCardRequester = remember { FocusRequester() }
 
-    var pendingFocus by remember { mutableStateOf<String?>(null) }
-
-    val focusManager = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-
-    val closeSearch: () -> Unit = {
-        isSearchExpanded = false
-        searchQuery = ""
-        pendingFocus = null
-        viewModel.search("")
-    }
-
-    BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
-        if (isSearchFocused) {
-            keyboard?.hide()
-            focusManager.clearFocus()
-            pendingFocus = "results"
-        } else {
-            closeSearch()
-            pendingFocus = "home"
-        }
-    }
-
-    LaunchedEffect(isSearchExpanded) {
-        if (isSearchExpanded) {
-            runCatching { searchFieldFocusRequester.requestFocus() }
-        }
-    }
-
-    val configuration = LocalConfiguration.current
+    // ── Device ──
     val context = LocalContext.current
     val isTV = remember(context) { com.streambd.iptv.utils.DeviceType.isTv(context) }
+    val configuration = LocalConfiguration.current
     val isMobilePortrait = !isTV && configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
+    // ── Rows ──
     val mediaRows = remember(
         trendingMovies, trendingTv,
         hindiMovies, hindiTv,
@@ -183,193 +171,120 @@ fun VodScreen(
     }
 
     val showInitialSkeleton = isLoading && trendingMovies.isEmpty()
-    val showEmptyNoResults = searchQuery.isNotEmpty() &&
-            searchResults.isEmpty() && !isLoading
 
-    val contentVisible = !showInitialSkeleton && mediaRows.isNotEmpty()
-
-    // ── Dynamic down target ──
-    // From top bar / search field, pressing Down should land on:
-    //   - search results (if search is active and has results)
-    //   - the first card of the first row (if content is visible)
-    //   - FocusRequester.Default (no-op; the focus system falls back
-    //     to its normal 2D search, which is now scoped by focusGroup
-    //     on each LazyRow).
-    val downTarget = when {
-        searchQuery.isNotEmpty() ->
-            if (searchResults.isNotEmpty()) resultsFocusRequester
-            else FocusRequester.Default
-        contentVisible -> firstCardFocusRequester
-        else -> FocusRequester.Default
+    // ── Actions ──
+    val handleItemClick: (TmdbMedia) -> Unit = { media ->
+        viewModel.selectMedia(media)
+        navController.navigate(Routes.TMDB_DETAILS) { launchSingleTop = true }
     }
 
-    // ── Deferred focus restoration ──
-    // Keep `pendingFocus` set until the target requester actually accepts
-    // focus. This handles the case where results haven't arrived yet when
-    // the user hits Search on the keyboard, or the target card isn't yet
-    // composed.
-    LaunchedEffect(pendingFocus, searchResults, contentVisible) {
-        when (pendingFocus) {
-            "results" -> if (searchResults.isNotEmpty()) {
-                delay(150) // give the IME time to close and layout to settle
-                if (runCatching { resultsFocusRequester.requestFocus() }.isSuccess) {
-                    pendingFocus = null
-                }
-            }
-            "home" -> if (contentVisible) {
-                delay(150)
-                if (runCatching { firstCardFocusRequester.requestFocus() }.isSuccess) {
-                    pendingFocus = null
-                }
-            }
-            else -> Unit
-        }
+    val closeSearch: () -> Unit = {
+        isSearching = false
+        searchQuery = ""
+        viewModel.search("")
     }
 
-    // Focus first card on TV when content first becomes visible.
-    LaunchedEffect(isTV, contentVisible, isSearchExpanded, searchQuery) {
-        if (isTV && contentVisible && !isSearchExpanded && searchQuery.isEmpty()) {
-            delay(180)
-            runCatching { firstCardFocusRequester.requestFocus() }
-        }
-    }
-
+    // ── Render ──
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkNavyBackground)
     ) {
-        if (showInitialSkeleton) {
-            VodSkeleton(isMobilePortrait = isMobilePortrait)
-        } else {
-            // No focusRequester, no focusRestorer. The previous
-            // `.focusRestorer()` crashed inside FocusRestorerNode.onEnter
-            // when the node was momentarily detached during search open/
-            // close — `restoreFocusedChild` tried to read a
-            // CompositionLocal on a detached node.
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
-                item(key = "top_spacer") {
-                    Spacer(
-                        modifier = Modifier.height(if (isMobilePortrait) 16.dp else 100.dp)
-                    )
-                }
+        when {
+            showInitialSkeleton -> VodSkeleton(isMobilePortrait = isMobilePortrait)
 
-                item(key = "gradient_transition") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, DarkNavyBackground)
-                                )
-                            )
-                    )
+            isSearching -> SearchMode(
+                query = searchQuery,
+                onQueryChange = {
+                    searchQuery = it
+                    viewModel.search(it)
+                },
+                results = searchResults,
+                isLoading = isLoading,
+                isMobilePortrait = isMobilePortrait,
+                onClose = closeSearch,
+                onClickItem = { media ->
+                    closeSearch()
+                    handleItemClick(media)
                 }
+            )
 
-                if (searchQuery.isNotEmpty()) {
-                    if (searchResults.isNotEmpty()) {
-                        item(key = "search_results") {
-                            MediaSection(
-                                title = "Search Results",
-                                count = searchResults.size,
-                                mediaList = searchResults,
-                                firstItemModifier = Modifier.focusRequester(resultsFocusRequester),
-                                isMobilePortrait = isMobilePortrait,
-                                // Up from a result goes back to the search field.
-                                upRequester = searchFieldFocusRequester
-                            ) { media ->
-                                viewModel.selectMedia(media)
-                                closeSearch()
-                                navController.navigate(Routes.TMDB_DETAILS) {
-                                    launchSingleTop = true
-                                }
-                            }
-                        }
-                    } else if (showEmptyNoResults) {
-                        item(key = "search_empty") {
-                            EmptySearchState(query = searchQuery)
-                        }
-                    }
-                } else {
-                    mediaRows.forEachIndexed { rowIndex, row ->
-                        item(key = "row_${row.key}") {
-                            MediaSection(
-                                title = row.title,
-                                count = row.list.size,
-                                mediaList = row.list,
-                                firstItemModifier = if (rowIndex == 0)
-                                    Modifier.focusRequester(firstCardFocusRequester)
-                                else Modifier,
-                                isMobilePortrait = isMobilePortrait,
-                                upRequester = if (rowIndex == 0) menuRequester else null
-                            ) { media ->
-                                viewModel.selectMedia(media)
-                                if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                                    closeSearch()
-                                }
-                                navController.navigate(Routes.TMDB_DETAILS) {
-                                    launchSingleTop = true
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-                    }
+            else -> BrowseMode(
+                mediaRows = mediaRows,
+                isMobilePortrait = isMobilePortrait,
+                onMenuClick = onMenuClick,
+                onSearchClick = { isSearching = true },
+                firstCardRequester = firstCardRequester,
+                onClickItem = handleItemClick
+            )
+        }
+    }
 
-                    item(key = "bottom_padding") {
-                        Spacer(modifier = Modifier.height(24.dp))
-                    }
-                }
-            }
+    // Seed focus on the first card whenever browse mode is active and
+    // content is ready. Fires on:
+    //   • initial load completes
+    //   • user exits search
+    //   • user returns from TmdbDetailsScreen (composable recreated)
+    LaunchedEffect(isSearching, mediaRows.isNotEmpty(), isTV) {
+        if (isTV && !isSearching && mediaRows.isNotEmpty()) {
+            delay(300)
+            runCatching { firstCardRequester.requestFocus() }
+        }
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * BROWSE MODE
+ *
+ * One LazyColumn that contains:
+ *   1. Top bar (first item — natural focus flow to the rows below)
+ *   2. Spacer
+ *   3. One item per media row
+ *   4. Bottom padding
+ *
+ * No overlays, no cross-composable focus properties.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+@Composable
+private fun BrowseMode(
+    mediaRows: List<MediaRow>,
+    isMobilePortrait: Boolean,
+    onMenuClick: (() -> Unit)?,
+    onSearchClick: () -> Unit,
+    firstCardRequester: FocusRequester,
+    onClickItem: (TmdbMedia) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+        item(key = "top_bar") {
+            BrowseTopBar(
+                onMenuClick = onMenuClick,
+                onSearchClick = onSearchClick
+            )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            DarkNavyBackground.copy(alpha = 0.98f),
-                            DarkNavyBackground.copy(alpha = 0.85f),
-                            Color.Transparent
-                        )
-                    )
+        item(key = "top_spacer") {
+            Spacer(
+                modifier = Modifier.height(if (isMobilePortrait) 8.dp else 16.dp)
+            )
+        }
+
+        mediaRows.forEachIndexed { index, row ->
+            item(key = "row_${row.key}") {
+                MediaSection(
+                    title = row.title,
+                    count = row.list.size,
+                    mediaList = row.list,
+                    firstItemModifier = if (index == 0)
+                        Modifier.focusRequester(firstCardRequester)
+                    else Modifier,
+                    isMobilePortrait = isMobilePortrait,
+                    onClick = onClickItem
                 )
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            if (isSearchExpanded || searchQuery.isNotEmpty()) {
-                SearchField(
-                    query = searchQuery,
-                    onQueryChange = {
-                        // Cancel any deferred focus jump as soon as the
-                        // user types — the old target may no longer exist.
-                        pendingFocus = null
-                        searchQuery = it
-                        viewModel.search(it)
-                    },
-                    isFocused = isSearchFocused,
-                    onFocusChange = { isSearchFocused = it },
-                    onClose = closeSearch,
-                    onSubmit = {
-                        // Always request the move — the LaunchedEffect
-                        // above keeps pending until results actually
-                        // arrive and focus succeeds.
-                        keyboard?.hide()
-                        pendingFocus = "results"
-                    },
-                    focusRequester = searchFieldFocusRequester,
-                    downRequester = downTarget
-                )
-            } else {
-                VodTopBar(
-                    onMenuClick = onMenuClick,
-                    onSearchClick = { isSearchExpanded = true },
-                    menuRequester = menuRequester,
-                    searchRequester = searchBtnRequester,
-                    downRequester = downTarget
+                Spacer(
+                    modifier = Modifier.height(if (isMobilePortrait) 16.dp else 24.dp)
                 )
             }
         }
@@ -377,28 +292,22 @@ fun VodScreen(
 }
 
 @Composable
-private fun VodTopBar(
+private fun BrowseTopBar(
     onMenuClick: (() -> Unit)?,
-    onSearchClick: () -> Unit,
-    menuRequester: FocusRequester,
-    searchRequester: FocusRequester,
-    downRequester: FocusRequester
+    onSearchClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // focusGroup scopes 2D focus search to this bar — prevents
-            // beyond-bounds search from walking into the LazyColumn tree.
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            // focusGroup scopes the 2D focus search to these two buttons.
             .focusGroup(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onMenuClick != null) {
             TvIconButton(
                 onClick = onMenuClick,
-                modifier = Modifier
-                    .size(44.dp)
-                    .focusRequester(menuRequester)
-                    .focusProperties { down = downRequester }
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Menu,
@@ -409,6 +318,7 @@ private fun VodTopBar(
             }
             Spacer(modifier = Modifier.width(12.dp))
         }
+
         Text(
             text = "Media",
             color = WhiteText,
@@ -416,12 +326,10 @@ private fun VodTopBar(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f)
         )
+
         TvIconButton(
             onClick = onSearchClick,
-            modifier = Modifier
-                .size(44.dp)
-                .focusRequester(searchRequester)
-                .focusProperties { down = downRequester }
+            modifier = Modifier.size(44.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Search,
@@ -433,103 +341,390 @@ private fun VodTopBar(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/* ═══════════════════════════════════════════════════════════════════
+ * SEARCH MODE
+ *
+ * Fixed search field at the top + grid of results below.
+ * Pressing Back exits search mode.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun SearchField(
+private fun SearchMode(
     query: String,
     onQueryChange: (String) -> Unit,
-    isFocused: Boolean,
-    onFocusChange: (Boolean) -> Unit,
+    results: List<TmdbMedia>,
+    isLoading: Boolean,
+    isMobilePortrait: Boolean,
     onClose: () -> Unit,
-    onSubmit: () -> Unit,
-    focusRequester: FocusRequester,
-    downRequester: FocusRequester
+    onClickItem: (TmdbMedia) -> Unit
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        placeholder = {
-            Text("Search movies, TV shows…", color = SearchHintText, fontSize = 16.sp)
-        },
-        leadingIcon = {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = if (isFocused) WhiteText else SearchHintText,
-                modifier = Modifier.size(24.dp)
+    val searchFieldRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Focus the search field as soon as SearchMode mounts.
+    LaunchedEffect(Unit) {
+        delay(150)
+        runCatching { searchFieldRequester.requestFocus() }
+    }
+
+    BackHandler { onClose() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ── Search field (fixed at top) ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .focusGroup(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = {
+                    Text(
+                        text = "Search movies, TV shows…",
+                        color = SearchHintText,
+                        fontSize = 16.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = SearchHintText,
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                trailingIcon = {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .tvTouchClick(onClose),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = WhiteText
+                        )
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = WhiteText,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedTextColor = WhiteText,
+                    unfocusedTextColor = WhiteText,
+                    cursorColor = WhiteText,
+                    focusedContainerColor = SearchContainerFocused.copy(alpha = 0.9f),
+                    unfocusedContainerColor = SearchContainerIdle.copy(alpha = 0.9f)
+                ),
+                shape = RoundedCornerShape(10.dp),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(searchFieldRequester)
             )
-        },
-        trailingIcon = {
-            Box(
-                modifier = Modifier.size(48.dp).tvTouchClick(onClose),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = WhiteText)
+        }
+
+        // ── Body ──
+        when {
+            results.isNotEmpty() -> {
+                val columns = if (isMobilePortrait) 3 else 5
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = 32.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    gridItems(
+                        items = results,
+                        key = { it.stableKey() }
+                    ) { media ->
+                        TmdbMediaCard(
+                            media = media,
+                            isMobilePortrait = isMobilePortrait,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(2f / 3f),
+                            focusScale = 1.04f,
+                            onClick = { onClickItem(media) }
+                        )
+                    }
+                }
             }
-        },
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = WhiteText,
-            unfocusedBorderColor = Color.Transparent,
-            focusedTextColor = WhiteText,
-            unfocusedTextColor = WhiteText,
-            cursorColor = WhiteText,
-            focusedContainerColor = SearchContainerFocused.copy(alpha = 0.9f),
-            unfocusedContainerColor = SearchContainerIdle.copy(alpha = 0.9f)
-        ),
-        shape = RoundedCornerShape(10.dp),
-        singleLine = true,
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-            imeAction = androidx.compose.ui.text.input.ImeAction.Search
-        ),
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-            onSearch = { onSubmit() }
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-            .focusProperties { down = downRequester }
-            .onFocusChanged { onFocusChange(it.hasFocus) }
-    )
+
+            query.isNotEmpty() && !isLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptySearchState(query = query)
+                }
+            }
+
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    SearchIdleHint()
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun EmptySearchState(query: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 60.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = GrayText.copy(alpha = 0.4f),
-                modifier = Modifier.size(56.dp)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = GrayText.copy(alpha = 0.4f),
+            modifier = Modifier.size(56.dp)
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "No results for \"$query\"",
+            color = WhiteText.copy(alpha = 0.85f),
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Try a different title or check your spelling.",
+            color = GrayText.copy(alpha = 0.7f),
+            fontSize = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun SearchIdleHint() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = GrayText.copy(alpha = 0.3f),
+            modifier = Modifier.size(72.dp)
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Search movies & TV shows",
+            color = GrayText.copy(alpha = 0.6f),
+            fontSize = 16.sp
+        )
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SHARED COMPONENTS
+ * ═══════════════════════════════════════════════════════════════════ */
+
+@Composable
+private fun MediaSection(
+    title: String,
+    count: Int,
+    mediaList: List<TmdbMedia>,
+    firstItemModifier: Modifier = Modifier,
+    isMobilePortrait: Boolean,
+    onClick: (TmdbMedia) -> Unit
+) {
+    val spacing = if (isMobilePortrait) 12.dp else 24.dp
+    val verticalPadding = if (isMobilePortrait) 8.dp else 16.dp
+    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
+    val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
+
+    Column {
+        // ── Row header ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(BioAccent)
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "No results for \"$query\"",
-                color = WhiteText.copy(alpha = 0.85f),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
+                text = title,
+                color = WhiteText,
+                fontSize = if (isMobilePortrait) 17.sp else 19.sp,
+                fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Try a different title or check your spelling.",
-                color = GrayText.copy(alpha = 0.7f),
-                fontSize = 14.sp
+            if (count > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = count.toString(),
+                    color = GrayText.copy(alpha = 0.55f),
+                    fontSize = if (isMobilePortrait) 12.sp else 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        // ── Cards ──
+        LazyRow(
+            // focusGroup keeps horizontal focus traversal scoped to this
+            // row; without it Compose would run a beyond-bounds search
+            // that occasionally touches detached nodes.
+            modifier = Modifier.focusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
+            contentPadding = PaddingValues(
+                horizontal = 16.dp,
+                vertical = verticalPadding
             )
+        ) {
+            itemsIndexed(
+                items = mediaList,
+                key = { _, media -> media.stableKey() }
+            ) { index, media ->
+                TmdbMediaCard(
+                    media = media,
+                    isMobilePortrait = isMobilePortrait,
+                    modifier = Modifier
+                        .width(cardWidth)
+                        .height(cardHeight)
+                        .then(if (index == 0) firstItemModifier else Modifier),
+                    focusScale = 1.08f,
+                    onClick = { onClick(media) }
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun TmdbMediaCard(
+    media: TmdbMedia,
+    isMobilePortrait: Boolean,
+    modifier: Modifier,
+    focusScale: Float = 1.08f,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) focusScale else 1f,
+        animationSpec = tween(200),
+        label = "cardScale"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) BioAccent else Color.Transparent,
+        animationSpec = tween(200),
+        label = "cardBorder"
+    )
+
+    Box(
+        modifier = modifier
+            .zIndex(if (isFocused) 1f else 0f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { isFocused = it.hasFocus }
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceDark)
+            .border(3.dp, borderColor, RoundedCornerShape(12.dp))
+            .tvTouchClick(onClick)
+    ) {
+        AsyncImage(
+            model = media.posterUrl,
+            contentDescription = media.displayTitle,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Bottom gradient
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.85f)
+                        )
+                    )
+                )
+        )
+
+        // Rating chip
+        if (media.vote_average != null && media.vote_average > 0) {
+            Row(
+                modifier = Modifier
+                    .padding(6.dp)
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = StarGold,
+                    modifier = Modifier.size(11.dp)
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    text = String.format(Locale.US, "%.1f", media.vote_average),
+                    color = WhiteText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Title
+        Text(
+            text = media.displayTitle,
+            color = WhiteText,
+            fontSize = if (isMobilePortrait) 12.sp else 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .fillMaxWidth()
+        )
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SKELETON
+ * ═══════════════════════════════════════════════════════════════════ */
 
 @Composable
 private fun VodSkeleton(isMobilePortrait: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = if (isMobilePortrait) 16.dp else 100.dp)
+            .padding(top = if (isMobilePortrait) 60.dp else 120.dp)
     ) {
         repeat(3) {
             SkeletonRow(isMobilePortrait = isMobilePortrait)
@@ -579,177 +774,5 @@ private fun SkeletonRow(isMobilePortrait: Boolean) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun MediaSection(
-    title: String,
-    count: Int,
-    mediaList: List<TmdbMedia>,
-    firstItemModifier: Modifier = Modifier,
-    isMobilePortrait: Boolean,
-    upRequester: FocusRequester? = null,
-    onClick: (TmdbMedia) -> Unit
-) {
-    val spacing = if (isMobilePortrait) 12.dp else 24.dp
-    val verticalPadding = if (isMobilePortrait) 8.dp else 16.dp
-
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(BioAccent)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = title,
-                color = WhiteText,
-                fontSize = if (isMobilePortrait) 17.sp else 19.sp,
-                fontWeight = FontWeight.Bold
-            )
-            if (count > 0) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = count.toString(),
-                    color = GrayText.copy(alpha = 0.55f),
-                    fontSize = if (isMobilePortrait) 12.sp else 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
-        LazyRow(
-            // focusGroup scopes horizontal focus navigation to this row —
-            // keeps beyond-bounds search from crossing into sibling rows.
-            modifier = Modifier.focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(spacing),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = verticalPadding)
-        ) {
-            itemsIndexed(
-                items = mediaList,
-                key = { _, media -> media.stableKey() }
-            ) { index, media ->
-                TmdbMediaCard(
-                    media = media,
-                    isMobilePortrait = isMobilePortrait,
-                    modifier = (if (index == 0) firstItemModifier else Modifier)
-                        .then(
-                            if (upRequester != null) {
-                                Modifier.focusProperties { up = upRequester }
-                            } else Modifier
-                        )
-                ) { onClick(media) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TmdbMediaCard(
-    media: TmdbMedia,
-    isMobilePortrait: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
-    val cardHeight = if (isMobilePortrait) 172.dp else 270.dp
-
-    var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1f,
-        animationSpec = tween(200),
-        label = "cardScale"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) BioAccent else Color.Transparent,
-        animationSpec = tween(200),
-        label = "cardBorder"
-    )
-
-    Box(
-        modifier = modifier
-            .width(cardWidth)
-            .height(cardHeight)
-            .zIndex(if (isFocused) 1f else 0f)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .onFocusChanged { isFocused = it.hasFocus }
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceDark)
-            .border(3.dp, borderColor, RoundedCornerShape(12.dp))
-            .tvTouchClick(onClick)
-    ) {
-        AsyncImage(
-            model = media.posterUrl,
-            contentDescription = media.displayTitle,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Black.copy(alpha = 0.85f)
-                        )
-                    )
-                )
-        )
-
-        if (media.vote_average != null && media.vote_average > 0) {
-            Row(
-                modifier = Modifier
-                    .padding(6.dp)
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.Star,
-                    contentDescription = null,
-                    tint = StarGold,
-                    modifier = Modifier.size(11.dp)
-                )
-                Spacer(Modifier.width(3.dp))
-                Text(
-                    text = String.format(Locale.US, "%.1f", media.vote_average),
-                    color = WhiteText,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Text(
-            text = media.displayTitle,
-            color = WhiteText,
-            fontSize = if (isMobilePortrait) 12.sp else 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(horizontal = 8.dp, vertical = 8.dp)
-                .fillMaxWidth()
-        )
     }
 }
