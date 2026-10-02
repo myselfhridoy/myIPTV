@@ -8,8 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -28,13 +28,17 @@ import kotlinx.coroutines.delay
 val LocalPlayerIsRotated = compositionLocalOf { false }
 
 /**
- * ⚠️ DEBUG BUILD — background colors mark each layout layer.
- *    RED   = outer BoxWithConstraints (should be full screen)
- *    GREEN = rotated inner Box       (should visually fill screen after 90° rotate)
- *    BLUE  = inner content wrapper   (should exactly match GREEN)
+ * Rotates the player content 90° inside a PORTRAIT Activity instead of
+ * requesting an Activity-level orientation change.
  *
- * Screenshot what you see and share — we'll know which layer collapses.
- * REMOVE the background colors once we identify the bug.
+ * KEY FIX:
+ *   The inner box is created with `requiredWidth` / `requiredHeight` instead
+ *   of `width` / `height`. Compose normally clamps children to their parent's
+ *   constraints — so a child declared `width(800.dp)` inside a 360dp-wide
+ *   parent would actually be clamped to 360dp, making the whole rotated
+ *   content appear as a small square in the middle of the screen.
+ *   `required*` bypasses the parent's constraints, so the child really is
+ *   800×360 before rotation → fills the screen after rotation.
  */
 @Composable
 fun PlayerRevealContainer(
@@ -86,47 +90,34 @@ fun PlayerRevealContainer(
         label = "revealAlpha"
     )
 
-    // ─────────────────────────────────────────────────────────────
-    // DEBUG LAYER 1: outer BoxWithConstraints  → RED
-    // ─────────────────────────────────────────────────────────────
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Red),
+            .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
         val parentW = maxWidth
         val parentH = maxHeight
 
+        // Landscape logical dimensions for the inner box when we're going to
+        // rotate. requiredWidth/Height bypass the parent constraints so the
+        // inner box really is (parentH × parentW).
         val innerW = if (shouldRotate) parentH else parentW
         val innerH = if (shouldRotate) parentW else parentH
 
-        // ─────────────────────────────────────────────────────────
-        // DEBUG LAYER 2: rotated inner Box  → GREEN
-        // ─────────────────────────────────────────────────────────
         Box(
             modifier = Modifier
-                .width(innerW)
-                .height(innerH)
+                .requiredWidth(innerW)
+                .requiredHeight(innerH)
                 .graphicsLayer {
                     rotationZ = rotation
                     scaleX = scale
                     scaleY = scale
                     this.alpha = alpha
                 }
-                .background(Color.Green)
         ) {
-            // ────────────────────────────────────────────────────
-            // DEBUG LAYER 3: content wrapper  → BLUE
-            // ────────────────────────────────────────────────────
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Blue)
-            ) {
-                CompositionLocalProvider(LocalPlayerIsRotated provides shouldRotate) {
-                    content()
-                }
+            CompositionLocalProvider(LocalPlayerIsRotated provides shouldRotate) {
+                content()
             }
         }
     }
