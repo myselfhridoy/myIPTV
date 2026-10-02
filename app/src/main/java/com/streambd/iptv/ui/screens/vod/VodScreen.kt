@@ -54,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,6 +62,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -121,26 +121,30 @@ fun VodScreen(
     var isSearchExpanded by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
 
-    val focusManager = LocalFocusManager.current
-
     // ── Focus anchors ──
     val searchFieldFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
     val menuRequester = remember { FocusRequester() }
     val searchBtnRequester = remember { FocusRequester() }
-    val contentRequester = remember { FocusRequester() }
+    // NOTE: contentRequester removed — no longer needed after dropping
+    // focusRestorer and switching to a dynamic downTarget.
 
     var pendingFocus by remember { mutableStateOf<String?>(null) }
+
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     val closeSearch: () -> Unit = {
         isSearchExpanded = false
         searchQuery = ""
+        pendingFocus = null
         viewModel.search("")
     }
 
     BackHandler(enabled = isSearchExpanded || searchQuery.isNotEmpty()) {
         if (isSearchFocused) {
+            keyboard?.hide()
             focusManager.clearFocus()
             pendingFocus = "results"
         } else {
@@ -151,7 +155,6 @@ fun VodScreen(
 
     LaunchedEffect(isSearchExpanded) {
         if (isSearchExpanded) {
-            // Safe: requester's node may not be attached yet.
             runCatching { searchFieldFocusRequester.requestFocus() }
         }
     }
@@ -183,32 +186,47 @@ fun VodScreen(
     val showEmptyNoResults = searchQuery.isNotEmpty() &&
             searchResults.isEmpty() && !isLoading
 
-    // Content is only composed when the skeleton is NOT shown.
-    // Guard focus requests with this so we never target a detached node.
     val contentVisible = !showInitialSkeleton && mediaRows.isNotEmpty()
 
+    // ── Dynamic down target ──
+    // From top bar / search field, pressing Down should land on:
+    //   - search results (if search is active and has results)
+    //   - the first card of the first row (if content is visible)
+    //   - FocusRequester.Default (no-op; the focus system falls back
+    //     to its normal 2D search, which is now scoped by focusGroup
+    //     on each LazyRow).
+    val downTarget = when {
+        searchQuery.isNotEmpty() ->
+            if (searchResults.isNotEmpty()) resultsFocusRequester
+            else FocusRequester.Default
+        contentVisible -> firstCardFocusRequester
+        else -> FocusRequester.Default
+    }
+
     // ── Deferred focus restoration ──
-    LaunchedEffect(pendingFocus, searchResults) {
+    // Keep `pendingFocus` set until the target requester actually accepts
+    // focus. This handles the case where results haven't arrived yet when
+    // the user hits Search on the keyboard, or the target card isn't yet
+    // composed.
+    LaunchedEffect(pendingFocus, searchResults, contentVisible) {
         when (pendingFocus) {
-            "results" -> {
-                if (searchResults.isNotEmpty()) {
-                    delay(50)
-                    runCatching { resultsFocusRequester.requestFocus() }
+            "results" -> if (searchResults.isNotEmpty()) {
+                delay(150) // give the IME time to close and layout to settle
+                if (runCatching { resultsFocusRequester.requestFocus() }.isSuccess) {
+                    pendingFocus = null
                 }
-                pendingFocus = null
             }
-            "home" -> {
-                if (contentVisible) {
-                    delay(150)
-                    runCatching { firstCardFocusRequester.requestFocus() }
+            "home" -> if (contentVisible) {
+                delay(150)
+                if (runCatching { firstCardFocusRequester.requestFocus() }.isSuccess) {
+                    pendingFocus = null
                 }
-                pendingFocus = null
             }
             else -> Unit
         }
     }
 
-    // Focus first card only when TV + content ready + not searching.
+    // Focus first card on TV when content first becomes visible.
     LaunchedEffect(isTV, contentVisible, isSearchExpanded, searchQuery) {
         if (isTV && contentVisible && !isSearchExpanded && searchQuery.isEmpty()) {
             delay(180)
@@ -224,23 +242,13 @@ fun VodScreen(
         if (showInitialSkeleton) {
             VodSkeleton(isMobilePortrait = isMobilePortrait)
         } else {
+            // No focusRequester, no focusRestorer. The previous
+            // `.focusRestorer()` crashed inside FocusRestorerNode.onEnter
+            // when the node was momentarily detached during search open/
+            // close — `restoreFocusedChild` tried to read a
+            // CompositionLocal on a detached node.
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .focusRequester(contentRequester)
-                    // ═══════════════════════════════════════════════════════
-                    // CRITICAL FIX: Was `.focusRestorer { firstCardFocusRequester }`
-                    //
-                    // That fallback requester could become detached (row removed,
-                    // search opened, scroll recycling), and Compose's 2D focus
-                    // search would then crash with:
-                    //   IllegalStateException: LayoutCoordinate operations
-                    //   are only valid when isAttached is true
-                    //
-                    // The default restorer (no explicit fallback) always restores
-                    // to the last-focused *attached* child, avoiding the crash.
-                    // ═══════════════════════════════════════════════════════
-                    .focusRestorer(),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(key = "top_spacer") {
@@ -271,7 +279,8 @@ fun VodScreen(
                                 mediaList = searchResults,
                                 firstItemModifier = Modifier.focusRequester(resultsFocusRequester),
                                 isMobilePortrait = isMobilePortrait,
-                                upRequester = null
+                                // Up from a result goes back to the search field.
+                                upRequester = searchFieldFocusRequester
                             ) { media ->
                                 viewModel.selectMedia(media)
                                 closeSearch()
@@ -335,6 +344,9 @@ fun VodScreen(
                 SearchField(
                     query = searchQuery,
                     onQueryChange = {
+                        // Cancel any deferred focus jump as soon as the
+                        // user types — the old target may no longer exist.
+                        pendingFocus = null
                         searchQuery = it
                         viewModel.search(it)
                     },
@@ -342,10 +354,14 @@ fun VodScreen(
                     onFocusChange = { isSearchFocused = it },
                     onClose = closeSearch,
                     onSubmit = {
-                        if (searchResults.isNotEmpty()) pendingFocus = "results"
+                        // Always request the move — the LaunchedEffect
+                        // above keeps pending until results actually
+                        // arrive and focus succeeds.
+                        keyboard?.hide()
+                        pendingFocus = "results"
                     },
                     focusRequester = searchFieldFocusRequester,
-                    downRequester = contentRequester
+                    downRequester = downTarget
                 )
             } else {
                 VodTopBar(
@@ -353,7 +369,7 @@ fun VodScreen(
                     onSearchClick = { isSearchExpanded = true },
                     menuRequester = menuRequester,
                     searchRequester = searchBtnRequester,
-                    downRequester = contentRequester
+                    downRequester = downTarget
                 )
             }
         }
