@@ -136,6 +136,7 @@ fun VodScreen(
     }
 
     LaunchedEffect(Unit) {
+    if (!isTV) return@LaunchedEffect
     delay(200)
     try { firstCardFocusRequester.requestFocus() } catch (_: Exception) {}
 }
