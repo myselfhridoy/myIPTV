@@ -32,7 +32,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -346,6 +346,8 @@ private fun BrowseTopBar(
  *
  * Fixed search field at the top + grid of results below.
  * Pressing Back exits search mode.
+ * Pressing the IME Search action hides the keyboard and jumps focus
+ * to the first result card.
  * ═══════════════════════════════════════════════════════════════════ */
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
@@ -360,12 +362,29 @@ private fun SearchMode(
     onClickItem: (TmdbMedia) -> Unit
 ) {
     val searchFieldRequester = remember { FocusRequester() }
+    val firstResultRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+
+    // Flag: user pressed the IME Search action; we want to move focus
+    // to the first result after the IME collapse animation completes.
+    var pendingJumpToResults by remember { mutableStateOf(false) }
 
     // Focus the search field as soon as SearchMode mounts.
     LaunchedEffect(Unit) {
         delay(150)
         runCatching { searchFieldRequester.requestFocus() }
+    }
+
+    // Deferred jump to first result. Waits for the IME to actually
+    // collapse (200 ms) and for the results list to be populated.
+    // `requestFocus()` on an off-screen Lazy item also scrolls it in.
+    LaunchedEffect(pendingJumpToResults, results) {
+        if (pendingJumpToResults && results.isNotEmpty()) {
+            delay(200)
+            if (runCatching { firstResultRequester.requestFocus() }.isSuccess) {
+                pendingJumpToResults = false
+            }
+        }
     }
 
     BackHandler { onClose() }
@@ -423,7 +442,17 @@ private fun SearchMode(
                 shape = RoundedCornerShape(10.dp),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        keyboard?.hide()
+                        // Only jump if we actually have something to jump to.
+                        // If results haven't arrived yet, the deferred effect
+                        // will fire as soon as they do.
+                        if (results.isNotEmpty()) {
+                            pendingJumpToResults = true
+                        }
+                    }
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(searchFieldRequester)
@@ -448,16 +477,21 @@ private fun SearchMode(
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    gridItems(
+                    gridItemsIndexed(
                         items = results,
-                        key = { it.stableKey() }
-                    ) { media ->
+                        key = { _, media -> media.stableKey() }
+                    ) { index, media ->
                         TmdbMediaCard(
                             media = media,
                             isMobilePortrait = isMobilePortrait,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(2f / 3f),
+                                .aspectRatio(2f / 3f)
+                                .then(
+                                    if (index == 0)
+                                        Modifier.focusRequester(firstResultRequester)
+                                    else Modifier
+                                ),
                             focusScale = 1.04f,
                             onClick = { onClickItem(media) }
                         )
