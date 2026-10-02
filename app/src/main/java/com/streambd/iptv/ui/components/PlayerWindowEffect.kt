@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.components
 
+import android.content.pm.ActivityInfo
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
@@ -16,9 +17,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 /**
  * Configures the host Activity for immersive playback.
  *
- * IMPORTANT: This no longer changes the Activity orientation.
- * The PlayerRevealContainer handles the visual "landscape" by rotating
- * the player content 90° while the Activity stays portrait.
+ * Approach B: the Activity ITSELF rotates to landscape (status bar and insets
+ * follow). The source screen is unmounted by the NavHost's `None` transition
+ * *before* the rotation happens, so it never appears rotated.
  */
 @Composable
 fun PlayerWindowEffect(
@@ -29,12 +30,12 @@ fun PlayerWindowEffect(
     DisposableEffect(Unit) {
         val activity = context as? ComponentActivity
 
-        // PiP listener
         val pipObserver = Consumer<androidx.core.app.PictureInPictureModeChangedInfo> { info ->
-            onPipChanged(info.isInPictureInPictureMode)
+            onPipChanged(info.isInPicturePipModeSafe())
         }
         activity?.addOnPictureInPictureModeChangedListener(pipObserver)
 
+        val originalOrientation: Int? = activity?.requestedOrientation
         val window = activity?.window
         val originalBackground = window?.decorView?.background
 
@@ -57,10 +58,16 @@ fun PlayerWindowEffect(
             }
         }
 
-        // ⚠️ NO requestedOrientation call. Activity stays portrait.
+        // Request LANDSCAPE — Activity rotates, status bar becomes landscape.
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         onDispose {
             activity?.removeOnPictureInPictureModeChangedListener(pipObserver)
+
+            if (activity != null) {
+                activity.requestedOrientation = originalOrientation
+                    ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
 
             if (window != null) {
                 WindowCompat.setDecorFitsSystemWindows(window, true)
@@ -81,3 +88,11 @@ fun PlayerWindowEffect(
         }
     }
 }
+
+/** Small safe accessor because the PiP API flag accessor changed across versions. */
+private fun androidx.core.app.PictureInPictureModeChangedInfo.isInPicturePipModeSafe(): Boolean =
+    try {
+        isInPictureInPictureMode
+    } catch (_: Throwable) {
+        false
+    }
