@@ -20,7 +20,9 @@ android {
         targetSdk = 36
         versionCode = 7
         versionName = "4.0"
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
@@ -60,7 +62,7 @@ android {
         buildConfig = true
     }
 
-    // ⚠️ Kotlin 2.x এ আপগ্রেড করলে composeOptions ব্লক লাগে না
+    // Kotlin 2.x এ composeOptions ব্লক লাগে না
     // composeOptions {
     //     kotlinCompilerExtensionVersion = "1.5.10"
     // }
@@ -87,7 +89,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Compose BOM — 2024.05.00
+    // Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
     implementation(composeBom)
 
@@ -120,12 +122,12 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
-    // ✅ QuickJS — সর্বশেষ ভার্সন (compileSdk 36 প্রয়োজন)
+    // QuickJS — latest
     implementation("io.github.dokar3:quickjs-kt-android:1.0.15")
     testImplementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
 
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // Coroutines — Kotlin 2.2.20 এর সাথে সামঞ্জস্যপূর্ণ
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     // Image loading & Navigation
     implementation("io.coil-kt:coil-compose:2.6.0")
