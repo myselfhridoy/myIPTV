@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.screens.live
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -58,6 +59,7 @@ import com.streambd.iptv.utils.PlaybackLogger
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 enum class VideoScaleMode(val title: String) {
     FILL("Fill Screen"),
@@ -145,6 +147,7 @@ fun LivePlayerScreen(
     onEnterPiP: () -> Unit
 ) {
     val context = LocalContext.current
+    val exitScope = rememberCoroutineScope()
     val selectedChannel by viewModel.selectedChannel.collectAsState()
 
     if (selectedChannel == null) {
@@ -218,10 +221,20 @@ fun LivePlayerScreen(
         onDispose { playerViewModel.stopPrefetch() }
     }
 
+    // ── Real exit ──
+    // Request portrait FIRST while screen is still black (fade-out already done),
+    // wait for rotation, then pop. Under PlayerWindowEffect's onDispose the
+    // original orientation is restored anyway — this just gets us back to
+    // portrait before the source screen becomes visible.
     val finishExit: () -> Unit = {
-        exoPlayer.stop()
-        exoPlayer.clearMediaItems()
-        navController.popBackStack()
+        exitScope.launch {
+            (context as? ComponentActivity)?.requestedOrientation =
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            delay(400)
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            navController.popBackStack()
+        }
     }
 
     val requestExit: () -> Unit = {
@@ -447,10 +460,6 @@ fun LivePlayerScreen(
                         Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
                     else Modifier.fillMaxSize(),
                     factory = { ctx ->
-                        // ⚠️ Pass a real parent FrameLayout so `match_parent` in
-                        // the XML resolves properly. Passing `null` makes
-                        // `match_parent` degrade to `wrap_content`, which is why
-                        // the video was appearing as a small rectangle.
                         val parent = FrameLayout(ctx)
                         val view = LayoutInflater.from(ctx)
                             .inflate(R.layout.view_player_texture, parent, false) as PlayerView
@@ -795,7 +804,10 @@ fun LivePlayerScreen(
                 }
             }
 
-            // ── Dialogs (inside PlayerRevealContainer → inherit 90° rotation) ──
+            // Dialogs inside PlayerRevealContainer.
+            // Under Approach B the Activity is landscape, so a standard Dialog
+            // window will also be landscape — this remains valid even though
+            // LocalPlayerIsRotated is now always false.
             if (showTrackSelector) {
                 TrackSelectionDialog(
                     player = exoPlayer,
