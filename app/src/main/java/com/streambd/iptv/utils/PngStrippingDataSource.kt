@@ -1,338 +1,209 @@
 package com.streambd.iptv.utils
 
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.util.zip.GZIPInputStream
-import java.util.zip.Inflater
 
-/**
- * Wraps an upstream DataSource and transparently unwraps HLS segments that
- * the CDN has disguised as PNG/WebP images (anti-DPI evasion).
- *
- * Confirmed disguise method (verified with curl on tiktokcdn-us.com):
- *   - Segment URL: https://p16-common-sign.tiktokcdn-us.com/…/xxx~tplv-tiktokx-origin.image
- *   - Actual bytes: 512×773 RGB PNG, ~1.1 MB
- *   - Hidden payload: gzipped MPEG-TS stored as RGB pixel data
- *   - Layout:
- *       bytes 0..7   : ASCII "TIKTIKPX" magic
- *       bytes 8..11  : big-endian uint32 = length of gzipped payload
- *       bytes 12..N  : gzip-compressed MPEG-TS stream
- *
- * When ExoPlayer opens a disguised segment, we download the whole PNG,
- * decode its pixel grid (reverse PNG filters), extract the gzip blob,
- * decompress it, and serve the resulting MPEG-TS bytes to ExoPlayer.
- *
- * Non-image URLs (m3u8, direct .ts, .mp4) pass through untouched.
- */
-class PngStrippingDataSource(
-    private val upstream: DataSource
-) : DataSource {
 
-    private var unwrapped: ByteArray? = null
-    private var stream: InputStream? = null
+@UnstableApi
+class PngStrippingDataSource(private val upstream: DataSource) : DataSource {
 
-    override fun open(dataSpec: DataSpec): Long {
-        val url = dataSpec.uri.toString()
+    private var data: ByteArray? = null
+    private var pos = 0
+    private var end = 0
+    private var passthrough = true
+    private var openedUri: Uri? = null
 
-        // Fast-path: any URL that isn't a TikTok-style image goes straight
-        // through to the network. Keeps m3u8, direct MP4, etc. cheap.
-        val isDisguised =
-            url.endsWith(".image", ignoreCase = true) ||
-            url.contains(".image?", ignoreCase = true) ||
-            url.contains("tiktokcdn", ignoreCase = true) ||
-            url.contains("tplv-", ignoreCase = true)
-
-        if (!isDisguised) {
-            unwrapped = null
-            stream = null
-            return upstream.open(dataSpec)
-        }
-
-        // Ignore Range requests for disguised segments — we always need the
-        // whole file. Segments are ~1 MB so this is acceptable.
-        //
-        // Note: Media3 1.2.1 does NOT have DataSpec.withPosition()/withLength().
-        // Those were added later. So we rebuild the DataSpec from scratch here.
-        val fullSpec = DataSpec.Builder()
-            .setUri(dataSpec.uri)
-            .setKey(dataSpec.key)
-            .setPosition(0L)
-            .setLength(C.LENGTH_UNSET.toLong())
-            .build()
-
-        upstream.open(fullSpec)
-        val raw: ByteArray = try {
-            readAll(upstream)
-        } finally {
-            try { upstream.close() } catch (_: Exception) {}
-        }
-
-        val payload = try {
-            unwrap(raw)
-        } catch (_: Exception) {
-            raw // fall through — ExoPlayer will surface a normal parse error
-        }
-
-        unwrapped = payload
-        stream = ByteArrayInputStream(payload).apply {
-            if (dataSpec.position > 0) skip(dataSpec.position)
-        }
-        return (payload.size - dataSpec.position).coerceAtLeast(0L)
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val s = stream ?: return upstream.read(buffer, offset, length)
-        return s.read(buffer, offset, length)
-    }
-
-    override fun close() {
-        try { stream?.close() } catch (_: Exception) {}
-        stream = null
-        unwrapped = null
-        try { upstream.close() } catch (_: Exception) {}
-    }
-
-    override fun getUri(): Uri? = upstream.uri
+    // passthrough মোডে প্রথম বাইটগুলো পিক করার জন্য
+    private var peeked: ByteArray? = null
+    private var peekPos = 0
+    private var peekEnd = 0
 
     override fun addTransferListener(transferListener: TransferListener) {
         upstream.addTransferListener(transferListener)
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Internals
-    // ─────────────────────────────────────────────────────────────
+    override fun open(dataSpec: DataSpec): Long {
+        openedUri = dataSpec.uri
+        resetState()
 
-    private fun readAll(source: DataSource): ByteArray {
-        val out = ByteArrayOutputStream(2 * 1024 * 1024)
-        val buf = ByteArray(64 * 1024)
-        while (true) {
-            val n = source.read(buf, 0, buf.size)
-            if (n == -1) break
-            out.write(buf, 0, n)
-        }
-        return out.toByteArray()
-    }
-
-    private fun unwrap(bytes: ByteArray): ByteArray {
-        if (bytes.size < 16) return bytes
-
-        // PNG?
-        if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
-            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
-        ) {
-            extractPngTail(bytes)?.let { return it }
-            extractPngPixels(bytes)?.let { return it }
-            return bytes
+        // Range রিকুয়েস্ট (offset/length) হলে ছবি-ট্রিকের সম্ভাবনা নেই, সরাসরি পাস
+        if (dataSpec.position != 0L || dataSpec.length != C.LENGTH_UNSET.toLong()) {
+            passthrough = true
+            return upstream.open(dataSpec)
         }
 
-        // WEBP?
-        if (bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
-            bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
-            bytes.size > 11 &&
-            bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte()
-        ) {
-            extractWebpExif(bytes)?.let { return it }
-            return bytes
+        val length = upstream.open(dataSpec)
+
+        val contentType = upstream.responseHeaders.entries
+            .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+            ?.value?.firstOrNull()?.lowercase().orEmpty()
+
+        val looksLikeImageByHeader = contentType.startsWith("image/")
+
+        // বড় নন-ইমেজ রেসপন্স (mp4/mkv) এ পিক করার দরকার নেই
+        val mayBeImage = looksLikeImageByHeader ||
+            contentType.isEmpty() ||
+            contentType == "application/octet-stream" ||
+            contentType.startsWith("video/mp2t") ||
+            contentType.startsWith("text/plain")
+
+        if (!mayBeImage) {
+            passthrough = true
+            return length
         }
 
-        // Unknown — try raw TS sync scan
-        for (i in 0 until bytes.size - 188) {
-            if (bytes[i] == 0x47.toByte() && bytes[i + 188] == 0x47.toByte()) {
-                return bytes.copyOfRange(i, bytes.size)
-            }
-        }
-        return bytes
-    }
-
-    /** WEBP with TS bytes in the EXIF chunk. */
-    private fun extractWebpExif(bytes: ByteArray): ByteArray? {
-        var off = 12
-        while (off + 8 <= bytes.size) {
-            val tag = String(bytes, off, 4, Charsets.US_ASCII)
-            val n = readU32LE(bytes, off + 4)
-            off += 8
-            if (n < 0 || off + n > bytes.size) return null
-            if (tag == "EXIF") {
-                val data = bytes.copyOfRange(off, off + n)
-                if (data.size >= 189 &&
-                    data[0] == 0x47.toByte() && data[188] == 0x47.toByte()
-                ) return data
-                return null
-            }
-            off += n + (n and 1)
-        }
-        return null
-    }
-
-    /** PNG where TS bytes are appended after the IEND chunk. */
-    private fun extractPngTail(bytes: ByteArray): ByteArray? {
-        var off = 8
-        while (off + 8 <= bytes.size) {
-            val len = readU32BE(bytes, off)
-            if (len < 0 || off + 12 + len > bytes.size) return null
-            val type = String(bytes, off + 4, 4, Charsets.US_ASCII)
-            off += 12 + len
-            if (type == "IEND") {
-                if (off + 189 <= bytes.size &&
-                    bytes[off] == 0x47.toByte() && bytes[off + 188] == 0x47.toByte()
-                ) return bytes.copyOfRange(off, bytes.size)
-                return null
-            }
-        }
-        return null
-    }
-
-    /**
-     * PNG where the TS payload is stored as the raw RGB pixel grid,
-     * preceded by the ASCII "TIKTIKPX" magic + big-endian length.
-     * This is the method used by the tiktokcdn-us.com segments.
-     */
-    private fun extractPngPixels(bytes: ByteArray): ByteArray? {
-        var off = 8
-        var width = 0
-        var height = 0
-        var depth = 0
-        var colorType = 0
-        var interlace = 0
-        val idat = ByteArrayOutputStream(2 * 1024 * 1024)
-
-        while (off + 8 <= bytes.size) {
-            val len = readU32BE(bytes, off)
-            if (len < 0 || off + 12 + len > bytes.size) return null
-            val type = String(bytes, off + 4, 4, Charsets.US_ASCII)
-            val dataOff = off + 8
-            when (type) {
-                "IHDR" -> {
-                    if (len < 13) return null
-                    width = readU32BE(bytes, dataOff)
-                    height = readU32BE(bytes, dataOff + 4)
-                    depth = bytes[dataOff + 8].toInt() and 0xFF
-                    colorType = bytes[dataOff + 9].toInt() and 0xFF
-                    interlace = bytes[dataOff + 12].toInt() and 0xFF
-                }
-                "IDAT" -> idat.write(bytes, dataOff, len)
-                "IEND" -> break
-            }
-            off += 12 + len
+        // প্রথম ১৬ বাইট পিক করে সিগনেচার দেখি
+        val head = ByteArray(16)
+        var got = 0
+        while (got < head.size) {
+            val n = upstream.read(head, got, head.size - got)
+            if (n == C.RESULT_END_OF_INPUT) break
+            got += n
         }
 
-        if (width <= 0 || height <= 0) return null
-        if (depth != 8 || interlace != 0) return null
-        if (colorType != 2 && colorType != 6) return null
+        val isImageBySig = got >= 8 && hasImageSignature(head)
 
-        val raw = inflateZlib(idat.toByteArray()) ?: return null
-        val bpp = if (colorType == 6) 4 else 3
-        val stride = width * bpp
-        val rgb = ByteArray(width * height * 3)
-
-        var srcOff = 0
-        var dstOff = 0
-        var prev = ByteArray(stride)
-
-        for (y in 0 until height) {
-            if (srcOff + 1 + stride > raw.size) return null
-            val filter = raw[srcOff].toInt() and 0xFF
-            srcOff++
-            val recon = ByteArray(stride)
-            for (i in 0 until stride) {
-                val a = if (i >= bpp) recon[i - bpp].toInt() and 0xFF else 0
-                val b = prev[i].toInt() and 0xFF
-                val c = if (i >= bpp) prev[i - bpp].toInt() and 0xFF else 0
-                val v = raw[srcOff + i].toInt() and 0xFF
-                val out = when (filter) {
-                    0 -> v
-                    1 -> (v + a) and 0xFF
-                    2 -> (v + b) and 0xFF
-                    3 -> (v + ((a + b) shr 1)) and 0xFF
-                    4 -> (v + paeth(a, b, c)) and 0xFF
-                    else -> return null
-                }
-                recon[i] = out.toByte()
-            }
-            srcOff += stride
-
-            if (colorType == 2) {
-                System.arraycopy(recon, 0, rgb, dstOff, stride)
-                dstOff += stride
-            } else {
-                var i = 0
-                while (i < stride) {
-                    rgb[dstOff++] = recon[i]
-                    rgb[dstOff++] = recon[i + 1]
-                    rgb[dstOff++] = recon[i + 2]
-                    i += 4
-                }
-            }
-            prev = recon
+        if (!isImageBySig && !looksLikeImageByHeader) {
+            // সাধারণ সেগমেন্ট: পিক করা বাইট আগে ফেরত দিয়ে বাকিটা upstream থেকে
+            passthrough = true
+            peeked = head
+            peekPos = 0
+            peekEnd = got
+            return if (length == C.LENGTH_UNSET.toLong()) length else length
         }
 
-        if (rgb.size < 12) return null
-
-        // Magic "TIKTIKPX"
-        val magic = byteArrayOf(
-            'T'.code.toByte(), 'I'.code.toByte(), 'K'.code.toByte(),
-            'T'.code.toByte(), 'I'.code.toByte(), 'K'.code.toByte(),
-            'P'.code.toByte(), 'X'.code.toByte()
-        )
-        for (k in magic.indices) if (rgb[k] != magic[k]) return null
-
-        val n = readU32BE(rgb, 8)
-        if (n <= 0 || 12 + n > rgb.size) return null
-        val gz = rgb.copyOfRange(12, 12 + n)
-        if (gz.size < 2 || gz[0] != 0x1F.toByte() || gz[1] != 0x8B.toByte()) return null
-
-        return gunzip(gz)
-    }
-
-    private fun inflateZlib(input: ByteArray): ByteArray? = try {
-        val inflater = Inflater()
-        inflater.setInput(input)
-        val out = ByteArrayOutputStream(input.size * 4)
+        // ছবির মতো রেসপন্স: পুরোটা নামাই
+        passthrough = false
+        val out = ByteArrayOutputStream(if (length > 0) length.toInt().coerceAtMost(MAX_BYTES) else 1 shl 20)
+        out.write(head, 0, got)
         val buf = ByteArray(16 * 1024)
-        while (!inflater.finished()) {
-            val n = inflater.inflate(buf)
-            if (n == 0 && inflater.needsInput()) break
-            out.write(buf, 0, n)
+        try {
+            while (out.size() <= MAX_BYTES) {
+                val n = upstream.read(buf, 0, buf.size)
+                if (n == C.RESULT_END_OF_INPUT) break
+                out.write(buf, 0, n)
+            }
+        } finally {
+            upstream.close()
         }
-        inflater.end()
-        out.toByteArray()
-    } catch (_: Exception) {
-        null
+        val raw = out.toByteArray()
+
+        val start = if (isPng(raw) || hasImageSignature(raw)) findTsStart(raw) else 0
+        data = raw
+        if (start < 0) {
+            Log.w(TAG, "ছবির ভেতরে TS ডেটা পাওয়া যায়নি (size=${raw.size}) $openedUri")
+            pos = 0
+        } else {
+            Log.d(TAG, "stripped: TS offset=$start of ${raw.size}")
+            pos = start
+        }
+        end = raw.size
+        return (end - pos).toLong()
     }
 
-    private fun gunzip(input: ByteArray): ByteArray? = try {
-        GZIPInputStream(ByteArrayInputStream(input)).use { it.readBytes() }
-    } catch (_: Exception) {
-        null
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+
+        if (passthrough) {
+            val p = peeked
+            if (p != null && peekPos < peekEnd) {
+                val n = minOf(length, peekEnd - peekPos)
+                System.arraycopy(p, peekPos, buffer, offset, n)
+                peekPos += n
+                return n
+            }
+            return upstream.read(buffer, offset, length)
+        }
+
+        val d = data ?: return C.RESULT_END_OF_INPUT
+        if (pos >= end) return C.RESULT_END_OF_INPUT
+        val n = minOf(length, end - pos)
+        System.arraycopy(d, pos, buffer, offset, n)
+        pos += n
+        return n
     }
 
-    private fun readU32BE(b: ByteArray, off: Int): Int =
-        ((b[off].toInt() and 0xFF) shl 24) or
-        ((b[off + 1].toInt() and 0xFF) shl 16) or
-        ((b[off + 2].toInt() and 0xFF) shl 8) or
-        (b[off + 3].toInt() and 0xFF)
+    override fun getUri(): Uri? = if (passthrough) upstream.uri else openedUri
 
-    private fun readU32LE(b: ByteArray, off: Int): Int =
-        (b[off].toInt() and 0xFF) or
-        ((b[off + 1].toInt() and 0xFF) shl 8) or
-        ((b[off + 2].toInt() and 0xFF) shl 16) or
-        ((b[off + 3].toInt() and 0xFF) shl 24)
+    override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
 
-    private fun paeth(a: Int, b: Int, c: Int): Int {
-        val p = a + b - c
-        val pa = kotlin.math.abs(p - a)
-        val pb = kotlin.math.abs(p - b)
-        val pc = kotlin.math.abs(p - c)
-        return when {
-            pa <= pb && pa <= pc -> a
-            pb <= pc -> b
-            else -> c
+    override fun close() {
+        // upstream.close() idempotent; stripped মোডে আগেই বন্ধ হয়েছে
+        try { upstream.close() } catch (e: Exception) {}
+        resetState()
+    }
+
+    private fun resetState() {
+        data = null
+        pos = 0
+        end = 0
+        peeked = null
+        peekPos = 0
+        peekEnd = 0
+        passthrough = true
+    }
+
+    // -------------------------------------------------------------------------
+
+    private fun isPng(b: ByteArray): Boolean =
+        b.size > 8 &&
+            b[0] == 0x89.toByte() && b[1] == 0x50.toByte() &&
+            b[2] == 0x4E.toByte() && b[3] == 0x47.toByte()
+
+    /** PNG, JPEG, GIF, WEBP(RIFF....WEBP) */
+    private fun hasImageSignature(b: ByteArray): Boolean {
+        if (b.size < 4) return false
+        if (isPng(b)) return true
+        if (b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte() && b[2] == 0xFF.toByte()) return true
+        if (b[0] == 'G'.code.toByte() && b[1] == 'I'.code.toByte() && b[2] == 'F'.code.toByte()) return true
+        if (b.size >= 12 && b[0] == 'R'.code.toByte() && b[1] == 'I'.code.toByte() &&
+            b[2] == 'F'.code.toByte() && b[3] == 'F'.code.toByte() &&
+            b[8] == 'W'.code.toByte() && b[9] == 'E'.code.toByte() &&
+            b[10] == 'B'.code.toByte() && b[11] == 'P'.code.toByte()
+        ) return true
+        return false
+    }
+
+    /** PNG হলে IEND এর পরে খোঁজে; না মিললে পুরো ফাইলে TS সিঙ্ক প্যাটার্ন (৫×১৮৮) স্ক্যান করে। */
+    private fun findTsStart(b: ByteArray): Int {
+        if (isPng(b)) {
+            var p = 8
+            while (p + 12 <= b.size) {
+                val len = ((b[p].toInt() and 0xFF) shl 24) or ((b[p + 1].toInt() and 0xFF) shl 16) or
+                    ((b[p + 2].toInt() and 0xFF) shl 8) or (b[p + 3].toInt() and 0xFF)
+                if (len < 0 || p + 12L + len > b.size) break
+                val isIend = b[p + 4] == 'I'.code.toByte() && b[p + 5] == 'E'.code.toByte() &&
+                    b[p + 6] == 'N'.code.toByte() && b[p + 7] == 'D'.code.toByte()
+                p += 12 + len
+                if (isIend) {
+                    if (p < b.size && hasSyncRun(b, p)) return p
+                    break
+                }
+            }
         }
+        for (i in 0 until b.size - SYNC_RUN * 188) {
+            if (b[i] == 0x47.toByte() && hasSyncRun(b, i)) return i
+        }
+        return -1
+    }
+
+    private fun hasSyncRun(b: ByteArray, start: Int): Boolean {
+        for (k in 0 until SYNC_RUN) {
+            val idx = start + k * 188
+            if (idx >= b.size || b[idx] != 0x47.toByte()) return false
+        }
+        return true
+    }
+
+    private companion object {
+        const val TAG = "PngStripDS"
+        const val SYNC_RUN = 5
+        const val MAX_BYTES = 16 * 1024 * 1024
     }
 }
