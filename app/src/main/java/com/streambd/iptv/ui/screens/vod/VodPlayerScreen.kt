@@ -54,6 +54,7 @@ import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
+import com.streambd.iptv.utils.AnalyticsLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -453,12 +454,31 @@ fun VodPlayerScreen(
                 val mediaItem = mediaItemBuilder.build()
                 val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
-                exoPlayer.setMediaSource(mediaSource)
-                exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
-            } else {
-                isLoading = false
-            }
+                    exoPlayer.setMediaSource(mediaSource)
+    exoPlayer.prepare()
+    exoPlayer.playWhenReady = true
+
+    // ── Analytics: VOD playback started ──
+    // Fires once per successful media-source setup, in both
+    // TMDB (movie/tv) and Stream-screen ("stream") flows.
+    // On retry the LaunchedEffect re-runs, so a retry also
+    // logs — which is correct (it's a fresh playback attempt).
+    val vType = when {
+        selectedMedia == null -> "stream"
+        selectedMedia!!.isMovie -> "movie"
+        else -> "tv"
+    }
+    AnalyticsLogger.logVodPlayed(
+        context = context,
+        title = videoTitle ?: stream.provider,
+        type = vType,
+        provider = stream.provider,
+        season = mainViewModel.selectedSeason.value,
+        episode = mainViewModel.selectedEpisode.value
+    )
+} else {
+    isLoading = false
+}
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
