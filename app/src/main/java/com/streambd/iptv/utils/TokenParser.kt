@@ -9,6 +9,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URL
+import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import android.net.Uri
@@ -61,7 +62,7 @@ object TokenParser {
     private val SUCCESS_FIELD_NAMES = listOf("success", "ok", "status", "result")
 
     // =========================================================================
-    // Stream URL detection (extended for path-based hints like /mpegts, /hls, /dash)
+    // Stream URL detection
     // =========================================================================
     private val STREAM_EXT_REGEX = Regex(
         "\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp|m4v|3gp)(\\?|#|$)",
@@ -129,6 +130,65 @@ object TokenParser {
                 android.util.Log.w("TokenParser", "validateStreamUrl failed for $url: ${e.message}")
                 false
             }
+        }
+    }
+
+    /**
+     * Full master -> variant -> first-segment probe.
+     * Use when a URL might be a playlist whose segments are IP-bound.
+     */
+    private suspend fun validateFullChain(url: String, headers: Map<String, String>?): Boolean {
+        if (!url.lowercase().substringBefore("?").endsWith(".m3u8")) {
+            return validateStreamUrl(url, headers)
+        }
+        return withContext(Dispatchers.IO) {
+            try {
+                val mReq = Request.Builder().url(url).apply {
+                    header("User-Agent", USER_AGENT)
+                    headers?.forEach { (k, v) -> try { header(k, v) } catch (_: Exception) {} }
+                }.build()
+                val mRes = client.newCall(mReq).execute()
+                if (!mRes.isSuccessful) { mRes.close(); return@withContext false }
+                val master = mRes.body?.string() ?: ""
+                mRes.close()
+                if (!master.contains("#EXTM3U") && !master.contains("#EXT-X-")) return@withContext false
+
+                var currentUrl = url
+                var currentBody = master
+
+                if (!master.contains("#EXTINF")) {
+                    val variant = master.lineSequence()
+                        .map { it.trim() }
+                        .firstOrNull { it.isNotEmpty() && !it.startsWith("#") &&
+                            it.substringBefore("?").lowercase().endsWith(".m3u8") }
+                        ?: return@withContext false
+                    val vUrl = if (variant.startsWith("http")) variant else resolveAbsolute(variant, url)
+                    val vReq = Request.Builder().url(vUrl).apply {
+                        header("User-Agent", USER_AGENT)
+                        headers?.forEach { (k, v) -> try { header(k, v) } catch (_: Exception) {} }
+                    }.build()
+                    val vRes = client.newCall(vReq).execute()
+                    if (!vRes.isSuccessful) { vRes.close(); return@withContext false }
+                    currentBody = vRes.body?.string() ?: ""
+                    vRes.close()
+                    currentUrl = vUrl
+                }
+
+                val segment = currentBody.lineSequence()
+                    .map { it.trim() }
+                    .firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
+                    ?: return@withContext false
+                val sUrl = if (segment.startsWith("http")) segment else resolveAbsolute(segment, currentUrl)
+                val sReq = Request.Builder().url(sUrl).apply {
+                    header("User-Agent", USER_AGENT)
+                    header("Range", "bytes=0-1023")
+                    headers?.forEach { (k, v) -> try { header(k, v) } catch (_: Exception) {} }
+                }.build()
+                val sRes = client.newCall(sReq).execute()
+                val ok = sRes.code in 200..206
+                sRes.close()
+                ok
+            } catch (e: Exception) { false }
         }
     }
 
@@ -248,10 +308,10 @@ object TokenParser {
                 } catch (e: Exception) { e.printStackTrace() }
             }
             val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
-android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
-if (sniffed == null) return@withContext null
-val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
-return@withContext if (ok) sniffed else null
+            android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
+            if (sniffed == null) return@withContext null
+            val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
+            return@withContext if (ok) sniffed else null
         }
 
         // ─── InfinityFree ─────────────────────────────────────────────────────
@@ -354,23 +414,20 @@ return@withContext if (ok) sniffed else null
                 }
             } catch (e: Exception) { e.printStackTrace() }
             val sniffed = WebViewSniffer.sniff(context, baseUrl, headers, USER_AGENT)
-android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
-if (sniffed == null) return@withContext null
-val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
-return@withContext if (ok) sniffed else null
+            android.util.Log.d("TokenParser", "sniff result for $baseUrl = ${sniffed?.url}")
+            if (sniffed == null) return@withContext null
+            val ok = hasManifestExt(sniffed.url) || validateStreamUrl(sniffed.url, sniffed.headers ?: headers)
+            return@withContext if (ok) sniffed else null
         }
 
         // ─── crichd-family embed pages ─────────────────────────────────────────
-        // আগে শুধু পুরনো crichd array-join প্যাটার্ন ধরত। নতুন embed.php/atofplay.php
-        // টাইপ পেজে এই প্যাটার্ন না মিললে iframe + সরাসরি m3u8 regex, তারপর
-        // WebViewSniffer ফলব্যাক হিসেবে চলবে।
         if (lowerTokenUrl == "crichd") {
             try {
                 val req = Request.Builder().url(baseUrl).apply {
                     header("User-Agent", USER_AGENT)
-                    headers?.forEach { (k, v) -> 
+                    headers?.forEach { (k, v) ->
                         if (!k.equals("User-Agent", ignoreCase = true)) {
-                            header(k, v) 
+                            header(k, v)
                         }
                     }
                 }.build()
@@ -378,7 +435,6 @@ return@withContext if (ok) sniffed else null
                 if (res.isSuccessful) {
                     val html = res.body?.string() ?: ""
 
-                    // ১) পুরনো obfuscation প্যাটার্ন
                     val funcRegex = Regex("function\\s+([a-zA-Z0-9_]+)\\s*\\(\\)\\s*\\{\\s*return\\s*\\(\\s*\\[(.*?)\\]\\.join", RegexOption.IGNORE_CASE)
                     val allFuncs = funcRegex.findAll(html).toList()
                     val targetFunc = allFuncs.find { match ->
@@ -403,7 +459,6 @@ return@withContext if (ok) sniffed else null
                         .replace("\\u002F", "/", true)
                         .replace("&amp;", "&")
 
-                    // ২) পেজে সরাসরি .m3u8 লিংক
                     val directM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").find(normalized)?.value
                     if (directM3u8 != null) {
                         var finalUrl = directM3u8
@@ -415,7 +470,6 @@ return@withContext if (ok) sniffed else null
                         }
                     }
 
-                    // ৩) iframe থাকলে সেটার ভেতরে m3u8 খোঁজা
                     val iframeMatch = Regex("<iframe[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(html)
                     if (iframeMatch != null) {
                         var iframeUrl = iframeMatch.groupValues[1]
@@ -588,93 +642,187 @@ return@withContext if (ok) sniffed else null
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // ─── dlhd (specific iframe + atob pattern) ────────────────────────────
+        // ─── dlhd / dlstreams (multi-player scrape) ───────────────────────────
         if (lowerTokenUrl == "dlhd") {
             try {
-                var req = Request.Builder().url(baseUrl).apply {
-                    header("User-Agent", USER_AGENT)
-                    header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-                    header("Accept-Language", "en-US,en;q=0.9")
-                    header("Upgrade-Insecure-Requests", "1")
-                    headers?.forEach { (k, v) -> header(k, v) }
-                }.build()
-                var res = client.newCall(req).execute()
-                if (res.isSuccessful) {
-                    var html = res.body?.string() ?: ""
-                    val iframeRegex = Regex("<iframe[^>]*id=[\"']playerFrame[\"'][^>]*src=[\"']([^\"']+)[\"']|<iframe[^>]*src=[\"']([^\"']+)[\"'][^>]*id=[\"']playerFrame[\"']", RegexOption.IGNORE_CASE)
-                    val match = iframeRegex.find(html)
-                    if (match != null) {
-                        var iframeUrl = match.groupValues[1].takeIf { it.isNotEmpty() } ?: match.groupValues[2]
-                        if (!iframeUrl.startsWith("http")) {
-                            val parsedUrl = URL(baseUrl)
-                            val base = "${parsedUrl.protocol}://${parsedUrl.host}"
-                            iframeUrl = base + (if (iframeUrl.startsWith("/")) "" else "/") + iframeUrl
-                        }
-                        var currentIframeUrl = iframeUrl
-                        req = Request.Builder().url(iframeUrl).apply {
+                // 1) channel ID + entry origin
+                val channelId = Regex("(?:id=|premium|stream-)(\\d+)").find(baseUrl)?.groupValues?.get(1)
+                    ?: baseUrl.filter { it.isDigit() }
+
+                val parsedBase  = URL(baseUrl)
+                val entryOrigin = "${parsedBase.protocol}://${parsedBase.host}" +
+                    (if (parsedBase.port != -1) ":${parsedBase.port}" else "")
+
+                // 2) candidate player URLs (same order as Python)
+                val playerUrls = mutableListOf(
+                    "$entryOrigin/stream/stream-$channelId.php",
+                    "$entryOrigin/cast/stream-$channelId.php",
+                    "$entryOrigin/watch/stream-$channelId.php",
+                    "$entryOrigin/plus/stream-$channelId.php",
+                    "$entryOrigin/casting/stream-$channelId.php",
+                    "$entryOrigin/player/stream-$channelId.php",
+                    "$entryOrigin/hub/stream-$channelId.php",
+                    baseUrl
+                )
+
+                val seenIframes = mutableSetOf<String>()
+                var firstFallback: Pair<String, Map<String, String>>? = null
+
+                for (candidate in playerUrls) {
+                    try {
+                        // 3) fetch player page
+                        val pageReq = Request.Builder().url(candidate).apply {
                             header("User-Agent", USER_AGENT)
+                            header("Referer", baseUrl)
+                            header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                            header("Accept-Language", "en-US,en;q=0.9")
+                            header("Upgrade-Insecure-Requests", "1")
+                            headers?.forEach { (k, v) -> try { header(k, v) } catch (_: Exception) {} }
+                        }.build()
+
+                        val pageRes = try { client.newCall(pageReq).execute() } catch (e: Exception) { null }
+                            ?: continue
+                        if (!pageRes.isSuccessful) { pageRes.close(); continue }
+                        val html = pageRes.body?.string() ?: ""
+                        pageRes.close()
+                        if (html.isBlank()) continue
+
+                        // 4) find iframe (prefer thatframe > playerFrame > any)
+                        var iframeSrc: String? = null
+
+                        val thatFrame = Regex(
+                            "<iframe[^>]*\\bid=[\"']thatframe[\"'][^>]*\\bsrc=[\"']([^\"']+)[\"']" +
+                                "|<iframe[^>]*\\bsrc=[\"']([^\"']+)[\"'][^>]*\\bid=[\"']thatframe[\"']",
+                            RegexOption.IGNORE_CASE
+                        ).find(html)
+                        if (thatFrame != null) {
+                            iframeSrc = thatFrame.groupValues[1].takeIf { it.isNotEmpty() }
+                                ?: thatFrame.groupValues[2]
+                        }
+                        if (iframeSrc.isNullOrBlank()) {
+                            val playerFrame = Regex(
+                                "<iframe[^>]*\\bid=[\"']playerFrame[\"'][^>]*\\bsrc=[\"']([^\"']+)[\"']" +
+                                    "|<iframe[^>]*\\bsrc=[\"']([^\"']+)[\"'][^>]*\\bid=[\"']playerFrame[\"']",
+                                RegexOption.IGNORE_CASE
+                            ).find(html)
+                            if (playerFrame != null) {
+                                iframeSrc = playerFrame.groupValues[1].takeIf { it.isNotEmpty() }
+                                    ?: playerFrame.groupValues[2]
+                            }
+                        }
+                        if (iframeSrc.isNullOrBlank()) {
+                            iframeSrc = Regex("<iframe[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+                                .find(html)?.groupValues?.get(1)
+                        }
+                        if (iframeSrc.isNullOrBlank()) continue
+
+                        iframeSrc = resolveAbsolute(iframeSrc!!, candidate)
+                        if (!seenIframes.add(iframeSrc)) continue
+
+                        // 5) fetch iframe page
+                        val iframeReq = Request.Builder().url(iframeSrc).apply {
+                            header("User-Agent", USER_AGENT)
+                            header("Referer", candidate)
                             header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
                             header("Accept-Language", "en-US,en;q=0.9")
                             header("Upgrade-Insecure-Requests", "1")
-                            header("Referer", baseUrl)
                         }.build()
-                        res = client.newCall(req).execute()
-                        if (res.isSuccessful) {
-                            var iframeHtml = res.body?.string() ?: ""
-                            if (!iframeHtml.contains("window.atob", ignoreCase = true)) {
-                                val innerIframeRegex = Regex("<iframe[^>]*src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
-                                val innerMatch = innerIframeRegex.find(iframeHtml)
-                                if (innerMatch != null) {
-                                    var innerUrl = innerMatch.groupValues[1]
-                                    if (!innerUrl.startsWith("http")) {
-                                        if (innerUrl.startsWith("//")) innerUrl = "https:$innerUrl"
-                                        else {
-                                            val parsedInner = URL(iframeUrl)
-                                            val baseInner = "${parsedInner.protocol}://${parsedInner.host}"
-                                            innerUrl = baseInner + (if (innerUrl.startsWith("/")) "" else "/") + innerUrl
-                                        }
-                                    }
-                                    currentIframeUrl = innerUrl
-                                    req = Request.Builder().url(innerUrl).apply {
-                                        header("User-Agent", USER_AGENT)
-                                        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-                                        header("Accept-Language", "en-US,en;q=0.9")
-                                        header("Upgrade-Insecure-Requests", "1")
-                                        header("Referer", iframeUrl)
-                                    }.build()
-                                    res = client.newCall(req).execute()
-                                    if (res.isSuccessful) iframeHtml = res.body?.string() ?: ""
+
+                        val iframeRes = try { client.newCall(iframeReq).execute() } catch (e: Exception) { null }
+                            ?: continue
+                        if (!iframeRes.isSuccessful) { iframeRes.close(); continue }
+                        val iframeHtml = iframeRes.body?.string() ?: ""
+                        iframeRes.close()
+                        if (iframeHtml.isBlank()) continue
+
+                        // 6) multi-strategy stream URL extraction
+                        var streamUrl: String? = null
+
+                        // 6a) window._econfig = '...' (barecrop.net Player 2)
+                        Regex("window\\._econfig\\s*=\\s*['\"]([^'\"]{100,})['\"]", RegexOption.IGNORE_CASE)
+                            .find(iframeHtml)?.let { m ->
+                                streamUrl = decodeBarecropEconfig(m.groupValues[1])
+                                if (!streamUrl.isNullOrEmpty()) {
+                                    android.util.Log.d("TokenParser", "dlhd: _econfig decoded -> $streamUrl")
                                 }
                             }
-                            val b64Regex = Regex("window\\.atob\\(['\"]([A-Za-z0-9+/=\\-_]+)['\"]\\)", RegexOption.IGNORE_CASE)
-                            val b64Match = b64Regex.find(iframeHtml)
-                            if (b64Match != null) {
-                                val base64Str = b64Match.groupValues[1]
-                                val decodedBytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
-                                val m3u8Url = String(decodedBytes, Charsets.UTF_8)
-                                val parsedIframe = URL(currentIframeUrl)
-                                val dynamicDomain = if (parsedIframe.port != -1) "${parsedIframe.protocol}://${parsedIframe.host}:${parsedIframe.port}"
-                                                    else "${parsedIframe.protocol}://${parsedIframe.host}"
-                                val streamHeaders = getStreamHeaders(baseUrl, headers).toMutableMap()
-                                streamHeaders["Referer"] = "$dynamicDomain/"
-                                streamHeaders["Origin"] = dynamicDomain
-                                streamHeaders["User-Agent"] = USER_AGENT
-                                if (validateStreamUrl(m3u8Url, streamHeaders)) {
-                                    return@withContext ResolvedToken(url = m3u8Url, headers = streamHeaders)
+
+                        // 6b) window.atob('...') or atob('...')
+                        if (streamUrl.isNullOrEmpty()) {
+                            Regex("(?:window\\.)?atob\\(['\"]([A-Za-z0-9+/=\\-_]{20,})['\"]\\)", RegexOption.IGNORE_CASE)
+                                .find(iframeHtml)?.let { m ->
+                                    try {
+                                        val raw = m.groupValues[1].replace('-', '+').replace('_', '/')
+                                        val dec = String(android.util.Base64.decode(raw, android.util.Base64.DEFAULT), Charsets.UTF_8).trim()
+                                        if (dec.startsWith("http")) streamUrl = dec
+                                    } catch (_: Exception) {}
                                 }
-                            }
                         }
+
+                        // 6c) source: 'https://...'
+                        if (streamUrl.isNullOrEmpty()) {
+                            Regex("source\\s*:\\s*['\"](https?://[^'\"]+?)['\"]", RegexOption.IGNORE_CASE)
+                                .find(iframeHtml)?.let { m ->
+                                    streamUrl = m.groupValues[1].trim()
+                                }
+                        }
+
+                        // 6d) any .m3u8 in page
+                        if (streamUrl.isNullOrEmpty()) {
+                            Regex("https?://[^\\s'\"<>\\\\]+\\.m3u8[^\\s'\"<>\\\\]*", RegexOption.IGNORE_CASE)
+                                .find(iframeHtml)?.let { m ->
+                                    streamUrl = m.value
+                                }
+                        }
+
+                        if (streamUrl.isNullOrEmpty() || !streamUrl!!.startsWith("http")) continue
+
+                        // 7) playback headers based on iframe origin
+                        val parsedIframe = URL(iframeSrc)
+                        val iframeOrigin = "${parsedIframe.protocol}://${parsedIframe.host}" +
+                            (if (parsedIframe.port != -1) ":${parsedIframe.port}" else "")
+
+                        val playbackHeaders: Map<String, String> = mutableMapOf(
+                            "Referer"        to "$iframeOrigin/",
+                            "Origin"         to iframeOrigin,
+                            "User-Agent"     to USER_AGENT,
+                            "Accept"         to "*/*",
+                            "Sec-Fetch-Dest" to "empty",
+                            "Sec-Fetch-Mode" to "cors",
+                            "Sec-Fetch-Site" to "cross-site"
+                        )
+
+                        if (firstFallback == null) firstFallback = streamUrl to playbackHeaders
+
+                        // 8) validate; dead -> next candidate
+                        if (validateStreamUrl(streamUrl, playbackHeaders)) {
+                            android.util.Log.d("TokenParser", "dlhd: working stream via $candidate -> $streamUrl")
+                            return@withContext ResolvedToken(
+                                url      = streamUrl,
+                                headers  = playbackHeaders,
+                                mimeType = detectMimeType(streamUrl)
+                            )
+                        }
+                        android.util.Log.d("TokenParser", "dlhd: stream from $candidate failed validation, trying next")
+
+                    } catch (e: Exception) {
+                        android.util.Log.d("TokenParser", "dlhd: candidate $candidate failed: ${e.message}")
                     }
+                }
+
+                if (firstFallback != null) {
+                    android.util.Log.d("TokenParser", "dlhd: no player validated, returning first URL as fallback")
+                    return@withContext ResolvedToken(
+                        url      = firstFallback.first,
+                        headers  = firstFallback.second,
+                        mimeType = detectMimeType(firstFallback.first)
+                    )
                 }
             } catch (e: Exception) { e.printStackTrace() }
             return@withContext null
         }
 
         // ─── UNIVERSAL numeric / ID handler ───────────────────────────────────
-        // Works for ANY provider whose tokenUrl is a numeric selector (1, 2, 3, ...).
-        // Handles JSON API responses, HTML pages, HTTP redirects, and direct manifests.
-        // No provider name is special-cased — this is the same code path for every
-        // server that returns a media URL from an endpoint.
         val idMatch = tokenUrl?.let { Regex("^[\\\\/]?(\\d+)$").find(it) }
         if (idMatch != null) {
             val preferIndex = idMatch.groupValues[1].toIntOrNull()
@@ -691,20 +839,76 @@ return@withContext if (ok) sniffed else null
         null
     }
 
-    private fun hasManifestExt(url: String): Boolean {
-    val p = url.substringBefore("?").substringBefore("#").lowercase()
-    return p.endsWith(".m3u8") || p.endsWith(".mpd")
-}
     // =========================================================================
-    // Universal HTTP endpoint resolver
-    //
-    // Handles the common pattern where an API/`.php` endpoint returns either:
-    //   1. an HTTP redirect straight to a signed stream URL
-    //   2. a JSON body with a URL field + optional `type` hint
-    //   3. an HTML body with an embedded stream URL (absolute or escaped)
-    //   4. a raw HLS manifest (#EXTM3U...)
-    //
-    // Works with any provider — no domain/name checks.
+    // barecrop.net _econfig decoder (Player 2)
+    // Port of the _0x1b7ade() function in /assets/stream.js:
+    //   s = atob(enc) -> split in 4 chunks -> reorder [2,0,3,1] ->
+    //   strip char at index 3 of each chunk -> atob each -> join -> atob -> JSON
+    // =========================================================================
+    private fun decodeBarecropEconfig(enc: String?): String? {
+        if (enc.isNullOrEmpty()) return null
+        return try {
+            val sBytes = android.util.Base64.decode(enc, android.util.Base64.DEFAULT)
+            val s = String(sBytes, Charsets.ISO_8859_1)
+
+            val n = 4
+            val order = intArrayOf(2, 0, 3, 1)
+            val chunkLen = (s.length + n - 1) / n
+            val parts = Array(n) { i ->
+                val start = i * chunkLen
+                if (start >= s.length) ""
+                else s.substring(start, minOf((i + 1) * chunkLen, s.length))
+            }
+
+            val arr = arrayOf("", "", "", "")
+            for (i in 0 until n) {
+                var a = parts[i]
+                if (a.length < 4) return null
+                a = a.substring(0, 3) + a.substring(4)
+                val dec = android.util.Base64.decode(a, android.util.Base64.DEFAULT)
+                arr[order[i]] = String(dec, Charsets.ISO_8859_1)
+            }
+
+            val joined = arr.joinToString("")
+            val finalBytes = android.util.Base64.decode(joined, android.util.Base64.DEFAULT)
+            val finalStr = String(finalBytes, Charsets.UTF_8)
+
+            val cfg = JSONObject(finalStr)
+            val url = cfg.optString("stream_url").takeIf { it.isNotBlank() }
+                ?: cfg.optString("stream_url_nop2p").takeIf { it.isNotBlank() }
+            url?.takeIf { it.startsWith("http") }?.trim()
+        } catch (e: Exception) {
+            android.util.Log.d("TokenParser", "decodeBarecropEconfig failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Resolve relative / protocol-relative / absolute URLs. */
+    private fun resolveAbsolute(rel: String, base: String): String {
+        if (rel.startsWith("http://") || rel.startsWith("https://")) return rel
+        return try {
+            val b = URL(base)
+            val scheme = b.protocol
+            val host = b.host
+            val portPart = if (b.port != -1) ":${b.port}" else ""
+            when {
+                rel.startsWith("//") -> "$scheme:$rel"
+                rel.startsWith("/")  -> "$scheme://$host$portPart$rel"
+                else -> {
+                    val dir = (b.path ?: "/").substringBeforeLast("/", "")
+                    "$scheme://$host$portPart$dir/$rel"
+                }
+            }
+        } catch (e: Exception) { rel }
+    }
+
+    private fun hasManifestExt(url: String): Boolean {
+        val p = url.substringBefore("?").substringBefore("#").lowercase()
+        return p.endsWith(".m3u8") || p.endsWith(".mpd")
+    }
+
+    // =========================================================================
+    // Universal HTTP endpoint resolver (unchanged)
     // =========================================================================
     private suspend fun resolveGenericApi(
         baseUrl: String,
@@ -726,7 +930,6 @@ return@withContext if (ok) sniffed else null
                 val finalUrl = res.request.url.toString()
                 val ct = res.header("Content-Type")?.lowercase() ?: ""
 
-                // Case 1 — HTTP redirect landed on a stream URL.
                 if (finalUrl != baseUrl && isStreamUrl(finalUrl)) {
                     return@use ResolvedToken(
                         url = finalUrl,
@@ -740,7 +943,6 @@ return@withContext if (ok) sniffed else null
                 val body = res.peekBody(MAX_SNIFF_BYTES).string()
                 val trimmed = body.trimStart()
 
-                // Case 2 — body IS an HLS manifest.
                 if (trimmed.startsWith("#EXTM3U")) {
                     val dataUri = "data:application/x-mpegURL;base64," +
                         android.util.Base64.encodeToString(body.toByteArray(), android.util.Base64.NO_WRAP)
@@ -751,7 +953,6 @@ return@withContext if (ok) sniffed else null
                     )
                 }
 
-                // Case 3 — JSON response (most API endpoints).
                 if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
                     val extracted = extractStreamFromJson(body)
                     if (extracted != null) {
@@ -764,7 +965,6 @@ return@withContext if (ok) sniffed else null
                     }
                 }
 
-                // Case 4 — HTML body with embedded stream URLs.
                 val normalized = body
                     .replace("\\/", "/")
                     .replace("\\u002F", "/", true)
@@ -817,7 +1017,6 @@ return@withContext if (ok) sniffed else null
     }
 
     private fun extractStreamFromJsonObject(json: JSONObject): Pair<String, String?>? {
-        // 1. Try well-known URL keys in priority order.
         for (key in URL_FIELD_PRIORITY) {
             if (json.has(key)) {
                 val v = json.optString(key, "").trim()
@@ -829,7 +1028,6 @@ return@withContext if (ok) sniffed else null
                 }
             }
         }
-        // 2. Fall back to a recursive search.
         val url = walkJson(json) ?: return null
         return url to findTypeHint(json)
     }
@@ -845,7 +1043,6 @@ return@withContext if (ok) sniffed else null
     }
 
     private fun jsonSuccessOK(json: JSONObject): Boolean {
-        // If none of the success-like fields exist, allow the object through.
         if (SUCCESS_FIELD_NAMES.none { json.has(it) }) return true
         for (key in SUCCESS_FIELD_NAMES) {
             if (!json.has(key)) continue
@@ -859,7 +1056,6 @@ return@withContext if (ok) sniffed else null
                 }
             }
         }
-        // If we saw the field but couldn't interpret, treat as OK.
         return true
     }
 
@@ -886,34 +1082,29 @@ return@withContext if (ok) sniffed else null
         return null
     }
 
-    // =========================================================================
-    // Map a JSON type hint (or URL) to a Media3 MimeType.
-    // Universal — no provider names.
-    // =========================================================================
     private fun mimeTypeFromHint(hint: String?, url: String): String? {
-    val pathOnly = url.substringBefore("?").substringBefore("#").lowercase()
-    // URL-এর পাথ hint-এর চেয়ে বেশি নির্ভরযোগ্য: /mpegts মানে raw TS
-    if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
-        return androidx.media3.common.MimeTypes.VIDEO_MP2T
-    }
-    when (hint?.lowercase()) {
-        "hls", "m3u8", "mpegurl", "application/x-mpegurl",
-        "application/vnd.apple.mpegurl", "x-mpegurl" ->
-            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-        "dash", "mpd", "application/dash+xml", "dash+xml" ->
-            return androidx.media3.common.MimeTypes.APPLICATION_MPD
-        "ts", "mpegts", "video/mp2t" ->
+        val pathOnly = url.substringBefore("?").substringBefore("#").lowercase()
+        if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
             return androidx.media3.common.MimeTypes.VIDEO_MP2T
-        "mp4", "video/mp4", "m4v" ->
-            return androidx.media3.common.MimeTypes.VIDEO_MP4
-        "webm", "video/webm", "matroska", "mkv", "video/x-matroska" ->
-            return "video/x-matroska"
+        }
+        when (hint?.lowercase()) {
+            "hls", "m3u8", "mpegurl", "application/x-mpegurl",
+            "application/vnd.apple.mpegurl", "x-mpegurl" ->
+                return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            "dash", "mpd", "application/dash+xml", "dash+xml" ->
+                return androidx.media3.common.MimeTypes.APPLICATION_MPD
+            "ts", "mpegts", "video/mp2t" ->
+                return androidx.media3.common.MimeTypes.VIDEO_MP2T
+            "mp4", "video/mp4", "m4v" ->
+                return androidx.media3.common.MimeTypes.VIDEO_MP4
+            "webm", "video/webm", "matroska", "mkv", "video/x-matroska" ->
+                return "video/x-matroska"
+        }
+        return detectMimeType(url)
     }
-    return detectMimeType(url)
-}
 
     // =========================================================================
-    // Stalker portal (specific MAC handshake + JSON protocol) — unchanged
+    // Stalker portal (unchanged)
     // =========================================================================
     suspend fun resolveStalkerPortalOrJson(
         baseUrl: String,
@@ -1084,34 +1275,33 @@ return@withContext if (ok) sniffed else null
     }
 
     fun detectMimeType(url: String, explicitMimeType: String? = null): String? {
-    if (explicitMimeType != null) return explicitMimeType
-    val lower = url.lowercase()
-    val pathOnly = lower.substringBefore("?").substringBefore("#")
-    val decoded = try { java.net.URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
+        if (explicitMimeType != null) return explicitMimeType
+        val lower = url.lowercase()
+        val pathOnly = lower.substringBefore("?").substringBefore("#")
+        val decoded = try { URLDecoder.decode(lower, "UTF-8") } catch (e: Exception) { lower }
 
-    if (lower.contains(".mpd") || lower.contains("extension=mpd") ||
-        lower.contains("output=mpd") || lower.contains("format=mpd")) {
-        return androidx.media3.common.MimeTypes.APPLICATION_MPD
+        if (lower.contains(".mpd") || lower.contains("extension=mpd") ||
+            lower.contains("output=mpd") || lower.contains("format=mpd")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_MPD
+        }
+        if (lower.contains(".m3u8") || lower.contains("extension=m3u8") || lower.contains("output=m3u8") ||
+            lower.contains("type=m3u8") || lower.contains("format=m3u8") || lower.contains("stream=m3u8") ||
+            lower.contains("hls=true") || lower.contains("m3u8=true")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
+            return androidx.media3.common.MimeTypes.VIDEO_MP2T
+        }
+        if (lower.contains("/hls") || lower.contains("/manifest") || lower.contains("/playlist")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        if (lower.contains("/dash/") || lower.contains("/dash?")) {
+            return androidx.media3.common.MimeTypes.APPLICATION_MPD
+        }
+        if (lower.contains(".mkv") || decoded.contains(".mkv")) return "video/x-matroska"
+        if (lower.contains(".mp4") || decoded.contains(".mp4")) return androidx.media3.common.MimeTypes.VIDEO_MP4
+        return null
     }
-    if (lower.contains(".m3u8") || lower.contains("extension=m3u8") || lower.contains("output=m3u8") ||
-        lower.contains("type=m3u8") || lower.contains("format=m3u8") || lower.contains("stream=m3u8") ||
-        lower.contains("hls=true") || lower.contains("m3u8=true")) {
-        return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-    }
-    // raw MPEG-TS
-    if (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts")) {
-        return androidx.media3.common.MimeTypes.VIDEO_MP2T
-    }
-    if (lower.contains("/hls") || lower.contains("/manifest") || lower.contains("/playlist")) {
-        return androidx.media3.common.MimeTypes.APPLICATION_M3U8
-    }
-    if (lower.contains("/dash/") || lower.contains("/dash?")) {
-        return androidx.media3.common.MimeTypes.APPLICATION_MPD
-    }
-    if (lower.contains(".mkv") || decoded.contains(".mkv")) return "video/x-matroska"
-    if (lower.contains(".mp4") || decoded.contains(".mp4")) return androidx.media3.common.MimeTypes.VIDEO_MP4
-    return null
-}
 
     private fun extractAllUrls(payload: String): List<String> {
         val candidates = mutableListOf<String>()
