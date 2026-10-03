@@ -33,6 +33,17 @@ object QuickJsAddonManager {
     private const val ADDONS_PREF_NAME = "prysm_addons_prefs"
     private const val ADDONS_KEY = "addons_list"
 
+    // ═══════════════════════════════════════════════════════════════
+    // Overall JS execution budget.
+    // Bumped from 60s to 180s because some addons (e.g. NetMirror)
+    // run a server-side ad-verification step that alone can take
+    // 30-60 seconds on a fresh session / trial IP. A shorter budget
+    // caused the first attempt to time out mid-verification, which
+    // looked like "1st try fails, 2nd/3rd works" (session survives
+    // between attempts in the shared cookie jar).
+    // ═══════════════════════════════════════════════════════════════
+    private const val JS_EXECUTION_TIMEOUT_MS = 180_000L
+
     private var cachedAddons: List<Addon>? = null
     private val addonScriptsCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val cookieCache = mutableListOf<okhttp3.Cookie>()
@@ -69,9 +80,14 @@ object QuickJsAddonManager {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // safeFetchClient — used by nativeFetchStr for every JS-issued
+    // request. readTimeout bumped 30s → 60s to accommodate the slow
+    // NetMirror verify2.php call (server-side ad check).
+    // ═══════════════════════════════════════════════════════════════
     private val safeFetchClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .dns(safeDns)
         .followRedirects(true)
         .followSslRedirects(true)
@@ -283,7 +299,7 @@ object QuickJsAddonManager {
         episode: Int?,
         logBuilder: StringBuilder? = null
     ): String? = withContext(Dispatchers.IO) {
-        withTimeoutOrNull(60000L) {
+        withTimeoutOrNull(JS_EXECUTION_TIMEOUT_MS) {
             var scriptResult: String? = null
 
             try {
@@ -337,6 +353,26 @@ object QuickJsAddonManager {
                             ""
                         }
                         result
+                    }
+
+                    // ═══════════════════════════════════════════════════
+                    // nativeSleep — blocking wait, exposed to JS as sleep(ms).
+                    // Useful for addons that need to let a slow server-side
+                    // session settle between requests (e.g. after ad verify).
+                    //
+                    // Safety: caps at 5s per call so a badly written addon
+                    // can't freeze the JS worker for minutes at a time.
+                    // ═══════════════════════════════════════════════════
+                    function("nativeSleep") { args ->
+                        val ms = (args.getOrNull(0) as? Number)?.toLong() ?: 0L
+                        if (ms in 1L..5000L) {
+                            try {
+                                Thread.sleep(ms)
+                            } catch (_: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                            }
+                        }
+                        null
                     }
 
                     asyncFunction("nativeBypass") { _ ->
@@ -416,6 +452,7 @@ object QuickJsAddonManager {
                         };
                         globalThis.atob = function(s) { return nativeAtob(String(s)); };
                         globalThis.btoa = function(s) { return nativeBtoa(String(s)); };
+                        globalThis.sleep = function(ms) { nativeSleep(Number(ms)); };
                         globalThis.bypassCloudflare = async function(url) {
                             return await nativeBypass(url);
                         };
@@ -443,10 +480,10 @@ object QuickJsAddonManager {
                     """.trimIndent()
 
                     val reservedGlobals = setOf(
-                        "console", "atob", "btoa", "fetch", "bypassCloudflare",
+                        "console", "atob", "btoa", "fetch", "bypassCloudflare", "sleep",
                         "CryptoJS", "window", "globalThis", "module", "exports",
                         "nativeLog", "nativeError", "nativeSend", "nativeBtoa",
-                        "nativeAtob", "nativeBypass", "nativeFetchStr",
+                        "nativeAtob", "nativeBypass", "nativeFetchStr", "nativeSleep",
                         "Object", "Array", "String", "Number", "Boolean",
                         "Promise", "Error", "Math", "JSON", "Date", "RegExp",
                         "undefined", "null", "Infinity", "NaN", "isNaN", "isFinite",
