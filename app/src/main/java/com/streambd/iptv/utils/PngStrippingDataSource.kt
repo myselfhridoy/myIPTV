@@ -1,6 +1,7 @@
 package com.streambd.iptv.utils
 
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
@@ -55,7 +56,9 @@ class PngStrippingDataSource(
 
         // Ignore Range requests for disguised segments — we always need the
         // whole file. Segments are ~1 MB so this is acceptable.
-        val fullSpec = dataSpec.withPosition(0).withLength(DataSpec.LENGTH_UNSET.toLong())
+        val fullSpec = dataSpec
+            .withPosition(0L)
+            .withLength(C.LENGTH_UNSET.toLong())
 
         upstream.open(fullSpec)
         val raw: ByteArray = try {
@@ -79,8 +82,7 @@ class PngStrippingDataSource(
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         val s = stream ?: return upstream.read(buffer, offset, length)
-        val n = s.read(buffer, offset, length)
-        return n
+        return s.read(buffer, offset, length)
     }
 
     override fun close() {
@@ -187,8 +189,11 @@ class PngStrippingDataSource(
      */
     private fun extractPngPixels(bytes: ByteArray): ByteArray? {
         var off = 8
-        var width = 0; var height = 0
-        var depth = 0; var colorType = 0; var interlace = 0
+        var width = 0
+        var height = 0
+        var depth = 0
+        var colorType = 0
+        var interlace = 0
         val idat = ByteArrayOutputStream(2 * 1024 * 1024)
 
         while (off + 8 <= bytes.size) {
@@ -291,11 +296,15 @@ class PngStrippingDataSource(
         }
         inflater.end()
         out.toByteArray()
-    } catch (_: Exception) { null }
+    } catch (_: Exception) {
+        null
+    }
 
     private fun gunzip(input: ByteArray): ByteArray? = try {
         GZIPInputStream(ByteArrayInputStream(input)).use { it.readBytes() }
-    } catch (_: Exception) { null }
+    } catch (_: Exception) {
+        null
+    }
 
     private fun readU32BE(b: ByteArray, off: Int): Int =
         ((b[off].toInt() and 0xFF) shl 24) or
