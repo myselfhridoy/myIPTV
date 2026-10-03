@@ -171,10 +171,10 @@ fun VodScreen(
     }
 
     val closeSearch: () -> Unit = {
-        isSearching = false
-        searchQuery = ""
-        viewModel.search("")
-    }
+    isSearching = false
+    searchQuery = ""
+    viewModel.search("", context)
+}
 
     Box(
         modifier = Modifier
@@ -187,9 +187,9 @@ fun VodScreen(
             isSearching -> SearchMode(
                 query = searchQuery,
                 onQueryChange = {
-                    searchQuery = it
-                    viewModel.search(it)
-                },
+    searchQuery = it
+    viewModel.search(it, context)
+},
                 results = searchResults,
                 isLoading = isLoading,
                 isMobilePortrait = isMobilePortrait,
