@@ -87,6 +87,7 @@ import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.PlaylistViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.utils.AnalyticsLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -514,19 +515,35 @@ fun MainScreen(
                                     animationSpec = tween(300), label = "pillWidth"
                                 )
                                 Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .selectable(
-                                            selected = isSelected,
-                                            role = Role.Tab,
-                                            onClick = { selectedTab = index }
-                                        )
-                                        .tvTouchClick { selectedTab = index }
-                                        .background(bgColor, RoundedCornerShape(14.dp))
-                                        .padding(vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
+    modifier = Modifier
+        .weight(1f)
+        .clip(RoundedCornerShape(14.dp))
+        .selectable(
+            selected = isSelected,
+            role = Role.Tab,
+            onClick = {
+                if (selectedTab != index) {
+                    AnalyticsLogger.logFeatureUsed(
+                        context = context,
+                        feature = mobileFeatureName(index)
+                    )
+                }
+                selectedTab = index
+            }
+        )
+        .tvTouchClick {
+            if (selectedTab != index) {
+                AnalyticsLogger.logFeatureUsed(
+                    context = context,
+                    feature = mobileFeatureName(index)
+                )
+            }
+            selectedTab = index
+        }
+        .background(bgColor, RoundedCornerShape(14.dp))
+        .padding(vertical = 8.dp),
+    horizontalAlignment = Alignment.CenterHorizontally
+) {
                                     Icon(
                                         imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                         contentDescription = tab.title,
