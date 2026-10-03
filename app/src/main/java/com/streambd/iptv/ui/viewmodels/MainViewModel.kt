@@ -8,6 +8,7 @@ import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.data.models.LiveCategory
 import com.streambd.iptv.data.models.StreamSource
 import com.streambd.iptv.data.repository.LiveRepository
+import com.streambd.iptv.utils.AnalyticsLogger
 import com.streambd.iptv.utils.QuickJsAddonManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -268,47 +269,60 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun selectChannel(channel: Channel) {
-        _selectedChannel.value = channel
+    fun selectChannel(channel: Channel) {
+    _selectedChannel.value = channel
 
-        // Debounced + cancellable so fast channel surfing can't write an older channel last
-        saveChannelJob?.cancel()
-        saveChannelJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(300)
+    // ── Analytics: track channel selection ──
+    // Fires on every channel change: card taps from LiveTv /
+    // LiveCategory / LiveEvents / PlaylistChannels screens,
+    // player Up/Down channel surfing, number-pad tuning, and
+    // saved-channel restore. Throttle-free by design.
+    AnalyticsLogger.logChannelPlayed(
+        context = appContext,
+        name = channel.name,
+        group = channel.group,
+        url = channel.url
+    )
+
+    // Debounced + cancellable so fast channel surfing can't write an older channel last
+    saveChannelJob?.cancel()
+    saveChannelJob = viewModelScope.launch(Dispatchers.IO) {
+        delay(300)
+        try {
+            val prefs = appContext.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("last_channel", jsonFormat.encodeToString(channel))
+                .apply()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Lazy load additional quality/server options for portal channels (like Oxoo)
+    enrichJob?.cancel()
+    if (channel.tokenId != null && channel.tokenId != -1 && channel.sources.size <= 1 && channel.tokenUrl?.contains("single_details") == true) {
+        enrichJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val prefs = appContext.getSharedPreferences("tv_mode_prefs", Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putString("last_channel", jsonFormat.encodeToString(channel))
-                    .apply()
+                val enrichedSources = com.streambd.iptv.utils.OxooPortalHandler.fetchAdditionalSources(channel)
+                if (enrichedSources.size > channel.sources.size) {
+                    if (_selectedChannel.value === channel || (_selectedChannel.value?.tokenId == channel.tokenId && _selectedChannel.value?.url == channel.url)) {
+                        val updatedChannel = channel.copy(sources = enrichedSources)
+                        _selectedChannel.value = updatedChannel
+                        _currentPlaylist.value = _currentPlaylist.value.map {
+                            if (it.tokenId == channel.tokenId && it.name == channel.name) updatedChannel else it
+                        }
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
-
-        // Lazy load additional quality/server options for portal channels (like Oxoo)
-        enrichJob?.cancel()
-        if (channel.tokenId != null && channel.tokenId != -1 && channel.sources.size <= 1 && channel.tokenUrl?.contains("single_details") == true) {
-            enrichJob = viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val enrichedSources = com.streambd.iptv.utils.OxooPortalHandler.fetchAdditionalSources(channel)
-                    if (enrichedSources.size > channel.sources.size) {
-                        if (_selectedChannel.value === channel || (_selectedChannel.value?.tokenId == channel.tokenId && _selectedChannel.value?.url == channel.url)) {
-                            val updatedChannel = channel.copy(sources = enrichedSources)
-                            _selectedChannel.value = updatedChannel
-                            _currentPlaylist.value = _currentPlaylist.value.map {
-                                if (it.tokenId == channel.tokenId && it.name == channel.name) updatedChannel else it
-                            }
-                        }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
     }
+}
 
     fun setCurrentPlaylist(channels: List<Channel>) {
         _currentPlaylist.value = channels
