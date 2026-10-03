@@ -69,6 +69,7 @@ import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.utils.AnalyticsLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -180,8 +181,13 @@ fun TvMainScreen(
                 anchorFocusRequester = drawerFocusRequester,
                 onCloseDrawer = { scope.launch { drawerState.close() } },
                 onItemClick = { index ->
-                    when (index) {
-                        DrawerIndex.PLAYLISTS -> {
+    // ── Analytics: one feature_used event per drawer tap ──
+    AnalyticsLogger.logFeatureUsed(
+        context = context,
+        feature = tvFeatureName(index)
+    )
+    when (index) {
+        DrawerIndex.PLAYLISTS -> {
                             scope.launch { drawerState.close() }
                             navController.navigate("playlists")
                         }
@@ -523,4 +529,19 @@ private fun DrawerItem(
             Spacer(Modifier.width(12.dp))
         }
     }
+}
+/**
+ * Maps a drawer entry index to a stable analytics feature name.
+ * Kept in sync with the DrawerIndex constants in TvMainScreen.kt.
+ */
+private fun tvFeatureName(index: Int): String = when (index) {
+    0 -> "events"
+    1 -> "live_tv"
+    2 -> "media"
+    3 -> "stream"
+    4 -> "playlists"
+    5 -> "check_update"
+    6 -> "more"
+    7 -> "exit"
+    else -> "unknown"
 }
