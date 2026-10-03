@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streambd.iptv.data.api.RetrofitClient
 import com.streambd.iptv.data.models.TmdbMedia
+import android.content.Context
+import com.streambd.iptv.utils.AnalyticsLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -148,36 +150,47 @@ class TmdbViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Search TMDB with built-in debounce.
-     * Was: fired on EVERY keystroke → 8-10 API calls while typing one word.
-     * Now: 300ms after the user stops typing, one request fires.
-     */
-    fun search(query: String) {
-        searchJob?.cancel()
+/**
+ * Search TMDB with built-in debounce.
+ * Was: fired on EVERY keystroke → 8-10 API calls while typing one word.
+ * Now: 300ms after the user stops typing, one request fires.
+ *
+ * Also fires a single `search_performed` analytics event per debounce
+ * cycle, so we get real search stats without keystroke spam.
+ */
+fun search(query: String, context: Context) {
+    searchJob?.cancel()
 
-        if (query.isBlank()) {
-            _searchResults.value = emptyList()
-            return
-        }
+    if (query.isBlank()) {
+        _searchResults.value = emptyList()
+        return
+    }
 
-        searchJob = viewModelScope.launch {
-            delay(300) // debounce
-            _isLoading.value = true
-            try {
-                val searchResponse = tmdbApiService.searchMulti(apiKey, query)
-                _searchResults.value = searchResponse.results.filter {
-                    it.media_type != "person" && it.poster_path != null
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                _isLoading.value = false
+    searchJob = viewModelScope.launch {
+        delay(300) // debounce
+        _isLoading.value = true
+        try {
+            val searchResponse = tmdbApiService.searchMulti(apiKey, query)
+            val filtered = searchResponse.results.filter {
+                it.media_type != "person" && it.poster_path != null
             }
+            _searchResults.value = filtered
+
+            // ── Analytics: one event per real search ──
+            AnalyticsLogger.logSearchPerformed(
+                context = context,
+                query = query,
+                resultCount = filtered.size
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            _isLoading.value = false
         }
     }
+}
 
     fun selectMedia(media: TmdbMedia) {
         _selectedMedia.value = media
