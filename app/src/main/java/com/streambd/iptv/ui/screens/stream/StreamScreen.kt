@@ -999,7 +999,9 @@ private fun FieldTrailingIcons(
 }
 
 // ---------------------------------------------------------------------
-// Dropdown — compact; two side-by-side fit on all phone widths
+// Dropdown — compact; two side-by-side fit on all phone widths.
+// Trimmed vertical padding + smaller fonts so the pill stays slim
+// next to the text fields above.
 // ---------------------------------------------------------------------
 @Composable
 fun DropdownField(
@@ -1023,9 +1025,9 @@ fun DropdownField(
             .border(
                 width = if (isFocused || expanded) 2.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(6.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1037,25 +1039,26 @@ fun DropdownField(
                 Text(
                     text = label,
                     color = GrayText,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = value,
                     color = WhiteText,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(2.dp))
             Icon(
                 imageVector = if (expanded) Icons.Default.ArrowDropUp
                 else Icons.Default.ArrowDropDown,
                 tint = GrayText,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(16.dp)
             )
         }
     }
