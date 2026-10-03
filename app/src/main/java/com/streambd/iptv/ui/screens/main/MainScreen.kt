@@ -638,12 +638,17 @@ private fun TvModeConfigDialog(
         onDismiss = onDismiss,
         contentMaxHeight = 380.dp,
         actions = {
-            PremiumButton("Cancel", onDismiss)
-            PremiumButton("Save & Restart", {
-                mainViewModel.saveTvModeConfig(true, selectedCategories, includeEvents)
-                onConfirm()
-            }, primary = true)
-        }
+    PremiumButton("Cancel", onDismiss)
+    PremiumButton("Save & Restart", {
+        AnalyticsLogger.logSettingsChanged(
+            context = appContext,
+            key = "tv_mode",
+            value = "on"
+        )
+        mainViewModel.saveTvModeConfig(true, selectedCategories, includeEvents)
+        onConfirm()
+    }, primary = true)
+}
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             TvFocusableItem(
