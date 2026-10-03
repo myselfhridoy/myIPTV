@@ -713,3 +713,14 @@ private fun TvModeConfigDialog(
         }
     }
 }
+/**
+ * Maps a mobile bottom-nav tab index to a stable analytics feature name.
+ * Kept in sync with the `mobileTabs` list order in MainScreen().
+ */
+private fun mobileFeatureName(index: Int): String = when (index) {
+    0 -> "events"
+    1 -> "live_tv"
+    2 -> "media"
+    3 -> "stream"
+    else -> "unknown"
+}
