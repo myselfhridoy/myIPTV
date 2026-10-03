@@ -56,9 +56,15 @@ class PngStrippingDataSource(
 
         // Ignore Range requests for disguised segments — we always need the
         // whole file. Segments are ~1 MB so this is acceptable.
-        val fullSpec = dataSpec
-            .withPosition(0L)
-            .withLength(C.LENGTH_UNSET.toLong())
+        //
+        // Note: Media3 1.2.1 does NOT have DataSpec.withPosition()/withLength().
+        // Those were added later. So we rebuild the DataSpec from scratch here.
+        val fullSpec = DataSpec.Builder()
+            .setUri(dataSpec.uri)
+            .setKey(dataSpec.key)
+            .setPosition(0L)
+            .setLength(C.LENGTH_UNSET.toLong())
+            .build()
 
         upstream.open(fullSpec)
         val raw: ByteArray = try {
