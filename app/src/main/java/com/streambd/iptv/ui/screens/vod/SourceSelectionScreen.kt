@@ -3,12 +3,10 @@ package com.streambd.iptv.ui.screens.vod
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,10 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
@@ -48,7 +46,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +64,7 @@ import com.streambd.iptv.ui.theme.GrayText
 import com.streambd.iptv.ui.theme.WhiteText
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────
 // Local palette
@@ -95,6 +93,20 @@ private fun qualityRank(q: String?): Int {
     }
 }
 
+/**
+ * SourceSelectionScreen
+ *
+ * NOTE: No Lazy containers — same reasoning as VodScreen / TmdbDetailsScreen.
+ *
+ * Compose 1.6.x has a bug in LazyLayoutBeyondBoundsModifierLocal that
+ * crashes the focus system on Android TV when D-pad navigation triggers
+ * a beyond-bounds focus search:
+ *   IllegalStateException: LayoutCoordinate operations are only valid
+ *   when isAttached is true
+ *
+ * The list here is typically short (2–10 items), so eager composition in
+ * a Column + verticalScroll is both cheap and crash-free.
+ */
 @Composable
 fun SourceSelectionScreen(
     mainViewModel: MainViewModel,
@@ -108,9 +120,17 @@ fun SourceSelectionScreen(
     val selectedSeason by mainViewModel.selectedSeason.collectAsState()
     val selectedEpisode by mainViewModel.selectedEpisode.collectAsState()
 
-    // Pop back if media became null (shouldn't happen, but safe).
+    // ── Safe pop-back on null media ──
+    // Only pop if media was EVER set and then became null, so an early
+    // composition frame (before the VM has resolved the selected media)
+    // does not accidentally pop this screen off the back stack.
+    var everHadMedia by remember { mutableStateOf(false) }
     LaunchedEffect(media) {
-        if (media == null) navController.popBackStack()
+        if (media != null) {
+            everHadMedia = true
+        } else if (everHadMedia) {
+            navController.popBackStack()
+        }
     }
 
     if (media == null) return
@@ -323,7 +343,7 @@ private fun EmptyState() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Stream list
+// Stream list — non-lazy
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun StreamList(
@@ -333,58 +353,63 @@ private fun StreamList(
 ) {
     val firstFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(streams) {
-        try { firstFocusRequester.requestFocus() } catch (_: Exception) {}
+    // ── Focus first card, with retry ──
+    // Retry because the first item may not be attached on the first frame
+    // (source list arrives progressively from the addons). Fires on the
+    // empty→non-empty transition only, so subsequent sources arriving
+    // do NOT steal focus back from the user.
+    LaunchedEffect(streams.isNotEmpty()) {
+        if (streams.isEmpty()) return@LaunchedEffect
+        repeat(4) { attempt ->
+            delay(120L + attempt * 80L)
+            if (runCatching { firstFocusRequester.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+        }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item(key = "count_header") {
-            Text(
-                text = if (isResolving)
-                    "Found ${streams.size} source(s) so far…"
-                else
-                    "${streams.size} source${if (streams.size > 1) "s" else ""} available",
-                color = WhiteText.copy(alpha = 0.6f),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-        }
+        Text(
+            text = if (isResolving)
+                "Found ${streams.size} source(s) so far…"
+            else
+                "${streams.size} source${if (streams.size > 1) "s" else ""} available",
+            color = WhiteText.copy(alpha = 0.6f),
+            fontSize = 13.sp,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
 
-        itemsIndexed(
-            items = streams,
-            key = { index, stream ->
-                // Index-based key is guaranteed unique — even if the addon returns
-                // two streams with the same provider+quality+type.
-                "$index|${stream.provider}|${stream.quality}|${stream.type.orEmpty()}"
-            }
-        ) { index, stream ->
+        streams.forEachIndexed { index, stream ->
             StreamSourceCard(
                 stream = stream,
-                modifier = if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier,
+                modifier = if (index == 0) Modifier.focusRequester(firstFocusRequester)
+                else Modifier,
                 onClick = { onClick(stream) }
             )
         }
 
         if (isResolving) {
-            item(key = "tail_spinner") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = BioAccent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    color = BioAccent,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
