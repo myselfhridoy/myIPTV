@@ -78,7 +78,7 @@ object DlhdResolver {
 
     private class CacheEntry(val freshUntil: Long, val staleUntil: Long, val token: ResolvedToken)
     private class Extracted(val token: ResolvedToken, val validated: Boolean)
-    private class Page(val status: Int, val body: String?, val retryAfter: String?)
+    private class Page(val status: Int, val body: String?, val retryAfter: String?, val effectiveUrl: String? = null)
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val hostBackoff = ConcurrentHashMap<String, Long>()
@@ -118,6 +118,8 @@ object DlhdResolver {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
             .cookieJar(cookieJar)
             .connectTimeout(10, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)   // allows http:// → https:// upgrades
             .build()
     }
 
@@ -144,7 +146,12 @@ object DlhdResolver {
 
     private suspend fun fetchPage(url: String, headers: Map<String, String>, timeoutMs: Long): Page =
         clientFor(timeoutMs).newCall(buildRequest(url, headers)).await().use { res ->
-            Page(res.code, if (res.isSuccessful) res.body?.string() else null, res.header("Retry-After"))
+            Page(
+                status = res.code,
+                body = if (res.isSuccessful) res.body?.string() else null,
+                retryAfter = res.header("Retry-After"),
+                effectiveUrl = res.request.url.toString()
+            )
         }
 
     private fun cookieHeaderFor(url: String): String? {
@@ -753,6 +760,11 @@ object DlhdResolver {
                     if (page.status == 429) markHostLimited(candidate, page.retryAfter)
                     continue
                 }
+                // Update entryOrigin from the actual (post-redirect) URL so that
+                // http:// base URLs that redirect to https:// get the correct origin.
+                val effectiveOrigin = page.effectiveUrl?.let {
+                    try { originOf(URL(it)) } catch (_: Exception) { null }
+                } ?: entryOrigin
                 val html = page.body.orEmpty()
                 if (html.isBlank()) continue
 
@@ -761,7 +773,7 @@ object DlhdResolver {
                 if (!seenIframes.add(iframeSrc)) continue
                 if (hostLimitedFor(iframeSrc) > 0) continue
 
-                val iframeHeaders = pageHeaders + mapOf("Referer" to candidate, "Origin" to entryOrigin)
+                val iframeHeaders = pageHeaders + mapOf("Referer" to candidate, "Origin" to effectiveOrigin)
                 val iframePage = fetchPage(iframeSrc, iframeHeaders, timeoutMs(CANDIDATE_TIMEOUT_MS))
                 if (iframePage.status != 200) {
                     Log.d(TAG, "iframe $iframeSrc returned ${iframePage.status}")
