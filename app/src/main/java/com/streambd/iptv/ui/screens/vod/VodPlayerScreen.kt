@@ -147,6 +147,22 @@ fun VodPlayerScreen(
                     playRef = currentPlayRef
                 )
             }
+
+            // [FIX] These token types must be handled by their resolver. If the resolver
+            // fails, do NOT fall through to the generic path below: it would hand the
+            // page/API URL to ExoPlayer ("Input does not start with the #EXTM3U header").
+            // Same rule as MediaResolver.mustUseResolver.
+            if (resolved == null) {
+                val tokenLower = stream.tokenUrl?.trim()?.lowercase().orEmpty()
+                val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
+                    tokenLower == "crichd" || tokenLower == "dlhd" ||
+                    Regex("""^[\\/]?\d+$""").matches(tokenLower)
+                if (mustUseResolver) {
+                    // Handled by the catch block below: resolveFailed = true + error log.
+                    throw IllegalStateException("Resolver failed for tokenUrl=$tokenLower")
+                }
+            }
+
             if (resolved == null) {
                 val rawSourceUrl = stream.url
                 val decodedUrl = try {
@@ -320,10 +336,10 @@ fun VodPlayerScreen(
                 val httpDataSourceFactory =
                     androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
 
-                // PngStrippingDataSource বাদ — সরাসরি DefaultDataSource.Factory ব্যবহার করা হচ্ছে
-                val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
-                    context, httpDataSourceFactory
-                )
+                // [FIX] PngStrippingDataSource removed: use DefaultDataSource.Factory directly
+                // (same as MediaResolver.buildMediaSource).
+                val dataSourceFactory =
+                    androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
                 val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
                 val mimeType = if (shouldWrapInMasterPlaylist ||
