@@ -252,8 +252,9 @@ object MediaResolver {
             // ---- Fall back to generic redirect / playlist sniffing ---------------
             if (resolved == null) {
                 val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
-                val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" || tokenLower == "crichd" ||
-                    Regex("""^[\\/]?\d+$""").matches(tokenLower)
+                val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
+    tokenLower == "crichd" || tokenLower == "dlhd" ||
+    Regex("""^[\\/]?\d+$""").matches(tokenLower)
                 // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
                 if (mustUseResolver) return@withContext null
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
