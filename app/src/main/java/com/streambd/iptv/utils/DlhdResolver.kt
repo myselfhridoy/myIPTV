@@ -415,10 +415,13 @@ object DlhdResolver {
 
     /**
      * Decodes a PNG whose pixel values encode raw MPEG-TS bytes.
-     * TikTok CDN (dlive.sx / dembed.top) stores TS data as RGB pixel values.
+     * TikTok CDN (dlive.sx / dembed.top) stores TS data encoded in pixel channels.
      *
-     * We first try RGB order (most common). If the decoded bytes don't start with
-     * the MPEG-TS sync byte (0x47), we fall back to BGRA order.
+     * Strategy:
+     *  1. Decode bitmap, extract candidate byte arrays in RGB, BGR, RGBA order.
+     *  2. For each candidate, search within the first 200 bytes for a 0x47 sync byte
+     *     confirmed by two more 0x47 bytes at offsets +188 and +376.
+     *  3. Return TS data starting from that sync position, trimmed to 188-byte boundary.
      */
     internal fun decodeRawPngToTs(b: ByteArray): ByteArray? {
         return try {
@@ -430,64 +433,51 @@ object DlhdResolver {
             val h = bitmap.height
             val pixels = IntArray(w * h)
             bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-            bitmap.recycle()  // recycle before any heavy work
+            bitmap.recycle()
 
-            fun extractRgb(): ByteArray {
-                val raw = ByteArray(pixels.size * 3)
-                var idx = 0
-                for (p in pixels) {
-                    raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
-                    raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
-                    raw[idx++] = ( p         and 0xFF).toByte() // B
+            val rgb  = ByteArray(pixels.size * 3)
+            val bgr  = ByteArray(pixels.size * 3)
+            val rgba = ByteArray(pixels.size * 4)
+            var i3 = 0; var i4 = 0
+            for (p in pixels) {
+                val a = ((p shr 24) and 0xFF).toByte()
+                val r = ((p shr 16) and 0xFF).toByte()
+                val g = ((p shr  8) and 0xFF).toByte()
+                val bv = (p         and 0xFF).toByte()
+                rgb[i3]   = r;  rgb[i3+1]  = g;  rgb[i3+2]  = bv
+                bgr[i3]   = bv; bgr[i3+1]  = g;  bgr[i3+2]  = r
+                rgba[i4]  = r;  rgba[i4+1] = g;  rgba[i4+2] = bv; rgba[i4+3] = a
+                i3 += 3; i4 += 4
+            }
+
+            fun findSyncOffset(data: ByteArray): Int {
+                if (data.size < 377) return -1
+                val limit = minOf(200, data.size - 377)
+                for (off in 0..limit) {
+                    if ((data[off].toInt() and 0xFF) == 0x47 &&
+                        (data[off + 188].toInt() and 0xFF) == 0x47 &&
+                        (data[off + 376].toInt() and 0xFF) == 0x47) {
+                        return off
+                    }
                 }
-                return raw
+                return -1
             }
 
-            fun extractBgr(): ByteArray {
-                val raw = ByteArray(pixels.size * 3)
-                var idx = 0
-                for (p in pixels) {
-                    raw[idx++] = ( p         and 0xFF).toByte() // B
-                    raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
-                    raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
-                }
-                return raw
-            }
-
-            fun trimToTsBoundary(raw: ByteArray): ByteArray? {
-                var end = raw.size
-                while (end > 0 && raw[end - 1] == 0.toByte()) end--
-                val tsEnd = (end / 188) * 188
-                return if (tsEnd > 0) raw.copyOf(tsEnd) else null
-            }
-
-            // Try RGB first; if first byte isn't TS sync (0x47), try BGR
-            val rgbRaw = extractRgb()
-            val isTsSync = (rgbRaw.isNotEmpty() && (rgbRaw[0].toInt() and 0xFF) == 0x47)
-
-            val raw = if (isTsSync) {
-                Log.d(TAG, "decodeRawPngToTs: ${w}x${h} PNG → RGB order, TS sync confirmed")
-                rgbRaw
-            } else {
-                Log.w(TAG, "decodeRawPngToTs: RGB first byte=0x%02x, trying BGR".format(rgbRaw.firstOrNull()?.toInt()?.and(0xFF) ?: -1))
-                val bgrRaw = extractBgr()
-                val bgrSync = bgrRaw.isNotEmpty() && (bgrRaw[0].toInt() and 0xFF) == 0x47
-                if (bgrSync) {
-                    Log.d(TAG, "decodeRawPngToTs: BGR order confirmed")
-                    bgrRaw
-                } else {
-                    Log.w(TAG, "decodeRawPngToTs: neither RGB nor BGR has TS sync byte, using RGB anyway")
-                    rgbRaw
+            val candidates = listOf("RGB" to rgb, "BGR" to bgr, "RGBA" to rgba)
+            for ((label, data) in candidates) {
+                val syncOff = findSyncOffset(data)
+                if (syncOff >= 0) {
+                    val end = syncOff + ((data.size - syncOff) / 188) * 188
+                    if (end > syncOff) {
+                        val result = data.copyOfRange(syncOff, end)
+                        Log.d(TAG, "decodeRawPngToTs: ${w}x${h} -> $label sync@$syncOff, ${result.size} TS bytes")
+                        return result
+                    }
                 }
             }
 
-            val result = trimToTsBoundary(raw)
-            if (result == null) {
-                Log.w(TAG, "decodeRawPngToTs: no TS packets found (pixels=${pixels.size})")
-            } else {
-                Log.d(TAG, "decodeRawPngToTs: ${w}x${h} → ${result.size} TS bytes (${pixels.size * 3 - result.size} pad trimmed)")
-            }
-            result
+            Log.w(TAG, "decodeRawPngToTs: no TS sync in ${w}x${h}; rgb[0..3]=${rgb.take(4).map{"%02x".format(it.toInt() and 0xFF)}} bgr[0..3]=${bgr.take(4).map{"%02x".format(it.toInt() and 0xFF)}}")
+            null
         } catch (e: Exception) {
             Log.e(TAG, "decodeRawPngToTs failed: ${e.message}")
             null
