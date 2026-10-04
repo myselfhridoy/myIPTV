@@ -38,7 +38,7 @@
 }
 -keep class *$$serializer { *; }
 
-# Keep Utils (AddonManager, Parsers) to prevent obfuscation breaking them
+# Keep Utils (AddonManager, Parsers, Resolvers) to prevent obfuscation breaking them
 -keep class com.streambd.iptv.utils.** { *; }
 
 # Room
@@ -59,3 +59,36 @@
 -dontwarn org.jsoup.**
 -keep class org.schabi.newpipe.extractor.** { *; }
 -keep class org.mozilla.javascript.** { *; }
+
+# OkHttp3 — CookieJar, Cookie, internal classes used by DlhdResolver
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keepnames class okhttp3.internal.** { *; }
+-dontwarn okhttp3.internal.**
+
+# OkIO
+-keep class okio.** { *; }
+-dontwarn okio.**
+
+# Media3 / ExoPlayer — DataSource, HLS, DRM
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+
+# Coil image loader
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# Kotlinx Coroutines — debug info for crash traces
+-keepnames class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.debug.**
+-keep class kotlinx.coroutines.android.** { *; }
+
+# Keep Enum values (used in models)
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Preserve line number info for crash reports (Firebase Crashlytics)
+-keepattributes SourceFile, LineNumberTable
+-renamesourcefileattribute SourceFile

@@ -290,8 +290,13 @@ object DlhdResolver {
             if (!segOk) return false
             var head = segHead ?: return false
 
-            // This CDN disguises segments as images (PNG container, TS payload after IEND).
-            // The player must strip it (PngStrippingDataSource); here we validate the payload.
+            // Some CDNs disguise segments as PNG images.
+            // Two sub-cases:
+            //   (a) PNG-wrapped TS: TS payload comes after IEND chunk.
+            //   (b) Raw PNG segments: no TS payload — the CDN directly serves PNG-encoded video
+            //       (e.g. TikTok CDN used by dlive.sx / dembed.top).
+            // In case (b) stripPng returns null because IEND is the last byte, but the stream
+            // IS alive (the web player handles it natively). We must not reject it.
             if (isPng(head)) {
                 pngOut?.set(0, true)
                 val big: ByteArray = clientFor(t(8_000))
@@ -303,10 +308,14 @@ object DlhdResolver {
                     } ?: return false
                 val payload = stripPng(big)
                 if (payload == null) {
-                    Log.w(TAG, "segment $segment is PNG-wrapped; IEND not in first 256KB, payload unverified")
+                    // Case (b): raw PNG segments — treat stream as alive but mark pngOut=false
+                    // so we DON'T wrap in our proxy (which would try to strip a non-existent TS
+                    // payload). The player will receive the m3u8 with direct headers.
+                    pngOut?.set(0, false)
+                    Log.w(TAG, "segment $segment is raw PNG (no TS after IEND); stream alive, skipping proxy")
                     return true
                 }
-                Log.d(TAG, "segment $segment is PNG-wrapped, payload starts at byte ${big.size - payload.size}")
+                Log.d(TAG, "segment $segment is PNG-wrapped TS, payload starts at byte ${big.size - payload.size}")
                 head = payload
             }
 
@@ -619,7 +628,14 @@ object DlhdResolver {
         extraHeaders: Map<String, String>?
     ): Extracted? = withContext(Dispatchers.IO) {
         val entryOrigin = try { originOf(URL(baseUrl)) } catch (_: Exception) { return@withContext null }
-        val playerUrls = PLAYER_PATHS.map { "$entryOrigin/$it/stream-$channelId.php" }
+        // If baseUrl is already a direct page URL (e.g. watch.php?id=346), try it first.
+        // Then fall back to the generic PLAYER_PATHS pattern.
+        val genericPaths = PLAYER_PATHS.map { "$entryOrigin/$it/stream-$channelId.php" }
+        val playerUrls: List<String> = if (baseUrl != "$entryOrigin/" && !genericPaths.contains(baseUrl)) {
+            listOf(baseUrl) + genericPaths
+        } else {
+            genericPaths
+        }
 
         val deadline = now() + EXTRACT_BUDGET_MS
         fun remaining() = deadline - now()
