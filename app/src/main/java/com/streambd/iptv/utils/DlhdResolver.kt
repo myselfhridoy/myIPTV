@@ -1,5 +1,7 @@
 package com.streambd.iptv.utils
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
@@ -308,12 +310,11 @@ object DlhdResolver {
                     } ?: return false
                 val payload = stripPng(big)
                 if (payload == null) {
-                    // Case (b): raw PNG segments — treat stream as alive but mark pngOut=false
-                    // so we DON'T wrap in our proxy (which would try to strip a non-existent TS
-                    // payload). The player will receive the m3u8 with direct headers.
-                    pngOut?.set(0, false)
-                    Log.w(TAG, "segment $segment is raw PNG (no TS after IEND); stream alive, skipping proxy")
-                    return true
+                    // Case (b): PNG pixel-encoded TS (TikTok CDN style — no IEND append,
+                    // TS bytes stored as RGB pixel values). Keep pngOut=true so the proxy
+                    // decodes pixels → TS before handing to ExoPlayer.
+                    Log.w(TAG, "segment $segment is pixel-encoded PNG (TikTok CDN); routing via proxy decoder")
+                    return true  // pngOut already true from above
                 }
                 Log.d(TAG, "segment $segment is PNG-wrapped TS, payload starts at byte ${big.size - payload.size}")
                 head = payload
@@ -403,6 +404,49 @@ object DlhdResolver {
             pos += 12 + len
         }
         return null
+    }
+
+    /**
+     * Decodes a PNG whose pixel RGB values encode raw MPEG-TS bytes.
+     * Used by TikTok CDN segments (dlive.sx / dembed.top):
+     *   pixel[i].R = ts[i*3+0]
+     *   pixel[i].G = ts[i*3+1]
+     *   pixel[i].B = ts[i*3+2]
+     * Trailing zero-padding (to fill the last PNG row) is trimmed to the
+     * nearest MPEG-TS packet boundary (188 bytes).
+     */
+    internal fun decodeRawPngToTs(b: ByteArray): ByteArray? {
+        return try {
+            val opts = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val bitmap = BitmapFactory.decodeByteArray(b, 0, b.size, opts) ?: return null
+            val w = bitmap.width
+            val h = bitmap.height
+            val pixels = IntArray(w * h)
+            bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+            bitmap.recycle()
+            val raw = ByteArray(pixels.size * 3)
+            var idx = 0
+            for (p in pixels) {
+                raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
+                raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
+                raw[idx++] = ( p         and 0xFF).toByte() // B
+            }
+            // Trim trailing null padding; snap to MPEG-TS packet boundary
+            var end = raw.size
+            while (end > 0 && raw[end - 1] == 0.toByte()) end--
+            val tsEnd = (end / 188) * 188
+            if (tsEnd <= 0) {
+                Log.w(TAG, "decodeRawPngToTs: no TS packets found (pixels=${pixels.size})")
+                return null
+            }
+            Log.d(TAG, "decodeRawPngToTs: ${bitmap.width}x${h} PNG → $tsEnd TS bytes (${pixels.size * 3 - tsEnd} pad trimmed)")
+            raw.copyOf(tsEnd)
+        } catch (e: Exception) {
+            Log.e(TAG, "decodeRawPngToTs failed: ${e.message}")
+            null
+        }
     }
 
     private fun describeBytes(b: ByteArray): String {
@@ -601,12 +645,18 @@ object DlhdResolver {
                     } else {
                         var data = res.body?.bytes() ?: ByteArray(0)
                         if (isPng(data)) {
-                            val payload = stripPng(data)
-                            if (payload == null) {
-                                Log.w(TAG, "proxy: PNG without IEND from $upstreamUrl")
-                                proxyReply(out, 502, "text/plain", ByteArray(0)); return
+                            val tsFromIend = stripPng(data)
+                            data = if (tsFromIend != null && tsFromIend.isNotEmpty()) {
+                                // Case A: classic TS-after-IEND wrapper
+                                tsFromIend
+                            } else {
+                                // Case B: TikTok CDN pixel-encoded TS (RGB pixels → TS bytes)
+                                decodeRawPngToTs(data) ?: run {
+                                    Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
+                                    proxyReply(out, 502, "text/plain", ByteArray(0))
+                                    return
+                                }
                             }
-                            data = payload
                         }
                         val type = when {
                             kind.endsWith(".key") -> "application/octet-stream"
