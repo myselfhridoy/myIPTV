@@ -407,13 +407,11 @@ object DlhdResolver {
     }
 
     /**
-     * Decodes a PNG whose pixel RGB values encode raw MPEG-TS bytes.
-     * Used by TikTok CDN segments (dlive.sx / dembed.top):
-     *   pixel[i].R = ts[i*3+0]
-     *   pixel[i].G = ts[i*3+1]
-     *   pixel[i].B = ts[i*3+2]
-     * Trailing zero-padding (to fill the last PNG row) is trimmed to the
-     * nearest MPEG-TS packet boundary (188 bytes).
+     * Decodes a PNG whose pixel values encode raw MPEG-TS bytes.
+     * TikTok CDN (dlive.sx / dembed.top) stores TS data as RGB pixel values.
+     *
+     * We first try RGB order (most common). If the decoded bytes don't start with
+     * the MPEG-TS sync byte (0x47), we fall back to BGRA order.
      */
     internal fun decodeRawPngToTs(b: ByteArray): ByteArray? {
         return try {
@@ -425,24 +423,64 @@ object DlhdResolver {
             val h = bitmap.height
             val pixels = IntArray(w * h)
             bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-            bitmap.recycle()
-            val raw = ByteArray(pixels.size * 3)
-            var idx = 0
-            for (p in pixels) {
-                raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
-                raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
-                raw[idx++] = ( p         and 0xFF).toByte() // B
+            bitmap.recycle()  // recycle before any heavy work
+
+            fun extractRgb(): ByteArray {
+                val raw = ByteArray(pixels.size * 3)
+                var idx = 0
+                for (p in pixels) {
+                    raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
+                    raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
+                    raw[idx++] = ( p         and 0xFF).toByte() // B
+                }
+                return raw
             }
-            // Trim trailing null padding; snap to MPEG-TS packet boundary
-            var end = raw.size
-            while (end > 0 && raw[end - 1] == 0.toByte()) end--
-            val tsEnd = (end / 188) * 188
-            if (tsEnd <= 0) {
+
+            fun extractBgr(): ByteArray {
+                val raw = ByteArray(pixels.size * 3)
+                var idx = 0
+                for (p in pixels) {
+                    raw[idx++] = ( p         and 0xFF).toByte() // B
+                    raw[idx++] = ((p shr  8) and 0xFF).toByte() // G
+                    raw[idx++] = ((p shr 16) and 0xFF).toByte() // R
+                }
+                return raw
+            }
+
+            fun trimToTsBoundary(raw: ByteArray): ByteArray? {
+                var end = raw.size
+                while (end > 0 && raw[end - 1] == 0.toByte()) end--
+                val tsEnd = (end / 188) * 188
+                return if (tsEnd > 0) raw.copyOf(tsEnd) else null
+            }
+
+            // Try RGB first; if first byte isn't TS sync (0x47), try BGR
+            val rgbRaw = extractRgb()
+            val isTsSync = (rgbRaw.isNotEmpty() && (rgbRaw[0].toInt() and 0xFF) == 0x47)
+
+            val raw = if (isTsSync) {
+                Log.d(TAG, "decodeRawPngToTs: ${w}x${h} PNG → RGB order, TS sync confirmed")
+                rgbRaw
+            } else {
+                Log.w(TAG, "decodeRawPngToTs: RGB first byte=0x%02x, trying BGR".format(rgbRaw.firstOrNull()?.toInt()?.and(0xFF) ?: -1))
+                val bgrRaw = extractBgr()
+                val bgrSync = bgrRaw.isNotEmpty() && (bgrRaw[0].toInt() and 0xFF) == 0x47
+                if (bgrSync) {
+                    Log.d(TAG, "decodeRawPngToTs: BGR order confirmed")
+                    bgrRaw
+                } else {
+                    Log.w(TAG, "decodeRawPngToTs: neither RGB nor BGR has TS sync byte, using RGB anyway")
+                    rgbRaw
+                }
+            }
+
+            val result = trimToTsBoundary(raw)
+            if (result == null) {
                 Log.w(TAG, "decodeRawPngToTs: no TS packets found (pixels=${pixels.size})")
-                return null
+            } else {
+                Log.d(TAG, "decodeRawPngToTs: ${w}x${h} → ${result.size} TS bytes (${pixels.size * 3 - result.size} pad trimmed)")
             }
-            Log.d(TAG, "decodeRawPngToTs: ${bitmap.width}x${h} PNG → $tsEnd TS bytes (${pixels.size * 3 - tsEnd} pad trimmed)")
-            raw.copyOf(tsEnd)
+            result
         } catch (e: Exception) {
             Log.e(TAG, "decodeRawPngToTs failed: ${e.message}")
             null
