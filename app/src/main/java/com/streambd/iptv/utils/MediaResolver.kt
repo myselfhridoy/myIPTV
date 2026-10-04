@@ -105,14 +105,15 @@ object MediaResolver {
     // Max bytes read when sniffing a response body. Playlists / JSON are small; this
     // stops a live stream that reports a text-like content type from being read forever.
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
-    /** Stalker MAC প্যারামিটার: ?mac=00:1A:79:46:06:F3 (কোলন, %3A বা ড্যাশ চলবে) */
-private val STALKER_MAC_REGEX = Regex(
-    "[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)",
-    RegexOption.IGNORE_CASE
-)
 
-fun isStalkerMacUrl(url: String?): Boolean =
-    !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
+    /** Stalker MAC প্যারামিটার: ?mac=00:1A:79:46:06:F3 (কোলন, %3A বা ড্যাশ চলবে) */
+    private val STALKER_MAC_REGEX = Regex(
+        "[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun isStalkerMacUrl(url: String?): Boolean =
+        !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
 
     // Use a single OkHttpClient instance for better performance and resource management.
     val sharedOkHttpClient: OkHttpClient by lazy {
@@ -250,13 +251,13 @@ fun isStalkerMacUrl(url: String?): Boolean =
 
             // ---- Fall back to generic redirect / playlist sniffing ---------------
             if (resolved == null) {
-    val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
-    val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" || tokenLower == "crichd" ||
-        Regex("""^[\\/]?\d+$""").matches(tokenLower)
-    // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
-    if (mustUseResolver) return@withContext null
-    resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
-}
+                val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
+                val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" || tokenLower == "crichd" ||
+                    Regex("""^[\\/]?\d+$""").matches(tokenLower)
+                // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
+                if (mustUseResolver) return@withContext null
+                resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
+            }
 
             var finalUrl = resolved?.url ?: rawSourceUrl
             val rawFinalHeaders = resolved?.headers ?: initialHeaders
@@ -315,12 +316,12 @@ fun isStalkerMacUrl(url: String?): Boolean =
             }
 
             val pathOnly = finalUrl.substringBefore("?").substringBefore("#").lowercase()
-if (!finalUrl.startsWith("data:", ignoreCase = true) &&
-    !pathOnly.contains(".m3u8") && !pathOnly.contains(".mpd") &&
-    (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts"))
-) {
-    mimeType = MimeTypes.VIDEO_MP2T
-}
+            if (!finalUrl.startsWith("data:", ignoreCase = true) &&
+                !pathOnly.contains(".m3u8") && !pathOnly.contains(".mpd") &&
+                (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts"))
+            ) {
+                mimeType = MimeTypes.VIDEO_MP2T
+            }
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
@@ -500,21 +501,20 @@ if (!finalUrl.startsWith("data:", ignoreCase = true) &&
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setDefaultRequestProperties(finalHeaders)
-        val baseDataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-val dataSourceFactory = androidx.media3.datasource.DataSource.Factory {
-    PngStrippingDataSource(baseDataSourceFactory.createDataSource())
-}
+
+        // PngStrippingDataSource বাদ — সরাসরি DefaultDataSource.Factory ব্যবহার করা হচ্ছে
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-    .setTargetOffsetMs(20000)
-    .setMinOffsetMs(10000)
-    .setMaxOffsetMs(60000)
-    .setMinPlaybackSpeed(1f)
-    .setMaxPlaybackSpeed(1f)
-    .build()
+            .setTargetOffsetMs(20000)
+            .setMinOffsetMs(10000)
+            .setMaxOffsetMs(60000)
+            .setMinPlaybackSpeed(1f)
+            .setMaxPlaybackSpeed(1f)
+            .build()
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
