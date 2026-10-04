@@ -28,6 +28,16 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.io.OutputStream
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.util.concurrent.Executors
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -221,7 +231,12 @@ object DlhdResolver {
      * master -> variant -> first segment (first bytes only) -> AES key.
      * A manifest-only check would accept players whose segments 403.
      */
-    private suspend fun isStreamAlive(url: String, headers: Map<String, String>, budgetMs: Long): Boolean {
+    private suspend fun isStreamAlive(
+        url: String,
+        headers: Map<String, String>,
+        budgetMs: Long,
+        pngOut: BooleanArray? = null
+    ): Boolean {
         fun t(default: Long) = maxOf(1_000L, minOf(default, budgetMs))
         return try {
             val master = fetchPage(url, headers, t(10_000))
@@ -262,32 +277,81 @@ object DlhdResolver {
                 return false
             }
             val probeHeaders = headers + ("Range" to "bytes=0-1023")
+            var segHead: ByteArray? = null
             val segOk = clientFor(t(8_000)).newCall(buildRequest(segment, probeHeaders)).await().use { res ->
                 val ok = res.code == 200 || res.code == 206
                 if (ok) {
-                    try { res.peekBody(4096) } catch (_: Exception) {}
+                    segHead = try { res.peekBody(1024).bytes() } catch (_: Exception) { null }
                 } else {
                     Log.d(TAG, "segment probe of $segment -> HTTP ${res.code}")
                 }
                 ok
             }
             if (!segOk) return false
+            var head = segHead ?: return false
 
-            val keyMatch = Regex("#EXT-X-KEY:[^\\n]*URI=\"([^\"]+)\"").find(currentBody)
-            if (keyMatch != null) {
-                val keyUrl = inheritQueryIfMissing(join(currentUrl, keyMatch.groupValues[1]), currentUrl)
-                try {
-                    val code = clientFor(t(8_000)).newCall(buildRequest(keyUrl, headers)).await().use { it.code }
-                    if (code != 200) {
-                        Log.d(TAG, "key probe of $keyUrl -> HTTP $code")
-                        return false
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.d(TAG, "key probe of $keyUrl failed: ${e.message}")
+            // This CDN disguises segments as images (PNG container, TS payload after IEND).
+            // The player must strip it (PngStrippingDataSource); here we validate the payload.
+            if (isPng(head)) {
+                pngOut?.set(0, true)
+                val big: ByteArray = clientFor(t(8_000))
+                    .newCall(buildRequest(segment, headers + ("Range" to "bytes=0-262143")))
+                    .await().use { res ->
+                        if (res.code == 200 || res.code == 206) {
+                            try { res.peekBody(262144).bytes() } catch (_: Exception) { null }
+                        } else null
+                    } ?: return false
+                val payload = stripPng(big)
+                if (payload == null) {
+                    Log.w(TAG, "segment $segment is PNG-wrapped; IEND not in first 256KB, payload unverified")
+                    return true
+                }
+                Log.d(TAG, "segment $segment is PNG-wrapped, payload starts at byte ${big.size - payload.size}")
+                head = payload
+            }
+
+            val keyTag = Regex("#EXT-X-KEY:([^\\n]*)").find(currentBody)?.groupValues?.get(1)
+            val keyUri = keyTag?.let { Regex("URI=\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
+            val encrypted = keyTag != null && keyUri != null && keyTag.contains("METHOD=AES-128")
+
+            if (!encrypted) {
+                if (!looksLikeMediaChunk(head)) {
+                    Log.w(TAG, "segment $segment is not media: ${describeBytes(head)}")
                     return false
                 }
+                return true
+            }
+
+            // Encrypted: fetch the key and decrypt the first block ourselves.
+            val keyUrl = inheritQueryIfMissing(join(currentUrl, keyUri!!), currentUrl)
+            val keyBytes: ByteArray? = clientFor(t(8_000)).newCall(buildRequest(keyUrl, headers)).await().use { res ->
+                if (res.code == 200) res.body?.bytes() else {
+                    Log.d(TAG, "key probe of $keyUrl -> HTTP ${res.code}")
+                    null
+                }
+            }
+            if (keyBytes == null || keyBytes.size != 16) {
+                Log.w(TAG, "key from $keyUrl invalid (size=${keyBytes?.size})")
+                return false
+            }
+            if (head.size < 16) return false
+
+            val iv = ByteArray(16)
+            val ivHex = Regex("IV=0x([0-9A-Fa-f]+)").find(keyTag!!)?.groupValues?.get(1)
+            if (ivHex != null) {
+                val raw = ivHex.padStart(32, '0').takeLast(32)
+                for (i in 0 until 16) iv[i] = raw.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            } else {
+                var seq = Regex("#EXT-X-MEDIA-SEQUENCE:(\\d+)").find(currentBody)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                for (i in 15 downTo 8) { iv[i] = (seq and 0xFF).toByte(); seq = seq shr 8 }
+            }
+            val firstBlock = Cipher.getInstance("AES/CBC/NoPadding").run {
+                init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), IvParameterSpec(iv))
+                doFinal(head, 0, 16)
+            }
+            if (!looksLikeMediaChunk(firstBlock)) {
+                Log.w(TAG, "segment $segment decrypts to garbage with key $keyUrl: ${describeBytes(firstBlock)}")
+                return false
             }
             true
         } catch (e: CancellationException) {
@@ -296,6 +360,52 @@ object DlhdResolver {
             Log.d(TAG, "validation of $url failed: ${e.message}")
             false
         }
+    }
+
+    // ----------------------------------------------------- chunk sniffing
+
+    /** MPEG-TS (0x47 sync), fMP4 (ftyp/styp/moof), or raw audio (ADTS / ID3). */
+    private fun looksLikeMediaChunk(b: ByteArray): Boolean {
+        if (b.size < 8) return false
+        if (b[0] == 0x47.toByte() && (b.size <= 188 || b[188] == 0x47.toByte())) return true
+        val box = String(b, 4, 4, Charsets.ISO_8859_1)
+        if (box == "ftyp" || box == "styp" || box == "moof" || box == "mdat") return true
+        if (b[0] == 'I'.code.toByte() && b[1] == 'D'.code.toByte() && b[2] == '3'.code.toByte()) return true
+        if ((b[0].toInt() and 0xFF) == 0xFF && (b[1].toInt() and 0xF0) == 0xF0) return true
+        return false
+    }
+
+    private fun isPng(b: ByteArray): Boolean =
+        b.size >= 8 && (b[0].toInt() and 0xFF) == 0x89 &&
+            b[1] == 'P'.code.toByte() && b[2] == 'N'.code.toByte() && b[3] == 'G'.code.toByte()
+
+    /** Walks PNG chunks and returns the bytes after IEND (+CRC), or null if IEND isn't in [b]. */
+    private fun stripPng(b: ByteArray): ByteArray? {
+        var pos = 8
+        while (pos + 12 <= b.size) {
+            val len = ((b[pos].toInt() and 0xFF) shl 24) or ((b[pos + 1].toInt() and 0xFF) shl 16) or
+                ((b[pos + 2].toInt() and 0xFF) shl 8) or (b[pos + 3].toInt() and 0xFF)
+            if (len < 0) return null
+            val type = String(b, pos + 4, 4, Charsets.ISO_8859_1)
+            if (type == "IEND") {
+                val start = pos + 12
+                return if (start < b.size) b.copyOfRange(start, b.size) else null
+            }
+            pos += 12 + len
+        }
+        return null
+    }
+
+    private fun describeBytes(b: ByteArray): String {
+        val n = minOf(b.size, 8)
+        val hex = (0 until n).joinToString(" ") { "%02x".format(b[it]) }
+        val kind = when {
+            b.size >= 4 && (b[0].toInt() and 0xFF) == 0x89 && b[1] == 'P'.code.toByte() -> "PNG-wrapped"
+            b.isNotEmpty() && (b[0] == '<'.code.toByte() || b[0] == '{'.code.toByte()) ->
+                "text/html: " + String(b, 0, minOf(b.size, 40), Charsets.ISO_8859_1).replace('\n', ' ')
+            else -> "unknown"
+        }
+        return "$kind [$hex]"
     }
 
     // ------------------------------------------------------- HTML extraction
@@ -345,10 +455,163 @@ object DlhdResolver {
     private fun buildToken(streamUrl: String, playbackHeaders: Map<String, String>): ResolvedToken {
         val cookie = cookieHeaderFor(streamUrl)
         val hdrs = if (cookie != null) playbackHeaders + ("Cookie" to cookie) else playbackHeaders
-        return ResolvedToken(url = streamUrl, headers = hdrs, mimeType = TokenParser.detectMimeType(streamUrl))
+        // Every extraction path here targets an HLS playlist (validated as #EXTM3U).
+        // Without an explicit type, extensionless URLs are treated as progressive
+        // by ExoPlayer -> "None of the available extractors could read the stream".
+        val mime = TokenParser.detectMimeType(streamUrl) ?: androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        return ResolvedToken(url = streamUrl, headers = hdrs, mimeType = mime)
     }
 
     // ---------------------------------------------------------- extraction
+
+    // ------------------------------------------------ local PNG-stripping proxy
+    //
+    // Some CDNs serve segments as PNG "images" with the TS payload after IEND.
+    // Instead of touching the player's data source, the stream is exposed through a tiny
+    // loopback HTTP server: playlists are rewritten to point back here, and segments/keys
+    // are fetched with our own headers + cookies, returned with the PNG part removed.
+    // NOTE: needs cleartext HTTP to 127.0.0.1 to be allowed by the app.
+
+    private val proxyLock = Any()
+    private var proxySocket: ServerSocket? = null
+    private val proxyPool = Executors.newCachedThreadPool { r ->
+        Thread(r, "dlhd-proxy").apply { isDaemon = true }
+    }
+    private val proxySessions = ConcurrentHashMap<String, Map<String, String>>()
+
+    private fun ensureProxy(): Int {
+        synchronized(proxyLock) {
+            val existing = proxySocket
+            if (existing != null && !existing.isClosed) return existing.localPort
+            val ss = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+            proxySocket = ss
+            Thread({
+                while (!ss.isClosed) {
+                    try {
+                        val s = ss.accept()
+                        proxyPool.execute { handleProxyClient(s) }
+                    } catch (e: Exception) {
+                        if (ss.isClosed) break
+                    }
+                }
+            }, "dlhd-proxy-accept").apply { isDaemon = true; start() }
+            Log.i(TAG, "local proxy listening on 127.0.0.1:${ss.localPort}")
+            return ss.localPort
+        }
+    }
+
+    private fun buildProxiedToken(streamUrl: String, playbackHeaders: Map<String, String>): ResolvedToken {
+        val port = ensureProxy()
+        // Stable per stream path, so refreshed tokens reuse the same session id.
+        val id = Integer.toHexString(streamUrl.substringBefore("?").hashCode())
+        proxySessions[id] = playbackHeaders
+        val url = "http://127.0.0.1:$port/p/$id/index.m3u8?u=${URLEncoder.encode(streamUrl, "UTF-8")}"
+        return ResolvedToken(
+            url = url,
+            headers = mapOf("User-Agent" to USER_AGENT),
+            mimeType = androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        )
+    }
+
+    private fun proxyReply(out: OutputStream, code: Int, type: String, body: ByteArray) {
+        val reason = if (code == 200) "OK" else "Error"
+        out.write(
+            ("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\n" +
+                "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n")
+                .toByteArray(Charsets.ISO_8859_1)
+        )
+        out.write(body)
+        out.flush()
+    }
+
+    private fun rewritePlaylist(text: String, base: String, port: Int, id: String): String {
+        fun local(kind: String, target: String): String {
+            val abs = inheritQueryIfMissing(join(base, target), base)
+            return "http://127.0.0.1:$port/p/$id/$kind?u=${URLEncoder.encode(abs, "UTF-8")}"
+        }
+        val uriAttr = Regex("URI=\"([^\"]+)\"")
+        return text.lineSequence().joinToString("\n") { raw ->
+            val line = raw.trim()
+            when {
+                line.isEmpty() -> raw
+                line.startsWith("#") -> {
+                    val kind = when {
+                        line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-SESSION-KEY") -> "k.key"
+                        line.startsWith("#EXT-X-MAP") -> "m.mp4"
+                        line.startsWith("#EXT-X-MEDIA") -> "v.m3u8"
+                        else -> null
+                    }
+                    if (kind == null) raw
+                    else uriAttr.replace(line) { m -> "URI=\"" + local(kind, m.groupValues[1]) + "\"" }
+                }
+                else -> {
+                    val path = line.substringBefore("?").substringBefore("#").lowercase()
+                    local(if (path.endsWith(".m3u8")) "v.m3u8" else "s.ts", line)
+                }
+            }
+        }
+    }
+
+    private fun handleProxyClient(sock: Socket) {
+        try {
+            sock.use {
+                sock.soTimeout = 20_000
+                val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+                val requestLine = reader.readLine() ?: return
+                while (true) {
+                    val l = reader.readLine() ?: break
+                    if (l.isEmpty()) break
+                }
+                val out = sock.getOutputStream().buffered()
+
+                val target = requestLine.split(" ").getOrNull(1)
+                if (target == null) {
+                    proxyReply(out, 400, "text/plain", ByteArray(0)); return
+                }
+                val segs = target.substringBefore("?").split("/").filter { it.isNotEmpty() }
+                val id = segs.getOrNull(1)
+                val kind = segs.getOrNull(2).orEmpty()
+                val upstreamUrl = target.substringAfter("?", "").split("&")
+                    .firstOrNull { it.startsWith("u=") }
+                    ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
+                val headers = id?.let { proxySessions[it] }
+                if (segs.firstOrNull() != "p" || headers == null || upstreamUrl == null) {
+                    proxyReply(out, 404, "text/plain", ByteArray(0)); return
+                }
+
+                clientFor(15_000).newCall(buildRequest(upstreamUrl, headers)).execute().use { res ->
+                    if (!res.isSuccessful) {
+                        Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
+                        proxyReply(out, if (res.code in 400..599) res.code else 502, "text/plain", ByteArray(0))
+                        return
+                    }
+                    if (kind.endsWith(".m3u8")) {
+                        val text = res.body?.string().orEmpty()
+                        val rewritten = rewritePlaylist(text, res.request.url.toString(), sock.localPort, id!!)
+                        proxyReply(out, 200, "application/vnd.apple.mpegurl", rewritten.toByteArray(Charsets.UTF_8))
+                    } else {
+                        var data = res.body?.bytes() ?: ByteArray(0)
+                        if (isPng(data)) {
+                            val payload = stripPng(data)
+                            if (payload == null) {
+                                Log.w(TAG, "proxy: PNG without IEND from $upstreamUrl")
+                                proxyReply(out, 502, "text/plain", ByteArray(0)); return
+                            }
+                            data = payload
+                        }
+                        val type = when {
+                            kind.endsWith(".key") -> "application/octet-stream"
+                            kind.endsWith(".mp4") -> "video/mp4"
+                            else -> "video/mp2t"
+                        }
+                        proxyReply(out, 200, type, data)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "proxy client error: ${e.message}")
+        }
+    }
 
     private suspend fun extractImpl(
         baseUrl: String,
@@ -419,9 +682,12 @@ object DlhdResolver {
 
                 if (firstFallback == null) firstFallback = streamUrl to playbackHeaders
 
-                if (isStreamAlive(streamUrl, playbackHeaders, remaining())) {
-                    Log.i(TAG, "working stream found via $candidate")
-                    return@withContext Extracted(buildToken(streamUrl, playbackHeaders), validated = true)
+                val pngFlag = BooleanArray(1)
+                if (isStreamAlive(streamUrl, playbackHeaders, remaining(), pngFlag)) {
+                    Log.i(TAG, "working stream found via $candidate (png=${pngFlag[0]})")
+                    val token = if (pngFlag[0]) buildProxiedToken(streamUrl, playbackHeaders)
+                                else buildToken(streamUrl, playbackHeaders)
+                    return@withContext Extracted(token, validated = true)
                 }
                 Log.i(TAG, "stream from $candidate is dead, trying next player")
             } catch (e: CancellationException) {
