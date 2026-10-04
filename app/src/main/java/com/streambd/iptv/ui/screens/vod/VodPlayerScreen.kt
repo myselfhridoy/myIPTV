@@ -319,13 +319,11 @@ fun VodPlayerScreen(
 
                 val httpDataSourceFactory =
                     androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-                val baseDataSourceFactory =
-                    androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
-                val dataSourceFactory = androidx.media3.datasource.DataSource.Factory {
-                    com.streambd.iptv.utils.PngStrippingDataSource(
-                        baseDataSourceFactory.createDataSource()
-                    )
-                }
+
+                // PngStrippingDataSource বাদ — সরাসরি DefaultDataSource.Factory ব্যবহার করা হচ্ছে
+                val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+                    context, httpDataSourceFactory
+                )
 
                 val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
                 val mimeType = if (shouldWrapInMasterPlaylist ||
