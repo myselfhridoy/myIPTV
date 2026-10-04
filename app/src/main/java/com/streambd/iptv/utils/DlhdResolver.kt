@@ -245,8 +245,8 @@ object DlhdResolver {
                 return false
             }
             val masterBody = master.body ?: return false
-            val head = masterBody.take(8000)
-            if (!head.contains("#EXTM3U") && !head.contains("#EXT-X-")) {
+            val masterHead = masterBody.take(8000)
+            if (!masterHead.contains("#EXTM3U") && !masterHead.contains("#EXT-X-")) {
                 Log.d(TAG, "validation of $url -> not a playlist")
                 return false
             }
