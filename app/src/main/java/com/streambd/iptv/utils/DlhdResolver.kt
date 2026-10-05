@@ -682,97 +682,98 @@ object DlhdResolver {
         }
     }
 
-    private fun handleProxyClient(sock: Socket) {
-        try {
-            sock.use {
-                sock.soTimeout = 20_000
-                val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
-                val requestLine = reader.readLine() ?: return
+private fun handleProxyClient(sock: Socket) {
+    try {
+        sock.use {
+            sock.soTimeout = 20_000
+            val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+            val requestLine = reader.readLine() ?: return
 
-                // Parse incoming headers (so we can forward Range)
-                val inHeaders = mutableMapOf<String, String>()
-                while (true) {
-                    val l = reader.readLine() ?: break
-                    if (l.isEmpty()) break
-                    val idx = l.indexOf(':')
-                    if (idx > 0) {
-                        inHeaders[l.substring(0, idx).trim().lowercase()] =
-                            l.substring(idx + 1).trim()
-                    }
-                }
-                val out = sock.getOutputStream().buffered()
-
-                val target = requestLine.split(" ").getOrNull(1)
-                if (target == null) {
-                    proxyReply(out, 400, "text/plain", ByteArray(0)); return
-                }
-                val segs = target.substringBefore("?").split("/").filter { it.isNotEmpty() }
-                val id = segs.getOrNull(1)
-                val kind = segs.getOrNull(2).orEmpty()
-                val upstreamUrl = target.substringAfter("?", "").split("&")
-                    .firstOrNull { it.startsWith("u=") }
-                    ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
-                val sessionHeaders = id?.let { proxySessions[it] }
-                if (segs.firstOrNull() != "p" || sessionHeaders == null || upstreamUrl == null) {
-                    proxyReply(out, 404, "text/plain", ByteArray(0)); return
-                }
-
-                // Forward Range if client requested one
-                var hdrs = sessionHeaders
-                inHeaders["range"]?.let { r -> hdrs = hdrs + ("Range" to r) }
-
-                clientFor(15_000).newCall(buildRequest(upstreamUrl, hdrs)).execute().use { res ->
-                    if (!res.isSuccessful) {
-                        Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
-                        proxyReply(
-                            out,
-                            if (res.code in 400..599) res.code else 502,
-                            "text/plain",
-                            ByteArray(0)
-                        )
-                        return
-                    }
-                    if (kind.endsWith(".m3u8")) {
-                        val text = res.body?.string().orEmpty()
-                        val rewritten = rewritePlaylist(
-                            text,
-                            res.request.url.toString(),
-                            sock.localPort,
-                            id!!
-                        )
-                        proxyReply(
-                            out, 200, "application/vnd.apple.mpegurl",
-                            rewritten.toByteArray(Charsets.UTF_8)
-                        )
-                    } else {
-                        var data = res.body?.bytes() ?: ByteArray(0)
-                        if (isPng(data)) {
-                            val fromIend = stripPng(data)
-                            data = if (fromIend != null && fromIend.isNotEmpty()) {
-                                fromIend
-                            } else {
-                                decodeRawPngToTs(data) ?: run {
-                                    Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
-                                    proxyReply(out, 502, "text/plain", ByteArray(0))
-                                    return
-                                }
-                            }
-                        }
-                        val type = when {
-                            kind.endsWith(".key") -> "application/octet-stream"
-                            kind.endsWith(".mp4") -> "video/mp4"
-                            else -> "video/mp2t"
-                        }
-                        val status = if (res.code in 200..299) res.code else 200
-                        val rangeHdr = res.header("Content-Range")
-                        proxyReply(out, status, type, data, rangeHdr)
-                    }
+            // Parse incoming headers (so we can forward Range)
+            val inHeaders = mutableMapOf<String, String>()
+            while (true) {
+                val l = reader.readLine() ?: break
+                if (l.isEmpty()) break
+                val idx = l.indexOf(':')
+                if (idx > 0) {
+                    inHeaders[l.substring(0, idx).trim().lowercase()] =
+                        l.substring(idx + 1).trim()
                 }
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "proxy client error: ${e.message}")
+            val out = sock.getOutputStream().buffered()
+
+            val target = requestLine.split(" ").getOrNull(1)
+            if (target == null) {
+                proxyReply(out, 400, "text/plain", ByteArray(0)); return
+            }
+            val segs = target.substringBefore("?").split("/").filter { it.isNotEmpty() }
+            val id = segs.getOrNull(1)
+            val kind = segs.getOrNull(2).orEmpty()
+            val upstreamUrl = target.substringAfter("?", "").split("&")
+                .firstOrNull { it.startsWith("u=") }
+                ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
+            val sessionHeaders = id?.let { proxySessions[it] }
+            if (segs.firstOrNull() != "p" || sessionHeaders == null || upstreamUrl == null) {
+                proxyReply(out, 404, "text/plain", ByteArray(0)); return
+            }
+
+            // ← FIX: use val (not var) so Kotlin can smart-cast inside the lambda
+            val hdrs: Map<String, String> = inHeaders["range"]?.let { r ->
+                sessionHeaders + ("Range" to r)
+            } ?: sessionHeaders
+
+            clientFor(15_000).newCall(buildRequest(upstreamUrl, hdrs)).execute().use { res ->
+                if (!res.isSuccessful) {
+                    Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
+                    proxyReply(
+                        out,
+                        if (res.code in 400..599) res.code else 502,
+                        "text/plain",
+                        ByteArray(0)
+                    )
+                    return
+                }
+                if (kind.endsWith(".m3u8")) {
+                    val text = res.body?.string().orEmpty()
+                    val rewritten = rewritePlaylist(
+                        text,
+                        res.request.url.toString(),
+                        sock.localPort,
+                        id!!
+                    )
+                    proxyReply(
+                        out, 200, "application/vnd.apple.mpegurl",
+                        rewritten.toByteArray(Charsets.UTF_8)
+                    )
+                } else {
+                    var data = res.body?.bytes() ?: ByteArray(0)
+                    if (isPng(data)) {
+                        val fromIend = stripPng(data)
+                        data = if (fromIend != null && fromIend.isNotEmpty()) {
+                            fromIend
+                        } else {
+                            decodeRawPngToTs(data) ?: run {
+                                Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
+                                proxyReply(out, 502, "text/plain", ByteArray(0))
+                                return
+                            }
+                        }
+                    }
+                    val type = when {
+                        kind.endsWith(".key") -> "application/octet-stream"
+                        kind.endsWith(".mp4") -> "video/mp4"
+                        else -> "video/mp2t"
+                    }
+                    val status = if (res.code in 200..299) res.code else 200
+                    val rangeHdr = res.header("Content-Range")
+                    proxyReply(out, status, type, data, rangeHdr)
+                }
+            }
         }
+    } catch (e: Exception) {
+        Log.d(TAG, "proxy client error: ${e.message}")
     }
+}
 
     // ---------------------------------------------------------- extraction
 
