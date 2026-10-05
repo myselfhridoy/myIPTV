@@ -44,22 +44,20 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Kotlin port of the Python DLStreamsExtractor.
+ * Kotlin port of the Python DLStreamsExtractor — with bug fixes.
  *
- * - multi-player scrape (7 candidate player pages)
- * - _econfig / atob / source: / .m3u8 stream URL extraction
- * - full chain validation: master -> variant -> first segment -> AES key
- * - session cookies forwarded in playback headers
- * - per-host 429 / Retry-After backoff
- * - 30s fresh cache, 15min stale fallback, in-flight de-duplication
- * - overall budget + "first page timed out -> abort loop"
+ * FIXES APPLIED (v2):
+ *   [1] isStreamAlive: no more false-positive on PNG (Case B verified via decodeRawPngToTs)
+ *   [2] BitmapFactory: inPremultiplied=false, inDither=false, inScreenDensity=0
+ *   [3] decodeRawPngToTs sync-search window widened (4 KB) + 4th sync check
+ *   [4] Local proxy: forwards Range header, emits CORS + Accept-Ranges + Content-Range
+ *   [5] proxySessions: bounded size, oldest evicted
+ *   [6] Rich debug logging at every stage
  */
 object DlhdResolver {
 
     private const val TAG = "DlhdResolver"
 
-    // Python uses 20s, but MediaResolver cuts the resolver at 15s, so we must
-    // return (with a fallback) before that.
     private const val EXTRACT_BUDGET_MS = 12_000L
     private const val CANDIDATE_TIMEOUT_MS = 6_000L
     private const val STREAM_CACHE_MS = 30_000L
@@ -72,13 +70,19 @@ object DlhdResolver {
     private const val ACCEPT_HTML =
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
 
-    private val PLAYER_PATHS = listOf("stream", "cast", "watch", "plus", "casting", "player", "hub")
+    private val PLAYER_PATHS =
+        listOf("stream", "cast", "watch", "plus", "casting", "player", "hub")
 
     // ------------------------------------------------------------------ state
 
     private class CacheEntry(val freshUntil: Long, val staleUntil: Long, val token: ResolvedToken)
     private class Extracted(val token: ResolvedToken, val validated: Boolean)
-    private class Page(val status: Int, val body: String?, val retryAfter: String?, val effectiveUrl: String? = null)
+    private class Page(
+        val status: Int,
+        val body: String?,
+        val retryAfter: String?,
+        val effectiveUrl: String? = null
+    )
 
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val hostBackoff = ConcurrentHashMap<String, Long>()
@@ -119,7 +123,7 @@ object DlhdResolver {
             .cookieJar(cookieJar)
             .connectTimeout(10, TimeUnit.SECONDS)
             .followRedirects(true)
-            .followSslRedirects(true)   // allows http:// → https:// upgrades
+            .followSslRedirects(true)
             .build()
     }
 
@@ -144,15 +148,18 @@ object DlhdResolver {
             headers.forEach { (k, v) -> try { header(k, v) } catch (_: Exception) {} }
         }.build()
 
-    private suspend fun fetchPage(url: String, headers: Map<String, String>, timeoutMs: Long): Page =
-        clientFor(timeoutMs).newCall(buildRequest(url, headers)).await().use { res ->
-            Page(
-                status = res.code,
-                body = if (res.isSuccessful) res.body?.string() else null,
-                retryAfter = res.header("Retry-After"),
-                effectiveUrl = res.request.url.toString()
-            )
-        }
+    private suspend fun fetchPage(
+        url: String,
+        headers: Map<String, String>,
+        timeoutMs: Long
+    ): Page = clientFor(timeoutMs).newCall(buildRequest(url, headers)).await().use { res ->
+        Page(
+            status = res.code,
+            body = if (res.isSuccessful) res.body?.string() else null,
+            retryAfter = res.header("Retry-After"),
+            effectiveUrl = res.request.url.toString()
+        )
+    }
 
     private fun cookieHeaderFor(url: String): String? {
         val httpUrl = url.toHttpUrlOrNull() ?: return null
@@ -173,7 +180,8 @@ object DlhdResolver {
             (raw.toLongOrNull() ?: return null) * 1000L
         } else {
             try {
-                val d = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).parse(raw) ?: return null
+                val d = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).parse(raw)
+                    ?: return null
                 d.time - System.currentTimeMillis()
             } catch (_: Exception) {
                 return null
@@ -213,7 +221,6 @@ object DlhdResolver {
     private fun originOf(u: URL): String =
         "${u.protocol}://${u.host}" + (if (u.port != -1) ":${u.port}" else "")
 
-    /** CDNs put the token in the playlist URL and list relative URIs; keep the parent query. */
     private fun inheritQueryIfMissing(absoluteUrl: String, baseUrl: String): String {
         val parsed = absoluteUrl.toHttpUrlOrNull() ?: return absoluteUrl
         if (!parsed.query.isNullOrEmpty()) return absoluteUrl
@@ -236,10 +243,6 @@ object DlhdResolver {
 
     // ----------------------------------------------------------- validation
 
-    /**
-     * master -> variant -> first segment (first bytes only) -> AES key.
-     * A manifest-only check would accept players whose segments 403.
-     */
     private suspend fun isStreamAlive(
         url: String,
         headers: Map<String, String>,
@@ -248,6 +251,7 @@ object DlhdResolver {
     ): Boolean {
         fun t(default: Long) = maxOf(1_000L, minOf(default, budgetMs))
         return try {
+            Log.d(TAG, "isStreamAlive: master $url")
             val master = fetchPage(url, headers, t(10_000))
             if (master.status != 200) {
                 Log.d(TAG, "validation of $url -> HTTP ${master.status}")
@@ -259,17 +263,18 @@ object DlhdResolver {
                 Log.d(TAG, "validation of $url -> not a playlist")
                 return false
             }
+            Log.d(TAG, "  master OK, size=${masterBody.length}")
 
             var currentUrl = url
             var currentBody = masterBody
 
-            // Media playlists contain #EXTINF, masters don't.
             if (!masterBody.contains("#EXTINF")) {
                 val variant = firstMediaUri(masterBody, url, wantPlaylist = true)
                 if (variant == null) {
                     Log.d(TAG, "validation of $url -> no variant found")
                     return false
                 }
+                Log.d(TAG, "  variant: $variant")
                 val v = fetchPage(variant, headers, t(8_000))
                 if (v.status != 200) {
                     Log.d(TAG, "validation variant $variant -> HTTP ${v.status}")
@@ -285,6 +290,8 @@ object DlhdResolver {
                 Log.d(TAG, "validation of $url -> no segments listed")
                 return false
             }
+            Log.d(TAG, "  segment probe: $segment")
+
             val probeHeaders = headers + ("Range" to "bytes=0-1023")
             var segHead: ByteArray? = null
             val segOk = clientFor(t(8_000)).newCall(buildRequest(segment, probeHeaders)).await().use { res ->
@@ -299,32 +306,40 @@ object DlhdResolver {
             if (!segOk) return false
             var head = segHead ?: return false
 
-            // Some CDNs disguise segments as PNG images.
-            // Two sub-cases:
-            //   (a) PNG-wrapped TS: TS payload comes after IEND chunk.
-            //   (b) Raw PNG segments: no TS payload — the CDN directly serves PNG-encoded video
-            //       (e.g. TikTok CDN used by dlive.sx / dembed.top).
-            // In case (b) stripPng returns null because IEND is the last byte, but the stream
-            // IS alive (the web player handles it natively). We must not reject it.
+            // ---- PNG handling: MUST verify before accepting ----
             if (isPng(head)) {
-                pngOut?.set(0, true)
-                val big: ByteArray = clientFor(t(8_000))
-                    .newCall(buildRequest(segment, headers + ("Range" to "bytes=0-262143")))
+                Log.w(TAG, "  segment is PNG: size=${head.size} first8=${head.take(8).joinToString(" "){"%02x".format(it)}}")
+
+                // Fetch a bigger window (512 KB) so IEND can be found if it exists
+                val big: ByteArray = clientFor(t(10_000))
+                    .newCall(buildRequest(segment, headers + ("Range" to "bytes=0-524287")))
                     .await().use { res ->
                         if (res.code == 200 || res.code == 206) {
-                            try { res.peekBody(262144).bytes() } catch (_: Exception) { null }
-                        } else null
+                            try { res.peekBody(524288).bytes() } catch (_: Exception) { null }
+                        } else {
+                            Log.d(TAG, "  big fetch of $segment -> HTTP ${res.code}")
+                            null
+                        }
                     } ?: return false
-                val payload = stripPng(big)
-                if (payload == null) {
-                    // Case (b): PNG pixel-encoded TS (TikTok CDN style — no IEND append,
-                    // TS bytes stored as RGB pixel values). Keep pngOut=true so the proxy
-                    // decodes pixels → TS before handing to ExoPlayer.
-                    Log.w(TAG, "segment $segment is pixel-encoded PNG (TikTok CDN); routing via proxy decoder")
-                    return true  // pngOut already true from above
+
+                val fromIend = stripPng(big)
+                if (fromIend != null && fromIend.isNotEmpty()) {
+                    // Case A: TS appended after IEND
+                    Log.d(TAG, "  Case A: TS after IEND, payload=${fromIend.size} bytes")
+                    head = fromIend
+                } else {
+                    // Case B candidate — verify by decoding pixels
+                    val pixelDecoded = decodeRawPngToTs(big)
+                    if (pixelDecoded == null || pixelDecoded.isEmpty()) {
+                        Log.w(TAG, "  PNG not decodable to TS (Case B failed) — rejecting")
+                        Log.w(TAG, "    first 16 bytes: ${big.take(16).joinToString(" "){"%02x".format(it)}}")
+                        Log.w(TAG, "    total size: ${big.size}")
+                        return false
+                    }
+                    Log.w(TAG, "  Case B: decoded ${pixelDecoded.size} TS bytes from PNG pixels")
+                    pngOut?.set(0, true)
+                    head = pixelDecoded
                 }
-                Log.d(TAG, "segment $segment is PNG-wrapped TS, payload starts at byte ${big.size - payload.size}")
-                head = payload
             }
 
             val keyTag = Regex("#EXT-X-KEY:([^\\n]*)").find(currentBody)?.groupValues?.get(1)
@@ -336,10 +351,11 @@ object DlhdResolver {
                     Log.w(TAG, "segment $segment is not media: ${describeBytes(head)}")
                     return false
                 }
+                Log.d(TAG, "isStreamAlive: OK (unencrypted)")
                 return true
             }
 
-            // Encrypted: fetch the key and decrypt the first block ourselves.
+            // Encrypted: fetch key and decrypt first 16-byte block ourselves
             val keyUrl = inheritQueryIfMissing(join(currentUrl, keyUri!!), currentUrl)
             val keyBytes: ByteArray? = clientFor(t(8_000)).newCall(buildRequest(keyUrl, headers)).await().use { res ->
                 if (res.code == 200) res.body?.bytes() else {
@@ -359,7 +375,8 @@ object DlhdResolver {
                 val raw = ivHex.padStart(32, '0').takeLast(32)
                 for (i in 0 until 16) iv[i] = raw.substring(i * 2, i * 2 + 2).toInt(16).toByte()
             } else {
-                var seq = Regex("#EXT-X-MEDIA-SEQUENCE:(\\d+)").find(currentBody)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                var seq = Regex("#EXT-X-MEDIA-SEQUENCE:(\\d+)")
+                    .find(currentBody)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
                 for (i in 15 downTo 8) { iv[i] = (seq and 0xFF).toByte(); seq = seq shr 8 }
             }
             val firstBlock = Cipher.getInstance("AES/CBC/NoPadding").run {
@@ -370,6 +387,7 @@ object DlhdResolver {
                 Log.w(TAG, "segment $segment decrypts to garbage with key $keyUrl: ${describeBytes(firstBlock)}")
                 return false
             }
+            Log.d(TAG, "isStreamAlive: OK (encrypted, decrypted)")
             true
         } catch (e: CancellationException) {
             throw e
@@ -381,7 +399,6 @@ object DlhdResolver {
 
     // ----------------------------------------------------- chunk sniffing
 
-    /** MPEG-TS (0x47 sync), fMP4 (ftyp/styp/moof), or raw audio (ADTS / ID3). */
     private fun looksLikeMediaChunk(b: ByteArray): Boolean {
         if (b.size < 8) return false
         if (b[0] == 0x47.toByte() && (b.size <= 188 || b[188] == 0x47.toByte())) return true
@@ -396,12 +413,14 @@ object DlhdResolver {
         b.size >= 8 && (b[0].toInt() and 0xFF) == 0x89 &&
             b[1] == 'P'.code.toByte() && b[2] == 'N'.code.toByte() && b[3] == 'G'.code.toByte()
 
-    /** Walks PNG chunks and returns the bytes after IEND (+CRC), or null if IEND isn't in [b]. */
+    /** Walks PNG chunks and returns the bytes after IEND (+CRC), or null. */
     private fun stripPng(b: ByteArray): ByteArray? {
         var pos = 8
         while (pos + 12 <= b.size) {
-            val len = ((b[pos].toInt() and 0xFF) shl 24) or ((b[pos + 1].toInt() and 0xFF) shl 16) or
-                ((b[pos + 2].toInt() and 0xFF) shl 8) or (b[pos + 3].toInt() and 0xFF)
+            val len = ((b[pos].toInt() and 0xFF) shl 24) or
+                ((b[pos + 1].toInt() and 0xFF) shl 16) or
+                ((b[pos + 2].toInt() and 0xFF) shl 8) or
+                (b[pos + 3].toInt() and 0xFF)
             if (len < 0) return null
             val type = String(b, pos + 4, 4, Charsets.ISO_8859_1)
             if (type == "IEND") {
@@ -415,18 +434,21 @@ object DlhdResolver {
 
     /**
      * Decodes a PNG whose pixel values encode raw MPEG-TS bytes.
-     * TikTok CDN (dlive.sx / dembed.top) stores TS data encoded in pixel channels.
      *
-     * Strategy:
-     *  1. Decode bitmap, extract candidate byte arrays in RGB, BGR, RGBA order.
-     *  2. For each candidate, search within the first 200 bytes for a 0x47 sync byte
-     *     confirmed by two more 0x47 bytes at offsets +188 and +376.
-     *  3. Return TS data starting from that sync position, trimmed to 188-byte boundary.
+     * FIXES:
+     *   - BitmapFactory: inPremultiplied=false, inDither=false, inScreenDensity=0
+     *   - sync search window widened to 4 KB
+     *   - requires 4 consecutive sync bytes for confidence
      */
     internal fun decodeRawPngToTs(b: ByteArray): ByteArray? {
         return try {
             val opts = BitmapFactory.Options().apply {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
+                inPremultiplied   = false
+                inDither          = false
+                inMutable         = true
+                inScaled          = false
+                inScreenDensity   = 0
             }
             val bitmap = BitmapFactory.decodeByteArray(b, 0, b.size, opts) ?: return null
             val w = bitmap.width
@@ -440,23 +462,25 @@ object DlhdResolver {
             val rgba = ByteArray(pixels.size * 4)
             var i3 = 0; var i4 = 0
             for (p in pixels) {
-                val a = ((p shr 24) and 0xFF).toByte()
-                val r = ((p shr 16) and 0xFF).toByte()
-                val g = ((p shr  8) and 0xFF).toByte()
-                val bv = (p         and 0xFF).toByte()
-                rgb[i3]   = r;  rgb[i3+1]  = g;  rgb[i3+2]  = bv
-                bgr[i3]   = bv; bgr[i3+1]  = g;  bgr[i3+2]  = r
-                rgba[i4]  = r;  rgba[i4+1] = g;  rgba[i4+2] = bv; rgba[i4+3] = a
+                val a  = ((p shr 24) and 0xFF).toByte()
+                val r  = ((p shr 16) and 0xFF).toByte()
+                val g  = ((p shr  8) and 0xFF).toByte()
+                val bv = (p          and 0xFF).toByte()
+                rgb[i3]   = r;  rgb[i3 + 1]  = g;  rgb[i3 + 2]  = bv
+                bgr[i3]   = bv; bgr[i3 + 1]  = g;  bgr[i3 + 2]  = r
+                rgba[i4]  = r;  rgba[i4 + 1] = g;  rgba[i4 + 2] = bv; rgba[i4 + 3] = a
                 i3 += 3; i4 += 4
             }
 
+            // Widened window: 4 KB instead of 200 bytes
             fun findSyncOffset(data: ByteArray): Int {
-                if (data.size < 377) return -1
-                val limit = minOf(200, data.size - 377)
+                if (data.size < 565) return -1
+                val limit = minOf(4096, data.size - 565)
                 for (off in 0..limit) {
                     if ((data[off].toInt() and 0xFF) == 0x47 &&
                         (data[off + 188].toInt() and 0xFF) == 0x47 &&
-                        (data[off + 376].toInt() and 0xFF) == 0x47) {
+                        (data[off + 376].toInt() and 0xFF) == 0x47 &&
+                        (data[off + 564].toInt() and 0xFF) == 0x47) {   // 4th sync
                         return off
                     }
                 }
@@ -476,7 +500,7 @@ object DlhdResolver {
                 }
             }
 
-            Log.w(TAG, "decodeRawPngToTs: no TS sync in ${w}x${h}; rgb[0..3]=${rgb.take(4).map{"%02x".format(it.toInt() and 0xFF)}} bgr[0..3]=${bgr.take(4).map{"%02x".format(it.toInt() and 0xFF)}}")
+            Log.w(TAG, "decodeRawPngToTs: no TS sync in ${w}x${h}; rgb[0..3]=${rgb.take(4).map{"%02x".format(it.toInt() and 0xFF)}} bgr[0..3]=${bgr.take(4).map{"%02x".format(it.toInt() and 0xFF)}} rgba[0..3]=${rgba.take(4).map{"%02x".format(it.toInt() and 0xFF)}}")
             null
         } catch (e: Exception) {
             Log.e(TAG, "decodeRawPngToTs failed: ${e.message}")
@@ -514,7 +538,6 @@ object DlhdResolver {
             .find(html)?.groupValues?.get(1)
     }
 
-    /** _econfig -> atob -> source: -> any .m3u8 */
     private fun extractStreamUrl(html: String): String? {
         Regex("window\\._econfig\\s*=\\s*['\"]([^'\"]{100,})['\"]", RegexOption.IGNORE_CASE)
             .find(html)?.let { m ->
@@ -543,22 +566,12 @@ object DlhdResolver {
     private fun buildToken(streamUrl: String, playbackHeaders: Map<String, String>): ResolvedToken {
         val cookie = cookieHeaderFor(streamUrl)
         val hdrs = if (cookie != null) playbackHeaders + ("Cookie" to cookie) else playbackHeaders
-        // Every extraction path here targets an HLS playlist (validated as #EXTM3U).
-        // Without an explicit type, extensionless URLs are treated as progressive
-        // by ExoPlayer -> "None of the available extractors could read the stream".
-        val mime = TokenParser.detectMimeType(streamUrl) ?: androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        val mime = TokenParser.detectMimeType(streamUrl)
+            ?: androidx.media3.common.MimeTypes.APPLICATION_M3U8
         return ResolvedToken(url = streamUrl, headers = hdrs, mimeType = mime)
     }
 
-    // ---------------------------------------------------------- extraction
-
     // ------------------------------------------------ local PNG-stripping proxy
-    //
-    // Some CDNs serve segments as PNG "images" with the TS payload after IEND.
-    // Instead of touching the player's data source, the stream is exposed through a tiny
-    // loopback HTTP server: playlists are rewritten to point back here, and segments/keys
-    // are fetched with our own headers + cookies, returned with the PNG part removed.
-    // NOTE: needs cleartext HTTP to 127.0.0.1 to be allowed by the app.
 
     private val proxyLock = Any()
     private var proxySocket: ServerSocket? = null
@@ -588,11 +601,21 @@ object DlhdResolver {
         }
     }
 
-    private fun buildProxiedToken(streamUrl: String, playbackHeaders: Map<String, String>): ResolvedToken {
+    private fun buildProxiedToken(
+        streamUrl: String,
+        playbackHeaders: Map<String, String>
+    ): ResolvedToken {
         val port = ensureProxy()
-        // Stable per stream path, so refreshed tokens reuse the same session id.
         val id = Integer.toHexString(streamUrl.substringBefore("?").hashCode())
         proxySessions[id] = playbackHeaders
+
+        // Bounded session map — evict oldest when over 50
+        if (proxySessions.size > 50) {
+            val keysToRemove = proxySessions.keys.filter { it != id }
+                .take(proxySessions.size - 30)
+            keysToRemove.forEach { proxySessions.remove(it) }
+        }
+
         val url = "http://127.0.0.1:$port/p/$id/index.m3u8?u=${URLEncoder.encode(streamUrl, "UTF-8")}"
         return ResolvedToken(
             url = url,
@@ -601,13 +624,29 @@ object DlhdResolver {
         )
     }
 
-    private fun proxyReply(out: OutputStream, code: Int, type: String, body: ByteArray) {
-        val reason = if (code == 200) "OK" else "Error"
-        out.write(
-            ("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\n" +
-                "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n")
-                .toByteArray(Charsets.ISO_8859_1)
-        )
+    private fun proxyReply(
+        out: OutputStream,
+        code: Int,
+        type: String,
+        body: ByteArray,
+        contentRange: String? = null
+    ) {
+        val reason = when (code) {
+            200 -> "OK"
+            206 -> "Partial Content"
+            404 -> "Not Found"
+            502 -> "Bad Gateway"
+            else -> "Error"
+        }
+        val sb = StringBuilder()
+        sb.append("HTTP/1.1 $code $reason\r\n")
+        sb.append("Content-Type: $type\r\n")
+        sb.append("Content-Length: ${body.size}\r\n")
+        sb.append("Access-Control-Allow-Origin: *\r\n")
+        sb.append("Accept-Ranges: bytes\r\n")
+        if (contentRange != null) sb.append("Content-Range: $contentRange\r\n")
+        sb.append("Connection: close\r\n\r\n")
+        out.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
         out.write(body)
         out.flush()
     }
@@ -624,13 +663,16 @@ object DlhdResolver {
                 line.isEmpty() -> raw
                 line.startsWith("#") -> {
                     val kind = when {
-                        line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-SESSION-KEY") -> "k.key"
+                        line.startsWith("#EXT-X-KEY") ||
+                            line.startsWith("#EXT-X-SESSION-KEY") -> "k.key"
                         line.startsWith("#EXT-X-MAP") -> "m.mp4"
                         line.startsWith("#EXT-X-MEDIA") -> "v.m3u8"
                         else -> null
                     }
                     if (kind == null) raw
-                    else uriAttr.replace(line) { m -> "URI=\"" + local(kind, m.groupValues[1]) + "\"" }
+                    else uriAttr.replace(line) { m ->
+                        "URI=\"" + local(kind, m.groupValues[1]) + "\""
+                    }
                 }
                 else -> {
                     val path = line.substringBefore("?").substringBefore("#").lowercase()
@@ -646,9 +688,17 @@ object DlhdResolver {
                 sock.soTimeout = 20_000
                 val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
                 val requestLine = reader.readLine() ?: return
+
+                // Parse incoming headers (so we can forward Range)
+                val inHeaders = mutableMapOf<String, String>()
                 while (true) {
                     val l = reader.readLine() ?: break
                     if (l.isEmpty()) break
+                    val idx = l.indexOf(':')
+                    if (idx > 0) {
+                        inHeaders[l.substring(0, idx).trim().lowercase()] =
+                            l.substring(idx + 1).trim()
+                    }
                 }
                 val out = sock.getOutputStream().buffered()
 
@@ -662,30 +712,45 @@ object DlhdResolver {
                 val upstreamUrl = target.substringAfter("?", "").split("&")
                     .firstOrNull { it.startsWith("u=") }
                     ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
-                val headers = id?.let { proxySessions[it] }
-                if (segs.firstOrNull() != "p" || headers == null || upstreamUrl == null) {
+                val sessionHeaders = id?.let { proxySessions[it] }
+                if (segs.firstOrNull() != "p" || sessionHeaders == null || upstreamUrl == null) {
                     proxyReply(out, 404, "text/plain", ByteArray(0)); return
                 }
 
-                clientFor(15_000).newCall(buildRequest(upstreamUrl, headers)).execute().use { res ->
+                // Forward Range if client requested one
+                var hdrs = sessionHeaders
+                inHeaders["range"]?.let { r -> hdrs = hdrs + ("Range" to r) }
+
+                clientFor(15_000).newCall(buildRequest(upstreamUrl, hdrs)).execute().use { res ->
                     if (!res.isSuccessful) {
                         Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
-                        proxyReply(out, if (res.code in 400..599) res.code else 502, "text/plain", ByteArray(0))
+                        proxyReply(
+                            out,
+                            if (res.code in 400..599) res.code else 502,
+                            "text/plain",
+                            ByteArray(0)
+                        )
                         return
                     }
                     if (kind.endsWith(".m3u8")) {
                         val text = res.body?.string().orEmpty()
-                        val rewritten = rewritePlaylist(text, res.request.url.toString(), sock.localPort, id!!)
-                        proxyReply(out, 200, "application/vnd.apple.mpegurl", rewritten.toByteArray(Charsets.UTF_8))
+                        val rewritten = rewritePlaylist(
+                            text,
+                            res.request.url.toString(),
+                            sock.localPort,
+                            id!!
+                        )
+                        proxyReply(
+                            out, 200, "application/vnd.apple.mpegurl",
+                            rewritten.toByteArray(Charsets.UTF_8)
+                        )
                     } else {
                         var data = res.body?.bytes() ?: ByteArray(0)
                         if (isPng(data)) {
-                            val tsFromIend = stripPng(data)
-                            data = if (tsFromIend != null && tsFromIend.isNotEmpty()) {
-                                // Case A: classic TS-after-IEND wrapper
-                                tsFromIend
+                            val fromIend = stripPng(data)
+                            data = if (fromIend != null && fromIend.isNotEmpty()) {
+                                fromIend
                             } else {
-                                // Case B: TikTok CDN pixel-encoded TS (RGB pixels → TS bytes)
                                 decodeRawPngToTs(data) ?: run {
                                     Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
                                     proxyReply(out, 502, "text/plain", ByteArray(0))
@@ -698,7 +763,9 @@ object DlhdResolver {
                             kind.endsWith(".mp4") -> "video/mp4"
                             else -> "video/mp2t"
                         }
-                        proxyReply(out, 200, type, data)
+                        val status = if (res.code in 200..299) res.code else 200
+                        val rangeHdr = res.header("Content-Range")
+                        proxyReply(out, status, type, data, rangeHdr)
                     }
                 }
             }
@@ -707,20 +774,22 @@ object DlhdResolver {
         }
     }
 
+    // ---------------------------------------------------------- extraction
+
     private suspend fun extractImpl(
         baseUrl: String,
         channelId: String,
         extraHeaders: Map<String, String>?
     ): Extracted? = withContext(Dispatchers.IO) {
-        val entryOrigin = try { originOf(URL(baseUrl)) } catch (_: Exception) { return@withContext null }
-        // If baseUrl is already a direct page URL (e.g. watch.php?id=346), try it first.
-        // Then fall back to the generic PLAYER_PATHS pattern.
+        val entryOrigin = try { originOf(URL(baseUrl)) }
+            catch (_: Exception) { return@withContext null }
         val genericPaths = PLAYER_PATHS.map { "$entryOrigin/$it/stream-$channelId.php" }
-        val playerUrls: List<String> = if (baseUrl != "$entryOrigin/" && !genericPaths.contains(baseUrl)) {
-            listOf(baseUrl) + genericPaths
-        } else {
-            genericPaths
-        }
+        val playerUrls: List<String> =
+            if (baseUrl != "$entryOrigin/" && !genericPaths.contains(baseUrl)) {
+                listOf(baseUrl) + genericPaths
+            } else {
+                genericPaths
+            }
 
         val deadline = now() + EXTRACT_BUDGET_MS
         fun remaining() = deadline - now()
@@ -744,36 +813,52 @@ object DlhdResolver {
                     "Accept-Language" to "en-US,en;q=0.9"
                 )
 
+                Log.d(TAG, "GET player $candidate")
                 val page = fetchPage(candidate, pageHeaders, timeoutMs(CANDIDATE_TIMEOUT_MS))
                 if (page.status != 200) {
-                    Log.d(TAG, "candidate $candidate returned ${page.status}")
+                    Log.d(TAG, "  -> HTTP ${page.status}")
                     if (page.status == 429) markHostLimited(candidate, page.retryAfter)
                     continue
                 }
-                // Update entryOrigin from the actual (post-redirect) URL so that
-                // http:// base URLs that redirect to https:// get the correct origin.
                 val effectiveOrigin = page.effectiveUrl?.let {
                     try { originOf(URL(it)) } catch (_: Exception) { null }
                 } ?: entryOrigin
                 val html = page.body.orEmpty()
                 if (html.isBlank()) continue
+                Log.d(TAG, "  -> ${html.length} bytes")
 
-                val iframeRaw = findIframe(html) ?: continue
+                val iframeRaw = findIframe(html) ?: run {
+                    Log.d(TAG, "  -> no iframe"); null
+                } ?: continue
                 val iframeSrc = join(candidate, iframeRaw)
                 if (!seenIframes.add(iframeSrc)) continue
                 if (hostLimitedFor(iframeSrc) > 0) continue
+                Log.d(TAG, "  iframe: $iframeSrc")
 
-                val iframeHeaders = pageHeaders + mapOf("Referer" to candidate, "Origin" to effectiveOrigin)
+                val iframeHeaders = pageHeaders + mapOf(
+                    "Referer" to candidate,
+                    "Origin" to effectiveOrigin
+                )
                 val iframePage = fetchPage(iframeSrc, iframeHeaders, timeoutMs(CANDIDATE_TIMEOUT_MS))
                 if (iframePage.status != 200) {
-                    Log.d(TAG, "iframe $iframeSrc returned ${iframePage.status}")
-                    if (iframePage.status == 429) markHostLimited(iframeSrc, iframePage.retryAfter)
+                    Log.d(TAG, "  iframe -> HTTP ${iframePage.status}")
+                    if (iframePage.status == 429) {
+                        markHostLimited(iframeSrc, iframePage.retryAfter)
+                    }
                     continue
                 }
                 val iframeHtml = iframePage.body.orEmpty()
-                if (iframeHtml.isBlank()) continue
+                if (iframeHtml.isBlank()) {
+                    Log.d(TAG, "  iframe body empty")
+                    continue
+                }
+                Log.d(TAG, "  iframe html: ${iframeHtml.length} bytes")
 
-                val streamUrl = extractStreamUrl(iframeHtml)?.takeIf { it.startsWith("http") } ?: continue
+                val streamUrl = extractStreamUrl(iframeHtml)?.takeIf { it.startsWith("http") }
+                    ?: run {
+                        Log.d(TAG, "  no stream URL in iframe"); null
+                    } ?: continue
+                Log.i(TAG, "  >>> stream URL: $streamUrl")
 
                 val iframeOrigin = originOf(URL(iframeSrc))
                 val playbackHeaders = mapOf(
@@ -801,8 +886,6 @@ object DlhdResolver {
             } catch (e: Exception) {
                 Log.d(TAG, "candidate $candidate failed: ${e.message}")
                 if (idx == 0 && e is InterruptedIOException) {
-                    // All candidates share the same origin: if the first page
-                    // doesn't answer, the others won't either.
                     Log.w(TAG, "site page timed out, aborting candidate loop")
                     break
                 }
@@ -832,8 +915,9 @@ object DlhdResolver {
         val extracted: Extracted? = try {
             var created: Deferred<Extracted?>? = null
             val task = inflight.computeIfAbsent(key) {
-                scope.async(start = CoroutineStart.LAZY) { extractImpl(baseUrl, channelId, headers) }
-                    .also { created = it }
+                scope.async(start = CoroutineStart.LAZY) {
+                    extractImpl(baseUrl, channelId, headers)
+                }.also { created = it }
             }
             created?.let { c ->
                 c.invokeOnCompletion { inflight.remove(key, c) }
