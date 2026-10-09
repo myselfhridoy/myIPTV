@@ -396,34 +396,25 @@ fun VodPlayerScreen(
                 mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
             }
 
-            // Fast-fail policy — matches MediaResolver.buildMediaSource.
-            val loadErrorPolicy = object :
-                androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
-                override fun getRetryDelayMsFor(
-                    info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
-                ): Long {
-                    val cause = info.loadException
-                    if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-                        val code = cause.responseCode
-                        if (code == 403 || code == 404 || code == 410 || code == 451) {
-                            return C.TIME_UNSET
-                        }
-                    }
-                    when (cause?.errorCode) {
-                        androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-                        androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-                        androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
-                            return C.TIME_UNSET
-                    }
-                    val defaultDelay = super.getRetryDelayMsFor(info)
-                    if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-                    return if (info.errorCount <= 4) {
-                        500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
-                    } else defaultDelay
-                }
+// Fast-fail policy — shorter retry cadence so a dead source doesn't hold
+// the failover chain hostage. We don't inspect the exception cause here
+// because the field name varies across media3 versions; the default
+// policy already returns C.TIME_UNSET for non-retryable errors.
+val loadErrorPolicy = object :
+    androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+    override fun getRetryDelayMsFor(
+        info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
+    ): Long {
+        val defaultDelay = super.getRetryDelayMsFor(info)
+        if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+        // Short backoff: 500ms, 1s, 2s, 4s.
+        return if (info.errorCount <= 4) {
+            500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+        } else defaultDelay
+    }
 
-                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
-            }
+    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+}
 
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setMp4ExtractorFlags(
