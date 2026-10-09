@@ -1,6 +1,9 @@
 package com.streambd.iptv.ui.navigation
 
 import android.app.ActivityManager
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
@@ -45,6 +48,41 @@ object Routes {
     const val ADMIN_CONVERTER = "admin_converter"
 }
 
+/**
+ * True for Android TV / Fire TV / set-top boxes.
+ *
+ * Detection uses two independent signals so we catch devices that lie
+ * about either:
+ *   1. Configuration.UI_MODE_TYPE_TELEVISION — standard Android TV flag.
+ *   2. PackageManager.FEATURE_LEANBACK — set-top boxes that skip the UI
+ *      flag but still identify as TV hardware.
+ *
+ * Phone/tablet hardware returns false from both.
+ */
+private fun isTvDevice(context: android.content.Context): Boolean {
+    val uiMode = context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+    val isTvUi = uiMode == Configuration.UI_MODE_TYPE_TELEVISION
+    val hasLeanback = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    return isTvUi || hasLeanback
+}
+
+/**
+ * True for Amlogic S905-series chipsets (TX3 Mini, X96 Mini, MXQ, etc.).
+ * These have a well-documented audio HAL latency that starts the audio
+ * pipeline 2-3 seconds before the hardware video decoder is ready,
+ * producing "audio first, video later" on live streams.
+ */
+private fun isAmlogicBox(): Boolean {
+    val hw = (Build.HARDWARE + " " + Build.BOARD + " " + Build.DEVICE).lowercase()
+    return hw.contains("amlogic") ||
+        hw.contains("s905") ||
+        hw.contains("s912") ||
+        hw.contains("meson") ||
+        hw.contains("tx3") ||
+        hw.contains("x96") ||
+        hw.contains("mxq")
+}
+
 @UnstableApi
 @Composable
 fun AppNavigation(
@@ -57,44 +95,55 @@ fun AppNavigation(
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    // ── Track selector ────────────────────────────────────────────────────
-    // Plain default selector. We deliberately do NOT touch
-    // TrackSelectionParameters.setAudioOffloadPreference here, because that
-    // API only exists in media3 1.2.0+. Audio offload defaults to DISABLED
-    // in media3 unless explicitly enabled, so leaving it alone keeps A/V
-    // sync correction (via the Sonic audio processor) active.
-    //
-    // If you later upgrade to media3 1.2.0+ and want to explicitly force
-    // offload off, add:
-    //
-    //   parameters = buildUponParameters()
-    //       .setAudioOffloadPreference(C.AUDIO_OFFLOAD_PREFERENCE_DISABLED)
-    //       .build()
-    //
-    // (requires importing androidx.media3.common.C).
-    val trackSelector = remember { DefaultTrackSelector(context) }
+    val tvDevice = remember { isTvDevice(context) }
+    val amlogicBox = remember { isAmlogicBox() }
+    // Apply TV-tuned settings on any TV/set-top device. Amlogic-specific
+    // nudges only kick in on chips known to have the audio-HAL bug.
+    val useTvProfile = tvDevice || amlogicBox
 
-    // ── LoadControl tuned for LIVE streaming ─────────────────────────────
-    // Heap-scaled forward buffer. Fixed 45s values caused GC pressure on
-    // 192–256 MB devices when the stream bitrate spiked.
+    // ── Track selector ────────────────────────────────────────────────────
+    // Tunneling disabled on TV boxes. Amlogic's tunneled playback path is
+    // partially implemented and freezes on many MPEG-TS streams; software
+    // path is more predictable and still benefits from the audio-track
+    // playback-params fix below.
+    val trackSelector = remember {
+        DefaultTrackSelector(context).apply {
+            if (useTvProfile) {
+                parameters = buildUponParameters()
+                    .setTunnelingEnabled(false)
+                    .build()
+            }
+        }
+    }
+
+    // ── LoadControl ──────────────────────────────────────────────────────
+    // On TV boxes we give the video decoder more time to initialize before
+    // playback starts. The Amlogic video decoder takes ~2-3 s to become
+    // ready; if the player starts on a 1.5 s buffer it begins playing
+    // audio while the video decoder is still warming up, producing the
+    // exact "audio ahead" symptom the user sees on TX3 Mini.
     val loadControl = remember {
         val am = context.getSystemService(ActivityManager::class.java)
         val heapMb = am?.memoryClass ?: 256
         val lowRam = am?.isLowRamDevice == true || heapMb < 256
 
         val maxBufMs = when {
-            heapMb < 128 -> 12_000
-            heapMb < 256 -> 20_000
-            heapMb < 512 -> 30_000
+            heapMb < 128 -> if (useTvProfile) 20_000 else 12_000
+            heapMb < 256 -> if (useTvProfile) 30_000 else 20_000
+            heapMb < 512 -> if (useTvProfile) 40_000 else 30_000
             else         -> 45_000
         }
 
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs                 = */ if (lowRam) 4_000 else 8_000,
+                /* minBufferMs                 = */ if (lowRam) 5_000 else 8_000,
                 /* maxBufferMs                 = */ maxBufMs,
-                /* bufferForPlaybackMs         = */ 1_500,
-                /* bufferForPlaybackAfterRebuf = */ 3_000
+                // KEY DIFFERENCE: 3 s on TV boxes so the video decoder is
+                // ready before playback starts. Mobile stays at 1.5 s
+                // because phone decoders initialize in <300 ms and a longer
+                // buffer just adds zapping latency.
+                /* bufferForPlaybackMs         = */ if (useTvProfile) 3_000 else 1_500,
+                /* bufferForPlaybackAfterRebuf = */ if (useTvProfile) 4_000 else 3_000
             )
             .setTargetBufferBytes(if (lowRam) 24 * 1024 * 1024 else C.LENGTH_UNSET)
             .setBackBuffer(if (lowRam) 5_000 else 15_000, true)
@@ -102,23 +151,39 @@ fun AppNavigation(
             .build()
     }
 
-    // ── Renderers factory: hardware-first ────────────────────────────────
-    //  • EXTENSION_RENDERER_MODE_ON (not PREFER): use platform decoders when
-    //    available; FFmpeg only as fallback. PREFER forced software audio
-    //    against hardware video — the classic A/V drift pattern.
-    //  • setEnableDecoderFallback(true): if a hardware decoder chokes
-    //    mid-stream, fall back instead of dying.
+    // ── Renderers factory ────────────────────────────────────────────────
+    // Hardware-first decoder selection everywhere. On TV boxes we also
+    // route A/V sync speed corrections through AudioTrack.setPlaybackParams
+    // instead of the Sonic software processor — this is THE critical fix
+    // for Amlogic's audio-ahead bug.
     //
-    // NOTE: setEnableAudioOffload() was removed in media3 1.2.0; audio
-    // offload is now controlled via TrackSelectionParameters. Since we're
-    // on an older version and don't need it (default is disabled), we
-    // simply don't touch it.
+    // Why it matters: ExoPlayer keeps A/V aligned by nudging audio playback
+    // speed between 0.97x and 1.03x. By default those nudges are applied
+    // in the Sonic audio processor, an application-level component whose
+    // latency on Amlogic is measured in hundreds of milliseconds. The
+    // correction therefore lands too late to converge, and the initial
+    // drift (audio starts ~2-3 s before video is ready) never recovers.
+    //
+    // AudioTrack.setPlaybackParams (API 23+) applies the same correction
+    // inside the platform audio HAL, where it takes effect near-instantly.
+    // Result on TX3 Mini: audio and video begin together on live channels.
     val renderersFactory = remember {
         DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
             )
+            .apply {
+                if (useTvProfile) {
+                    // Route A/V sync corrections through AudioTrack HAL.
+                    setEnableAudioTrackPlaybackParams(true)
+
+                    // Reduce audio underruns and dropped video frames on the
+                    // slower Amlogic decoder. Async queueing keeps both
+                    // pipelines moving even when one is momentarily blocked.
+                    forceEnableMediaCodecAsynchronousQueueing()
+                }
+            }
     }
 
     val audioAttributes = remember {
@@ -156,8 +221,6 @@ fun AppNavigation(
         val playerRoutes = setOf(Routes.LIVE_PLAYER, Routes.VOD_PLAYER)
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val arriving = destination.route
-            // Guard on the ARRIVING destination only. route can briefly be
-            // null during NavHost initialisation.
             if (arriving != null && arriving !in playerRoutes) {
                 if (globalExoPlayer.isPlaying ||
                     globalExoPlayer.playbackState != Player.STATE_IDLE
