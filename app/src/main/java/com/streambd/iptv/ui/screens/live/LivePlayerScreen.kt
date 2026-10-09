@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -48,6 +50,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.streambd.iptv.R
+import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.SourceSelectionDialog
@@ -55,6 +58,8 @@ import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import com.streambd.iptv.ui.viewmodels.primarySourceUrl
+import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -75,21 +80,6 @@ private data class UiPlaybackError(
     val causeMessage: String?,
     val isHlsFormat: Boolean = false
 )
-
-private fun isKnownPageUrl(url: String?): Boolean {
-    if (url.isNullOrBlank()) return false
-    val lower = url.lowercase()
-    if (lower.contains("tokenurl=")) return true
-    if (lower.contains("portal.php")) return true
-    if (lower.contains("action=create_link")) return true
-    if (lower.contains("action=get_profile")) return true
-    if (lower.contains("action=handshake")) return true
-    if (lower.contains("/stream.php")) return true
-    if (lower.contains("/player.php")) return true
-    val path = lower.substringBefore("?").substringBefore("#")
-    if (path.endsWith(".html") || path.endsWith(".htm")) return true
-    return false
-}
 
 private fun isHlsFormatError(error: PlaybackException): Boolean {
     when (error.errorCode) {
@@ -115,9 +105,7 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
         text.contains("does not start with the #extm3u")
 }
 
-private fun List<com.streambd.iptv.data.models.Channel>.indexOfChannel(
-    channel: com.streambd.iptv.data.models.Channel
-): Int {
+private fun List<Channel>.indexOfChannel(channel: Channel): Int {
     val exact = indexOf(channel)
     if (exact != -1) return exact
     return indexOfFirst {
@@ -147,7 +135,6 @@ fun LivePlayerScreen(
     onEnterPiP: () -> Unit
 ) {
     val context = LocalContext.current
-    val exitScope = rememberCoroutineScope()
     val selectedChannel by viewModel.selectedChannel.collectAsState()
 
     if (selectedChannel == null) {
@@ -170,8 +157,10 @@ fun LivePlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
+    // Uses the shared [Channel.primarySourceUrl] helper so this URL and the
+    // prefetch cache key built in [LivePlayerViewModel] always agree.
     var currentSourceUrl by remember(channelKey) {
-        mutableStateOf(channel.sources.values.firstOrNull() ?: channel.url)
+        mutableStateOf(channel.primarySourceUrl())
     }
     var failedSourceUrls by remember(channelKey) {
         mutableStateOf(setOf<String>())
@@ -226,14 +215,28 @@ fun LivePlayerScreen(
     // wait for rotation, then pop. Under PlayerWindowEffect's onDispose the
     // original orientation is restored anyway — this just gets us back to
     // portrait before the source screen becomes visible.
+    //
+    // NOTE: we launch on the Activity's lifecycleScope instead of a
+    // rememberCoroutineScope. That way the continuation survives any
+    // recomposition between the orientation request and popBackStack. As long as
+    // the player Activity declares `configChanges` for orientation (which any
+    // video player must, since PlayerWindowEffect rotates it programmatically),
+    // the Activity is not recreated and the scope lives long enough.
     val finishExit: () -> Unit = {
-        exitScope.launch {
-            (context as? ComponentActivity)?.requestedOrientation =
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            delay(400)
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-            navController.popBackStack()
+        val activity = context as? ComponentActivity
+        val teardown: () -> Unit = {
+            try { exoPlayer.stop() } catch (_: Exception) {}
+            try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
+            try { navController.popBackStack() } catch (_: Exception) {}
+        }
+        if (activity == null) {
+            teardown()
+        } else {
+            activity.lifecycleScope.launch {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                delay(400)
+                teardown()
+            }
         }
     }
 
@@ -271,7 +274,9 @@ fun LivePlayerScreen(
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
-        if (isKnownPageUrl(sourceUri)) {
+        // Uses the shared MediaResolver.isKnownPageUrl so screen-side and
+        // resolver-side classification stay in sync.
+        if (MediaResolver.isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
                 message = "Stream resolver returned a page URL instead of a video stream.",
                 causeMessage = null,
@@ -735,7 +740,7 @@ fun LivePlayerScreen(
                             lastHlsError = false
                             isBuffering = true
                             failedSourceUrls = emptySet()
-                            val retryUrl = channel.sources.values.firstOrNull() ?: channel.url
+                            val retryUrl = channel.primarySourceUrl()
                             if (currentSourceUrl != retryUrl) {
                                 currentSourceUrl = retryUrl
                             } else {
@@ -836,30 +841,36 @@ fun LivePlayerScreen(
 private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
     val w = 96
     val h = 54
-    val bitmap = remember {
-        android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-    }
-    val pixels = remember { IntArray(w * h) }
-    var frame by remember { mutableIntStateOf(0) }
+
+    // Hold the current frame as state. Each tick replaces the ImageBitmap with
+    // a fresh wrapper around the same underlying pixel buffer, so Compose sees
+    // a state change and invalidates the draw. This is more idiomatic than
+    // relying on a state read inside the Canvas draw lambda.
+    var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
+        val pixels = IntArray(w * h)
+        val bmp = android.graphics.Bitmap.createBitmap(
+            w, h, android.graphics.Bitmap.Config.ARGB_8888
+        )
         val rnd = java.util.Random()
         while (isActive) {
             for (i in pixels.indices) {
                 val v = rnd.nextInt(256)
                 pixels[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
             }
-            bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
-            frame++
+            bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+            // asImageBitmap() returns a new ImageBitmap wrapper each call, so
+            // assigning it here always triggers a recomposition/invalidate.
+            imageBitmap = bmp.asImageBitmap()
             delay(70)
         }
     }
 
     androidx.compose.foundation.Canvas(modifier) {
-        @Suppress("UNUSED_EXPRESSION")
-        frame
+        val img = imageBitmap ?: return@Canvas
         drawImage(
-            image = bitmap.asImageBitmap(),
+            image = img,
             dstSize = IntSize(size.width.toInt(), size.height.toInt()),
             filterQuality = FilterQuality.None
         )
