@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -52,10 +53,12 @@ import com.streambd.iptv.ui.screens.live.VideoScaleMode
 import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
+import com.streambd.iptv.utils.AnalyticsLogger
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
-import com.streambd.iptv.utils.AnalyticsLogger
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
@@ -69,7 +72,6 @@ fun VodPlayerScreen(
     exoPlayer: ExoPlayer
 ) {
     val context = LocalContext.current
-    val exitScope = rememberCoroutineScope()
     val selectedStream by mainViewModel.selectedStream.collectAsState()
     val selectedMedia by tmdbViewModel.selectedMedia.collectAsState()
 
@@ -84,6 +86,7 @@ fun VodPlayerScreen(
     val stream = selectedStream!!
     val videoTitle = selectedMedia?.displayTitle
 
+    // ── Layout / UI state ──
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
@@ -92,6 +95,7 @@ fun VodPlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
+    // ── Playback state ──
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
@@ -108,6 +112,11 @@ fun VodPlayerScreen(
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
+    // Fires analytics exactly once per successful playback start. Reset
+    // whenever a new stream is set up.
+    var hasLoggedPlayback by remember(stream, retryToken) { mutableStateOf(false) }
+    var backPressedTime by remember { mutableStateOf(0L) }
+
     val seekAmount = 10_000L
 
     PlayerWindowEffect { inPip ->
@@ -115,9 +124,11 @@ fun VodPlayerScreen(
         if (inPip) showOverlay = false
     }
 
+    // ── Resolve + setup media source ────────────────────────────────────
     LaunchedEffect(stream, retryToken) {
         isLoading = true
         resolveFailed = false
+        hasLoggedPlayback = false
 
         try {
             val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
@@ -148,17 +159,13 @@ fun VodPlayerScreen(
                 )
             }
 
-            // [FIX] These token types must be handled by their resolver. If the resolver
-            // fails, do NOT fall through to the generic path below: it would hand the
-            // page/API URL to ExoPlayer ("Input does not start with the #EXTM3U header").
-            // Same rule as MediaResolver.mustUseResolver.
+            // Token-based URLs must not fall through to the generic path.
             if (resolved == null) {
                 val tokenLower = stream.tokenUrl?.trim()?.lowercase().orEmpty()
                 val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
                     tokenLower == "crichd" || tokenLower == "dlhd" ||
                     Regex("""^[\\/]?\d+$""").matches(tokenLower)
                 if (mustUseResolver) {
-                    // Handled by the catch block below: resolveFailed = true + error log.
                     throw IllegalStateException("Resolver failed for tokenUrl=$tokenLower")
                 }
             }
@@ -178,7 +185,9 @@ fun VodPlayerScreen(
                     rawSourceUrl.contains("extension=m3u8", ignoreCase = true)
                 val hasKnownExtensionOrProto = extRegex.containsMatchIn(decodedUrl) ||
                     protoRegex.containsMatchIn(rawSourceUrl) || isPhpHlsUrl
-                val redirectShortenerRegex = Regex("(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE)
+                val redirectShortenerRegex = Regex(
+                    "(is\\.gd|tinyurl|redirect|url=)", RegexOption.IGNORE_CASE
+                )
                 val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
                 val shouldPreResolve = redirectShortenerRegex.containsMatchIn(rawSourceUrl) ||
                     (!isKnownFileHost && !hasKnownExtensionOrProto)
@@ -302,11 +311,15 @@ fun VodPlayerScreen(
                 .applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: stream.drm
 
+            // Path-only view for extension checks so `.ts?token=x` is handled.
+            val preWrapPath = finalUrl.substringBefore("?").substringBefore("#").lowercase()
+
             val isMacUrl = MediaResolver.isStalkerMacUrl(stream.url) ||
                 MediaResolver.isStalkerMacUrl(finalUrl)
             val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) ||
                 finalUrl.contains("output=ts", ignoreCase = true) ||
-                finalUrl.endsWith(".ts", ignoreCase = true)
+                preWrapPath.endsWith(".ts") ||
+                preWrapPath.endsWith("/mpegts")
             val shouldWrapMac = isMacUrl && !isTsUrl
 
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
@@ -323,176 +336,184 @@ fun VodPlayerScreen(
                     )
             }
 
-            if (exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != finalUrl) {
-                val okHttpClient = MediaResolver.sharedOkHttpClient.newBuilder().apply {
-                    addNetworkInterceptor { chain ->
-                        val originalReq = chain.request()
-                        val builder = originalReq.newBuilder()
-                        finalHeaders.forEach { (k, v) -> builder.header(k, v) }
-                        chain.proceed(builder.build())
-                    }
-                }.build()
+            // Skip setup if the same URL is already playing (retry with unchanged URL).
+            // On retry, the caller stops + clears the player, so currentMediaItem is null
+            // and this check passes through.
+            val alreadyPlaying =
+                exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() == finalUrl
+            if (alreadyPlaying) {
+                isLoading = false
+                return@LaunchedEffect
+            }
 
-                val httpDataSourceFactory =
-                    androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
-
-                // [FIX] PngStrippingDataSource removed: use DefaultDataSource.Factory directly
-                // (same as MediaResolver.buildMediaSource).
-                val dataSourceFactory =
-                    androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
-
-                val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
-                val mimeType = if (shouldWrapInMasterPlaylist ||
-                    finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)
-                ) {
-                    androidx.media3.common.MimeTypes.APPLICATION_M3U8
-                } else {
-                    com.streambd.iptv.utils.TokenParser
-                        .detectMimeType(finalUrl, resolved?.mimeType)
+            val okHttpClient = MediaResolver.sharedOkHttpClient.newBuilder().apply {
+                addNetworkInterceptor { chain ->
+                    val originalReq = chain.request()
+                    val builder = originalReq.newBuilder()
+                    finalHeaders.forEach { (k, v) -> builder.header(k, v) }
+                    chain.proceed(builder.build())
                 }
-                mimeType?.let { mediaItemBuilder.setMimeType(it) }
+            }.build()
 
-                val subtitleConfigs = stream.subtitles?.map { sub ->
-                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
-                        .setMimeType(
-                            when {
-                                sub.url.endsWith(".vtt", ignoreCase = true) ->
-                                    androidx.media3.common.MimeTypes.TEXT_VTT
-                                sub.url.endsWith(".srt", ignoreCase = true) ->
-                                    androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
-                                sub.url.endsWith(".ass", ignoreCase = true) ||
-                                    sub.url.endsWith(".ssa", ignoreCase = true) ->
-                                    androidx.media3.common.MimeTypes.TEXT_SSA
-                                else -> androidx.media3.common.MimeTypes.TEXT_VTT
-                            }
-                        )
-                        .setLanguage(sub.language)
-                        .setLabel(sub.label ?: sub.language)
-                        .build()
-                } ?: emptyList()
+            val httpDataSourceFactory =
+                androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(okHttpClient)
+                    .setDefaultRequestProperties(finalHeaders)
 
-                if (subtitleConfigs.isNotEmpty()) {
-                    mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
-                }
+            val dataSourceFactory =
+                androidx.media3.datasource.DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-                val loadErrorPolicy = object :
-                    androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
-                    override fun getRetryDelayMsFor(
-                        loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
-                    ): Long {
-                        return if (loadErrorInfo.errorCount <= 5) 1000L
-                        else super.getRetryDelayMsFor(loadErrorInfo)
-                    }
-                    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
-                }
+            val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
+            val mimeType = if (shouldWrapInMasterPlaylist ||
+                finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)
+            ) {
+                androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            } else {
+                com.streambd.iptv.utils.TokenParser
+                    .detectMimeType(finalUrl, resolved?.mimeType)
+            }
+            mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-                val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
-                    .setMp4ExtractorFlags(
-                        androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS
-                    )
-
-                if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
-                    extractorsFactory.setMatroskaExtractorFlags(
-                        androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES
-                    )
-                }
-
-                val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
-                    dataSourceFactory, extractorsFactory
-                ).setLoadErrorHandlingPolicy(loadErrorPolicy)
-
-                if (finalDrm != null && finalDrm.type != null) {
-                    val drmScheme = when (finalDrm.type.lowercase()) {
-                        "widevine" -> C.WIDEVINE_UUID
-                        "playready" -> C.PLAYREADY_UUID
-                        "clearkey" -> C.CLEARKEY_UUID
-                        else -> C.WIDEVINE_UUID
-                    }
-
-                    val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
-
-                    var useLocalClearKey = false
-                    var clearKeyBytes: ByteArray? = null
-
-                    if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
-                        val parts = finalDrm.rawKeyPair.split(":")
-                        if (parts.size == 2) {
-                            try {
-                                val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                                val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                                val kidB64 = android.util.Base64.encodeToString(
-                                    kidBytes,
-                                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                                )
-                                val keyB64 = android.util.Base64.encodeToString(
-                                    keyBytes,
-                                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                                )
-                                val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\"," +
-                                    "\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                                clearKeyBytes = clearkeyJson.toByteArray()
-                                useLocalClearKey = true
-                            } catch (e: Exception) { e.printStackTrace() }
+            val subtitleConfigs = stream.subtitles?.map { sub ->
+                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(sub.url))
+                    .setMimeType(
+                        when {
+                            sub.url.endsWith(".vtt", ignoreCase = true) ->
+                                androidx.media3.common.MimeTypes.TEXT_VTT
+                            sub.url.endsWith(".srt", ignoreCase = true) ->
+                                androidx.media3.common.MimeTypes.APPLICATION_SUBRIP
+                            sub.url.endsWith(".ass", ignoreCase = true) ||
+                                sub.url.endsWith(".ssa", ignoreCase = true) ->
+                                androidx.media3.common.MimeTypes.TEXT_SSA
+                            else -> androidx.media3.common.MimeTypes.TEXT_VTT
                         }
-                    } else if (finalDrm.licenseServer != null) {
-                        if (finalDrm.type.lowercase() == "clearkey" &&
-                            finalDrm.licenseServer.trim().startsWith("{")
-                        ) {
-                            clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
-                            useLocalClearKey = true
-                        } else {
-                            drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                            drmBuilder.setLicenseRequestHeaders(
-                                finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                    )
+                    .setLanguage(sub.language)
+                    .setLabel(sub.label ?: sub.language)
+                    .build()
+            } ?: emptyList()
+
+            if (subtitleConfigs.isNotEmpty()) {
+                mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
+            }
+
+            // Fast-fail policy — matches MediaResolver.buildMediaSource.
+            val loadErrorPolicy = object :
+                androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(
+                    info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
+                ): Long {
+                    val cause = info.loadException
+                    if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                        val code = cause.responseCode
+                        if (code == 403 || code == 404 || code == 410 || code == 451) {
+                            return C.TIME_UNSET
+                        }
+                    }
+                    when (cause?.errorCode) {
+                        androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                        androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+                        androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
+                            return C.TIME_UNSET
+                    }
+                    val defaultDelay = super.getRetryDelayMsFor(info)
+                    if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+                    return if (info.errorCount <= 4) {
+                        500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+                    } else defaultDelay
+                }
+
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+            }
+
+            val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+                .setMp4ExtractorFlags(
+                    androidx.media3.extractor.mp4.Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS
+                )
+
+            if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
+                extractorsFactory.setMatroskaExtractorFlags(
+                    androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES
+                )
+            }
+
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+                dataSourceFactory, extractorsFactory
+            ).setLoadErrorHandlingPolicy(loadErrorPolicy)
+
+            if (finalDrm != null && finalDrm.type != null) {
+                val drmScheme = when (finalDrm.type.lowercase()) {
+                    "widevine" -> C.WIDEVINE_UUID
+                    "playready" -> C.PLAYREADY_UUID
+                    "clearkey" -> C.CLEARKEY_UUID
+                    else -> C.WIDEVINE_UUID
+                }
+
+                val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
+
+                var useLocalClearKey = false
+                var clearKeyBytes: ByteArray? = null
+
+                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
+                    val parts = finalDrm.rawKeyPair.split(":")
+                    if (parts.size == 2) {
+                        try {
+                            val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                            val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                            val kidB64 = android.util.Base64.encodeToString(
+                                kidBytes,
+                                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
                             )
-                            drmBuilder.setMultiSession(true)
-                        }
+                            val keyB64 = android.util.Base64.encodeToString(
+                                keyBytes,
+                                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                            )
+                            val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\"," +
+                                "\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
+                            clearKeyBytes = clearkeyJson.toByteArray()
+                            useLocalClearKey = true
+                        } catch (e: Exception) { e.printStackTrace() }
                     }
-
-                    mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-
-                    if (useLocalClearKey && clearKeyBytes != null) {
-                        val localMediaDrmCallback =
-                            androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
-                        val drmSessionManager =
-                            androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-                                .setUuidAndExoMediaDrmProvider(
-                                    C.CLEARKEY_UUID,
-                                    androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER
-                                )
-                                .build(localMediaDrmCallback)
-                        mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                } else if (finalDrm.licenseServer != null) {
+                    if (finalDrm.type.lowercase() == "clearkey" &&
+                        finalDrm.licenseServer.trim().startsWith("{")
+                    ) {
+                        clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
+                        useLocalClearKey = true
+                    } else {
+                        drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                        drmBuilder.setLicenseRequestHeaders(
+                            finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                        )
+                        drmBuilder.setMultiSession(true)
                     }
                 }
 
-                val mediaItem = mediaItemBuilder.build()
-                val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
 
-                    exoPlayer.setMediaSource(mediaSource)
-    exoPlayer.prepare()
-    exoPlayer.playWhenReady = true
+                if (useLocalClearKey && clearKeyBytes != null) {
+                    val localMediaDrmCallback =
+                        androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
+                    val drmSessionManager =
+                        androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                            .setUuidAndExoMediaDrmProvider(
+                                C.CLEARKEY_UUID,
+                                androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER
+                            )
+                            .build(localMediaDrmCallback)
+                    mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                }
+            }
 
-    // ── Analytics: VOD playback started ──
-    // Fires once per successful media-source setup, in both
-    // TMDB (movie/tv) and Stream-screen ("stream") flows.
-    // On retry the LaunchedEffect re-runs, so a retry also
-    // logs — which is correct (it's a fresh playback attempt).
-    val vType = when {
-        selectedMedia == null -> "stream"
-        selectedMedia!!.isMovie -> "movie"
-        else -> "tv"
-    }
-    AnalyticsLogger.logVodPlayed(
-        context = context,
-        title = videoTitle ?: stream.provider,
-        type = vType,
-        provider = stream.provider,
-        season = mainViewModel.selectedSeason.value,
-        episode = mainViewModel.selectedEpisode.value
-    )
-} else {
-    isLoading = false
-}
+            val mediaItem = mediaItemBuilder.build()
+            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+
+            exoPlayer.setMediaSource(mediaSource)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+
+            // Analytics is NOT logged here — it fires from onPlaybackStateChanged
+            // (STATE_READY) via the `hasLoggedPlayback` flag so a stream that
+            // never actually starts does not get counted.
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -511,12 +532,31 @@ fun VodPlayerScreen(
         }
     }
 
-    DisposableEffect(exoPlayer) {
+    // ── Player listener — keyed on stream so error handling uses fresh state ──
+    DisposableEffect(exoPlayer, stream) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isLoading = playbackState == Player.STATE_BUFFERING
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
+
+                    // First time we reach READY for this stream, fire analytics once.
+                    if (!hasLoggedPlayback) {
+                        hasLoggedPlayback = true
+                        val vType = when {
+                            selectedMedia == null -> "stream"
+                            selectedMedia!!.isMovie -> "movie"
+                            else -> "tv"
+                        }
+                        AnalyticsLogger.logVodPlayed(
+                            context = context,
+                            title = videoTitle ?: stream.provider,
+                            type = vType,
+                            provider = stream.provider,
+                            season = mainViewModel.selectedSeason.value,
+                            episode = mainViewModel.selectedEpisode.value
+                        )
+                    }
                 }
             }
 
@@ -542,8 +582,10 @@ fun VodPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(Unit) {
-        while (true) {
+    // ── Position polling — gated on overlay visibility. ──
+    LaunchedEffect(exoPlayer, showOverlay) {
+        if (!showOverlay) return@LaunchedEffect
+        while (currentCoroutineContext().isActive) {
             if (!isDragging) currentPosition = exoPlayer.currentPosition
             bufferedPosition = exoPlayer.bufferedPosition
             duration = exoPlayer.duration.coerceAtLeast(0L)
@@ -565,15 +607,22 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Real exit ──
+    // ── Real exit — lifecycleScope (survives recomposition). ──
     val finishExit: () -> Unit = {
-        exitScope.launch {
-            (context as? ComponentActivity)?.requestedOrientation =
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            delay(400)
-            exoPlayer.stop()
-            exoPlayer.clearMediaItems()
-            navController.popBackStack()
+        val activity = context as? ComponentActivity
+        val teardown: () -> Unit = {
+            try { exoPlayer.stop() } catch (_: Exception) {}
+            try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
+            try { navController.popBackStack() } catch (_: Exception) {}
+        }
+        if (activity == null) {
+            teardown()
+        } else {
+            activity.lifecycleScope.launch {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                delay(400)
+                teardown()
+            }
         }
     }
 
@@ -747,7 +796,8 @@ fun VodPlayerScreen(
                                 modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(Icons.Default.Replay10, "Seek Back 10s", tint = Color.White, modifier = Modifier.size(28.dp))
+                                Icon(Icons.Default.Replay10, "Seek Back 10s",
+                                    tint = Color.White, modifier = Modifier.size(28.dp))
                             }
                             TvIconButton(
                                 onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
@@ -766,7 +816,8 @@ fun VodPlayerScreen(
                                 modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(Icons.Default.Forward10, "Seek Forward 10s", tint = Color.White, modifier = Modifier.size(28.dp))
+                                Icon(Icons.Default.Forward10, "Seek Forward 10s",
+                                    tint = Color.White, modifier = Modifier.size(28.dp))
                             }
                         }
 
@@ -851,6 +902,22 @@ fun VodPlayerScreen(
                     Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val primaryText = when {
+                        playerError != null -> playerError?.message ?: "Unknown error"
+                        resolveFailed ->
+                            "The stream could not be resolved or the URL is unreachable."
+                        else -> "Unknown error"
+                    }
+                    Text(primaryText, color = Color.White, fontSize = 12.sp)
+
+                    val causeText = playerError?.cause?.message
+                    if (!causeText.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(causeText, color = Color.LightGray, fontSize = 10.sp)
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
@@ -870,7 +937,6 @@ fun VodPlayerScreen(
                 }
             }
 
-            // Dialogs (Activity is landscape now, so standard Dialog is landscape too)
             if (showTrackSelector) {
                 TrackSelectionDialog(
                     player = exoPlayer,
