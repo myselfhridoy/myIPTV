@@ -254,19 +254,19 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /**
-     * True when resolving this channel requires an interactive WebView and thus
-     * can't be safely backgrounded. Mirrors the token set used by
-     * [MediaResolver]'s `mustUseResolver` check.
-     */
-    private fun needsWebView(channel: Channel): Boolean {
-        val u = channel.url.lowercase()
-        val token = channel.tokenUrl.lowercase()
-        if (u.contains("tokenurl=") && RESOLVER_ONLY_TOKENS.any { u.contains("tokenurl=$it") }) return true
-        if (token in RESOLVER_ONLY_TOKENS) return true
-        if (token.isNotEmpty() && NUMERIC_TOKEN_REGEX.matches(token)) return true
-        return false
-    }
+/**
+ * True when resolving this channel requires an interactive WebView and thus
+ * can't be safely backgrounded. Mirrors the token set used by
+ * [MediaResolver]'s `mustUseResolver` check.
+ */
+private fun needsWebView(channel: Channel): Boolean {
+    val u = channel.url.lowercase()
+    val token = channel.tokenUrl?.lowercase().orEmpty()
+    if (u.contains("tokenurl=") && RESOLVER_ONLY_TOKENS.any { u.contains("tokenurl=$it") }) return true
+    if (token.isNotEmpty() && token in RESOLVER_ONLY_TOKENS) return true
+    if (token.isNotEmpty() && NUMERIC_TOKEN_REGEX.matches(token)) return true
+    return false
+}
 
     private suspend fun prefetchOne(channel: Channel, force: Boolean) {
         if (needsWebView(channel)) return
