@@ -508,18 +508,19 @@ if (directM3u8 != null) {
                                         .replace("\\u002F", "/", true)
                                         .replace("&amp;", "&")
                                     val iframeM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*")
-                                        .find(iframeHtml)?.value
-                                    if (iframeM3u8 != null) {
-                                        var finalUrl = iframeM3u8
-                                        if (tokenMatch != null && tokenReplace != null) {
-                                            finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
-                                        }
-                                        val hdrs = getStreamHeaders(iframeUrl, headers, playRef)
-                                        if (validateStreamUrl(finalUrl, hdrs)) {
-                                            android.util.Log.d("TokenParser", "crichd: iframe m3u8 found -> $finalUrl")
-                                            return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
-                                        }
-                                    }
+    .find(iframeHtml)?.value
+if (iframeM3u8 != null) {
+    val finalUrl = if (tokenMatch != null && tokenReplace != null) {
+        iframeM3u8.replace(tokenMatch, tokenReplace)
+    } else {
+        iframeM3u8
+    }
+    val hdrs = getStreamHeaders(iframeUrl, headers, playRef)
+    if (validateStreamUrl(finalUrl, hdrs)) {
+        android.util.Log.d("TokenParser", "crichd: iframe m3u8 found -> $finalUrl")
+        return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
+    }
+}
                                 }
                             }
                         } catch (e: Exception) { e.printStackTrace() }
