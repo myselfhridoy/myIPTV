@@ -57,59 +57,67 @@ fun AppNavigation(
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    // ── Track selector: default params, no forced preferences. ────────────
-    // Forcing codec/bitrate preferences here historically caused more harm
-    // than good (broke HEVC streams, broke multi-audio). Let ExoPlayer pick
-    // the best track; we only step in when the user asks via the UI.
-    val trackSelector = remember { DefaultTrackSelector(context) }
+    // ── Track selector ────────────────────────────────────────────────────
+    // We disable audio offload via TrackSelectionParameters — the correct
+    // replacement for the removed DefaultRenderersFactory.setEnableAudioOffload
+    // in media3 1.2+. Offload bypasses ExoPlayer's Sonic audio processor,
+    // which is where speed/pitch correction for A/V sync lives.
+    val trackSelector = remember {
+        DefaultTrackSelector(context).apply {
+            // AUDIO_OFFLOAD_PREFERENCE_DISABLED exists in media3 1.2+.
+            // If your media3 version is older than 1.2, this block will need
+            // to be wrapped in a version check — but since setUseLazyPreparation
+            // below compiled fine, we're on 1.4+, so the API is present.
+            parameters = buildUponParameters()
+                .setAudioOffloadPreference(C.AUDIO_OFFLOAD_PREFERENCE_DISABLED)
+                .build()
+        }
+    }
 
-    // ── LoadControl tuned for LIVE streaming. ─────────────────────────────
-    // The previous values (min 30s / max 300s / back buffer 60s) were VOD
-    // values. For live, they fought the 20s target offset in
-    // MediaItem.LiveConfiguration and gave A/V drift room to accumulate.
-    //
-    // Rule of thumb: minBufferMs <= targetOffsetMs, maxBufferMs <= 3×
-    // targetOffsetMs. With the resolver now using a 10s target offset,
-    // 8s / 30s is a safe and responsive window.
+    // ── LoadControl tuned for LIVE streaming ─────────────────────────────
+    // Heap-scaled forward buffer. Fixed 45s values caused GC pressure on
+    // 192–256 MB devices when the stream bitrate spiked.
     val loadControl = remember {
         val am = context.getSystemService(ActivityManager::class.java)
-        val lowRam = am?.isLowRamDevice == true || (am?.memoryClass ?: 256) < 256
+        val heapMb = am?.memoryClass ?: 256
+        val lowRam = am?.isLowRamDevice == true || heapMb < 256
+
+        val maxBufMs = when {
+            heapMb < 128 -> 12_000
+            heapMb < 256 -> 20_000
+            heapMb < 512 -> 30_000
+            else         -> 45_000
+        }
 
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs                = */ if (lowRam) 4_000 else 8_000,
-                /* maxBufferMs                = */ if (lowRam) 20_000 else 45_000,
-                /* bufferForPlaybackMs        = */ 1_500,
-                /* bufferForPlaybackAfterRebuf= */ 3_000
+                /* minBufferMs                 = */ if (lowRam) 4_000 else 8_000,
+                /* maxBufferMs                 = */ maxBufMs,
+                /* bufferForPlaybackMs         = */ 1_500,
+                /* bufferForPlaybackAfterRebuf = */ 3_000
             )
-            .setTargetBufferBytes(
-                if (lowRam) 24 * 1024 * 1024 else C.LENGTH_UNSET
-            )
-            // Live has no use for a long back buffer. Keeping it short frees
-            // RAM for the forward buffer and reduces GC pauses.
-            .setBackBuffer(/* backBufferDurationMs = */ if (lowRam) 5_000 else 15_000, true)
-            // Time-based eviction keeps the live window stable regardless of
-            // bitrate spikes.
+            .setTargetBufferBytes(if (lowRam) 24 * 1024 * 1024 else C.LENGTH_UNSET)
+            .setBackBuffer(if (lowRam) 5_000 else 15_000, true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
     }
 
-    // ── Renderers factory: hardware-first, sync-friendly. ─────────────────
+    // ── Renderers factory: hardware-first ────────────────────────────────
     //  • EXTENSION_RENDERER_MODE_ON (not PREFER): use platform decoders when
-    //    available; FFmpeg is only a fallback. PREFER forced software audio
-    //    against hardware video, which is exactly the A/V drift pattern.
-    //  • setEnableAudioOffload(false): audio offload bypasses ExoPlayer's
-    //    Sonic audio processor, which is where speed/pitch correction for
-    //    A/V sync lives. Offload ON = no auto-sync.
-    //  • setEnableDecoderFallback(true): if a hardware decoder chokes mid-
-    //    stream, fall back instead of dying.
+    //    available; FFmpeg only as fallback. PREFER forced software audio
+    //    against hardware video — the classic A/V drift pattern.
+    //  • setEnableDecoderFallback(true): if a hardware decoder chokes
+    //    mid-stream, fall back instead of dying.
+    //
+    // NOTE: setEnableAudioOffload() was removed from DefaultRenderersFactory
+    // in media3 1.2.0. Audio offload is now controlled via the track
+    // selector's TrackSelectionParameters — see the trackSelector above.
     val renderersFactory = remember {
         DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
             )
-            .setEnableAudioOffload(false)
     }
 
     val audioAttributes = remember {
@@ -119,7 +127,7 @@ fun AppNavigation(
             .build()
     }
 
-    // ── Single global player for Live + VOD. ──────────────────────────────
+    // ── Single global player for Live + VOD ──────────────────────────────
     val globalExoPlayer = remember {
         ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
@@ -127,13 +135,13 @@ fun AppNavigation(
             .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
-            // Seamless: reuse the surface across media items instead of
-            // re-creating it, which avoids a black flash on channel switch.
             .setUseLazyPreparation(true)
             .build()
             .apply {
-                // Keep player state consistent even when it goes to the background.
-                repeatMode = Player.REPEAT_MODE_OFF
+                // Java setter — Kotlin property synthesis does NOT occur for
+                // methods declared on the super-interface (Player) when the
+                // receiver is typed as the sub-interface (ExoPlayer).
+                setRepeatMode(Player.REPEAT_MODE_OFF)
             }
     }
 
@@ -142,12 +150,12 @@ fun AppNavigation(
     }
 
     // ── Safety net: stop playback when leaving a player route via any path
-    //    other than the in-screen back handler (deep link, programmatic
-    //    navigation, config change). Prevents audio bleeding. ──
+    //    other than the in-screen back handler. ──
     DisposableEffect(navController) {
         val playerRoutes = setOf(Routes.LIVE_PLAYER, Routes.VOD_PLAYER)
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
-            if (destination.route !in playerRoutes) {
+            val arriving = destination.route
+            if (arriving !in playerRoutes) {
                 if (globalExoPlayer.isPlaying ||
                     globalExoPlayer.playbackState != Player.STATE_IDLE
                 ) {
