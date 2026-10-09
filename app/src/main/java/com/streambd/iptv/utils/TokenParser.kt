@@ -464,18 +464,21 @@ object TokenParser {
                         .replace("\\u002F", "/", true)
                         .replace("&amp;", "&")
 
-                    val directM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").find(normalized)?.value
-                    if (directM3u8 != null) {
-                        var finalUrl = directM3u8
-                        if (tokenMatch != null && tokenReplace != null) {
-                            finalUrl = finalUrl.replace(tokenMatch, tokenReplace)
-                        }
-                        val hdrs = getStreamHeaders(baseUrl, headers, playRef)
-                        if (validateStreamUrl(finalUrl, hdrs)) {
-                            android.util.Log.d("TokenParser", "crichd: direct m3u8 found -> $finalUrl")
-                            return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
-                        }
-                    }
+val directM3u8 = Regex("https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*").find(normalized)?.value
+if (directM3u8 != null) {
+    // `var` captured inside a `.use { }` closure defeats smart-cast;
+    // use a `val` with a conditional assignment instead.
+    val finalUrl = if (tokenMatch != null && tokenReplace != null) {
+        directM3u8.replace(tokenMatch, tokenReplace)
+    } else {
+        directM3u8
+    }
+    val hdrs = getStreamHeaders(baseUrl, headers, playRef)
+    if (validateStreamUrl(finalUrl, hdrs)) {
+        android.util.Log.d("TokenParser", "crichd: direct m3u8 found -> $finalUrl")
+        return@withContext ResolvedToken(url = finalUrl, headers = hdrs)
+    }
+}
 
                     val iframeMatch = Regex(
                         "<iframe[^>]+src=[\"']([^\"']+)[\"']",
