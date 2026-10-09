@@ -16,12 +16,16 @@ object M3UParser {
     private val IC = RegexOption.IGNORE_CASE
 
     private val RE_LOGO = Regex("""(?<![\w-])(?:tvg-logo|logo|icon|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+))""", IC)
-    private val RE_GROUP = Regex("""group-title\s*=\s*(?:"([^"]*)"|'([^']*)')""", IC)
-    private val RE_UA = Regex("""http-user-agent\s*=\s*"([^"]*)"""", IC)
-    private val RE_REF = Regex("""http-refer(?:r)?er\s*=\s*"([^"]*)"""", IC)
-    private val RE_ORIGIN = Regex("""http-origin\s*=\s*"([^"]*)"""", IC)
-    private val RE_COOKIE = Regex("""http-cookie\s*=\s*"([^"]*)"""", IC)
-    private val RE_TOKEN_ID = Regex("""(?:token-id|tokenid)\s*=\s*"?([^",\s]+)"?""", IC)
+    // Now supports unquoted values too, matching RE_LOGO.
+    private val RE_GROUP = Regex("""group-title\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s,]+))""", IC)
+    // Now support both quote styles.
+    private val RE_UA     = Regex("""http-user-agent\s*=\s*(?:"([^"]*)"|'([^']*)')""", IC)
+    private val RE_REF    = Regex("""http-refer(?:r)?er\s*=\s*(?:"([^"]*)"|'([^']*)')""", IC)
+    private val RE_ORIGIN = Regex("""http-origin\s*=\s*(?:"([^"]*)"|'([^']*)')""", IC)
+    private val RE_COOKIE = Regex("""http-cookie\s*=\s*(?:"([^"]*)"|'([^']*)')""", IC)
+    // Anchor to start-of-line or whitespace so a channel name that happens to
+    // contain "tokenid=" doesn't trigger a false match.
+    private val RE_TOKEN_ID = Regex("""(?:^|\s)(?:token-id|tokenid)\s*=\s*"?([^",\s]+)"?""", IC)
 
     private val RE_ATTR_PREFIX = Regex("""^#\s*EXTATTRFROMURL:\s*""", IC)
     private val RE_ATTR_ANYWHERE = Regex("""#\s*EXTATTRFROMURL:""", IC)
@@ -42,14 +46,16 @@ object M3UParser {
 
     private val RE_LOGO_NUMERIC = Regex("""^\d{10,}\.(png|jpg|jpeg|webp)$""", IC)
 
-    // '&' দিয়ে আলাদা করা হবে শুধু যখন পরের অংশ পরিচিত key দিয়ে শুরু হয়।
-    // এতে Referer=https://x.com/?a=1&b=2 এর মতো ভ্যালু ভেঙে যায় না।
-    // অপরিচিত কাস্টম হেডারের জন্য আলাদা '|' ব্যবহার করুন: url|MyHeader=1|Other=2
+    private val RE_NUMERIC_ENTITY = Regex("""&#(x?)([0-9a-fA-F]+);""")
+    // A pipe followed by `Key=...` or `Key:...` starts the header section.
+    // A pipe followed by anything else is treated as part of the URL.
+    private val RE_HEADER_SECTION_START = Regex("""\|(?=[A-Za-z][A-Za-z0-9_-]*\s*[=:])""")
+
     private const val KNOWN_KEYS =
         "user-agent|referer|referrer|origin|cookie|authorization|http-[a-z-]+|x-[a-z0-9-]+|" +
         "token[a-z-]*|drm[a-z-]*|playref|play-ref|streamref|stream-ref|stream-referer|" +
         "m3u8-referer|cdnref|mediaref|liveref"
-    private val RE_AMP_SPLIT = Regex("&(?=(?:$KNOWN_KEYS)\\s*[=:])", IC)
+    private val RE_AMP_SPLIT = Regex("&(?=(?:$KNOWN_KEYS)\s*[=:])", IC)
 
     private val STANDARD_HEADERS = setOf("user-agent", "referer", "origin", "cookie")
 
@@ -57,16 +63,20 @@ object M3UParser {
     // Public API
     // ---------------------------------------------------------------------
 
-    suspend fun preprocessM3U(content: String): String = withContext(Dispatchers.IO) {
-        content.removePrefix("\uFEFF")
-    }
+    /**
+     * Strips the UTF-8 BOM. Previously this was a suspend/IO wrapper around
+     * a pure string operation — the dispatcher hop was unnecessary.
+     */
+    fun preprocessM3U(content: String): String = content.removePrefix("\uFEFF")
 
     fun parsePlaylist(content: String): List<Channel> {
-        // trim() BOM সরায় না, তাই আগে সরানো হচ্ছে
         val trimmed = content.removePrefix("\uFEFF").trim()
         if (trimmed.isEmpty()) return emptyList()
 
-        if (trimmed.contains("#EXTM3U") || trimmed.contains("#EXTINF:") || RE_ATTR_ANYWHERE.containsMatchIn(trimmed)) {
+        if (trimmed.contains("#EXTM3U") ||
+            trimmed.contains("#EXTINF:") ||
+            RE_ATTR_ANYWHERE.containsMatchIn(trimmed)
+        ) {
             return parseM3U(trimmed)
         }
 
@@ -90,10 +100,9 @@ object M3UParser {
                 }
             }
         } catch (e: Exception) {
-            // JSON নয়, নিচে M3U হিসেবে চেষ্টা হবে
+            // Not JSON — try M3U below.
         }
 
-        // শুধু URL-এর তালিকা হলেও কাজ করবে
         return try {
             parseM3U(trimmed)
         } catch (e: Exception) {
@@ -136,11 +145,10 @@ object M3UParser {
 
         fun applyParsed(parsed: ParsedUrl) {
             currentHttpReferer = parsed.headers["referer"] ?: currentHttpReferer
-            currentUserAgent = parsed.headers["user-agent"] ?: currentUserAgent
-            currentOrigin = parsed.headers["origin"] ?: currentOrigin
-            currentCookie = parsed.headers["cookie"] ?: currentCookie
+            currentUserAgent   = parsed.headers["user-agent"] ?: currentUserAgent
+            currentOrigin      = parsed.headers["origin"] ?: currentOrigin
+            currentCookie      = parsed.headers["cookie"] ?: currentCookie
 
-            // পাইপের কাস্টম হেডার (X-Token, PlayRef ইত্যাদি) এখন httpHeaders এও যায়
             val extra = extraHeaders(parsed.headers)
             if (extra != null) {
                 val map = currentHttpHeaders ?: mutableMapOf()
@@ -148,12 +156,11 @@ object M3UParser {
                 currentHttpHeaders = map
             }
 
-            currentTokenUrl = parsed.custom["tokenurl"] ?: currentTokenUrl
-            currentTokenMatch = parsed.custom["tokenmatch"] ?: currentTokenMatch
+            currentTokenUrl     = parsed.custom["tokenurl"] ?: currentTokenUrl
+            currentTokenMatch   = parsed.custom["tokenmatch"] ?: currentTokenMatch
             currentTokenReplace = parsed.custom["tokenreplace"] ?: currentTokenReplace
-            currentTokenId = parsed.custom["tokenid"]?.toIntOrNull() ?: currentTokenId
+            currentTokenId      = parsed.custom["tokenid"]?.toIntOrNull() ?: currentTokenId
 
-            // |drmScheme=clearkey&drmLicense=kid:key
             buildDrm(parsed.custom)?.let { currentDrm = it }
         }
 
@@ -162,24 +169,33 @@ object M3UParser {
             if (line.isEmpty()) continue
 
             if (line.startsWith("#EXTINF:", ignoreCase = true)) {
-                // এখানে পুরো reset করা হয় না: অনেক প্লেলিস্টে #KODIPROP / #EXTVLCOPT
-                // লাইন #EXTINF এর আগে থাকে
+                // Do NOT fully reset here: some playlists place #KODIPROP /
+                // #EXTVLCOPT lines before #EXTINF.
                 currentLogo = RE_LOGO.find(line)?.let { m ->
                     m.groups[1]?.value ?: m.groups[2]?.value ?: m.groups[3]?.value
                 }?.trim() ?: ""
 
                 val groupFromAttr = RE_GROUP.find(line)?.let { m ->
-                    m.groups[1]?.value ?: m.groups[2]?.value
+                    m.groups[1]?.value ?: m.groups[2]?.value ?: m.groups[3]?.value
                 }?.trim()
                 if (!groupFromAttr.isNullOrBlank()) currentGroup = groupFromAttr
 
-                RE_UA.find(line)?.let { currentUserAgent = it.groupValues[1] }
-                RE_REF.find(line)?.let { currentHttpReferer = it.groupValues[1] }
-                RE_ORIGIN.find(line)?.let { currentOrigin = it.groupValues[1] }
-                RE_COOKIE.find(line)?.let { currentCookie = it.groupValues[1] }
-                RE_TOKEN_ID.find(line)?.let { currentTokenId = it.groupValues[1].toIntOrNull() }
+                RE_UA.find(line)?.let { m ->
+                    currentUserAgent = m.groups[1]?.value ?: m.groups[2]?.value
+                }
+                RE_REF.find(line)?.let { m ->
+                    currentHttpReferer = m.groups[1]?.value ?: m.groups[2]?.value
+                }
+                RE_ORIGIN.find(line)?.let { m ->
+                    currentOrigin = m.groups[1]?.value ?: m.groups[2]?.value
+                }
+                RE_COOKIE.find(line)?.let { m ->
+                    currentCookie = m.groups[1]?.value ?: m.groups[2]?.value
+                }
+                RE_TOKEN_ID.find(line)?.let {
+                    currentTokenId = it.groupValues[1].toIntOrNull() ?: currentTokenId
+                }
 
-                // চ্যানেলের নাম = quote-এর বাইরের প্রথম কমার পরের অংশ
                 val commaIndex = firstCommaOutsideQuotes(line)
                 currentName = if (commaIndex != -1) {
                     line.substring(commaIndex + 1).trim().ifBlank { "Unknown Channel" }
@@ -190,7 +206,7 @@ object M3UParser {
                 val grp = line.substringAfter(":").trim()
                 if (currentGroup.isBlank() && grp.isNotEmpty()) currentGroup = grp
             } else if (line.startsWith("#EXTVLCOPT:", ignoreCase = true)) {
-                val opt = line.substring(11).trim()
+                val opt = line.substringAfter(":").trim()
                 val key = opt.substringBefore('=').trim().lowercase()
                 val value = opt.substringAfter('=', "").trim()
                 when (key) {
@@ -212,7 +228,8 @@ object M3UParser {
                 val key = line.substringAfter("=").trim()
                 val isRawClearKeyPair = RE_CLEARKEY_PAIR.matches(key)
                 currentDrm = if (isRawClearKeyPair) {
-                    currentDrm?.copy(type = "clearkey", rawKeyPair = key) ?: DrmConfig(type = "clearkey", rawKeyPair = key)
+                    currentDrm?.copy(type = "clearkey", rawKeyPair = key)
+                        ?: DrmConfig(type = "clearkey", rawKeyPair = key)
                 } else {
                     currentDrm?.copy(licenseServer = key) ?: DrmConfig(licenseServer = key)
                 }
@@ -250,7 +267,7 @@ object M3UParser {
                         currentCookie = payload
                     }
                 } catch (e: Exception) {
-                    // Ignore parse error
+                    // Ignore.
                 }
             } else if (RE_ATTR_PREFIX.containsMatchIn(line)) {
                 val attrUrl = line.replaceFirst(RE_ATTR_PREFIX, "").trim()
@@ -332,7 +349,8 @@ object M3UParser {
         }
     }
 
-    // org.json (Android) এ optString JSON null-কে "null" স্ট্রিং বানায়, তাই নিজস্ব helper
+    // org.json (Android) returns the string "null" for JSON nulls, so a
+    // helper is needed.
     private fun JSONObject.str(key: String): String? {
         if (!has(key) || isNull(key)) return null
         val v = optString(key).trim()
@@ -348,7 +366,7 @@ object M3UParser {
     }
 
     // ---------------------------------------------------------------------
-    // PLS  (File1 আগে, Title1 পরে - তাই নম্বর ধরে গ্রুপ করা হয়)
+    // PLS
     // ---------------------------------------------------------------------
 
     private fun parsePLS(content: String): List<Channel> {
@@ -406,11 +424,20 @@ object M3UParser {
         if (t.startsWith("<![CDATA[") && t.endsWith("]]>")) {
             return t.removePrefix("<![CDATA[").removeSuffix("]]>").trim()
         }
-        return t.replace("&lt;", "<")
+        // Numeric entities first (&#65; and &#x41;).
+        val withNumeric = RE_NUMERIC_ENTITY.replace(t) { m ->
+            val isHex = m.groupValues[1].isNotEmpty()
+            val code = m.groupValues[2].toIntOrNull(if (isHex) 16 else 10)
+            if (code != null && code in 1..0x10FFFF) {
+                try { String(Character.toChars(code)) } catch (e: Exception) { m.value }
+            } else m.value
+        }
+        return withNumeric
+            .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&apos;", "'")
-            .replace("&amp;", "&") // সবার শেষে
+            .replace("&amp;", "&") // must be last
     }
 
     private fun xmlValue(regex: Regex, block: String): String? =
@@ -422,7 +449,13 @@ object M3UParser {
         for (match in RE_XSPF_TRACK.findAll(content)) {
             val trackContent = match.groupValues[1]
             val title = xmlValue(RE_XSPF_TITLE, trackContent)?.ifBlank { null } ?: "Unknown Channel"
-            val location = xmlValue(RE_XSPF_LOCATION, trackContent)?.ifBlank { null }
+            // XSPF allows multiple <location> for failover. Use the first
+            // non-blank one as the primary URL.
+            val locations = RE_XSPF_LOCATION.findAll(trackContent)
+                .mapNotNull { xmlUnescape(it.groupValues[1]) }
+                .filter { it.isNotBlank() }
+                .toList()
+            val location = locations.firstOrNull()
             val image = xmlValue(RE_XSPF_IMAGE, trackContent)
             val creator = xmlValue(RE_XSPF_CREATOR, trackContent)?.ifBlank { null }
             val annotation = xmlValue(RE_XSPF_ANNOTATION, trackContent)?.ifBlank { null }
@@ -430,6 +463,11 @@ object M3UParser {
             if (location != null) {
                 val parsed = parseUrlHeaders(location)
                 val group = creator ?: annotation ?: ""
+
+                // Additional locations become sources for failover.
+                val extraSources = if (locations.size > 1) {
+                    locations.drop(1).mapIndexed { i, u -> "alt${i + 1}" to u }.toMap()
+                } else emptyMap()
 
                 channels.add(
                     Channel(
@@ -447,7 +485,8 @@ object M3UParser {
                         tokenReplace = parsed.custom["tokenreplace"],
                         tokenId = parsed.custom["tokenid"]?.toIntOrNull(),
                         drm = buildDrm(parsed.custom),
-                        isLiveEvent = true
+                        isLiveEvent = true,
+                        sources = extraSources
                     )
                 )
             }
@@ -518,8 +557,11 @@ object M3UParser {
 
                 val name = obj.firstStr("name", "title") ?: "Unknown Channel"
                 val logo = extractBestLogo(obj)
-                val group = obj.firstStr("group-title", "group", "category", "groupTitle") ?: ""
-                val isLive = obj.optBoolean("isLive", true)
+                val group = obj.firstStr(
+                    "group-title", "group", "category", "groupTitle"
+                ) ?: ""
+                // Default from URL heuristic instead of blind true.
+                val isLive = obj.optBoolean("isLive", isLiveUrl(rawUrl))
 
                 channels.add(
                     Channel(
@@ -535,14 +577,15 @@ object M3UParser {
                         tokenUrl = parsed.custom["tokenurl"] ?: obj.str("tokenUrl"),
                         tokenMatch = parsed.custom["tokenmatch"] ?: obj.str("tokenMatch"),
                         tokenReplace = parsed.custom["tokenreplace"] ?: obj.str("tokenReplace"),
-                        tokenId = parsed.custom["tokenid"]?.toIntOrNull() ?: obj.str("tokenId")?.toIntOrNull(),
+                        tokenId = parsed.custom["tokenid"]?.toIntOrNull()
+                            ?: obj.str("tokenId")?.toIntOrNull(),
                         drm = buildDrm(parsed.custom),
                         isLiveEvent = isLive,
                         sources = sourcesMap
                     )
                 )
             } catch (e: Exception) {
-                // এই এন্ট্রি বাদ, বাকিগুলো চলবে
+                // Skip this entry; continue with the rest.
             }
         }
         return channels
@@ -559,13 +602,33 @@ object M3UParser {
     )
 
     fun parseUrlHeaders(line: String): ParsedUrl {
-        val parts = line.split("|")
-        val cleanUrl = parts.firstOrNull()?.trim() ?: ""
+        // Find where the header section actually begins: the first pipe
+        // followed by `Key=` or `Key:`. Anything before that is the URL
+        // (and may itself contain bare pipes).
+        val headerStart = RE_HEADER_SECTION_START.find(line)?.range?.first
+
+        val rawUrl: String
+        val headerSection: String?
+        if (headerStart == null) {
+            rawUrl = line.trim()
+            headerSection = null
+        } else {
+            rawUrl = line.substring(0, headerStart).trim()
+            headerSection = line.substring(headerStart + 1) // skip '|'
+        }
+
         val headers = mutableMapOf<String, String>()
         val custom = mutableMapOf<String, String>()
 
-        for (i in 1 until parts.size) {
-            val headerPart = parts[i].trim()
+        if (headerSection == null) {
+            return ParsedUrl(rawUrl, headers, custom)
+        }
+
+        // Split on additional `|` where the next token looks like a header.
+        val parts = RE_HEADER_SECTION_START.split(headerSection)
+
+        for (part in parts) {
+            val headerPart = part.trim()
             if (headerPart.isEmpty()) continue
 
             val subParts = headerPart.split(RE_AMP_SPLIT)
@@ -600,12 +663,13 @@ object M3UParser {
                 }
 
                 when (normalized) {
-                    "tokenurl", "tokenid", "tokenmatch", "tokenreplace", "drm-type", "drm-url", "drm-key" -> {
+                    "tokenurl", "tokenid", "tokenmatch", "tokenreplace",
+                    "drm-type", "drm-url", "drm-key" -> {
                         custom[key] = value
                         custom[normalized] = value
                     }
-                    "playref", "play-ref", "streamref", "stream-ref", "stream-referer",
-                    "m3u8-referer", "cdnref", "mediaref", "liveref" -> {
+                    "playref", "play-ref", "streamref", "stream-ref",
+                    "stream-referer", "m3u8-referer", "cdnref", "mediaref", "liveref" -> {
                         custom["playref"] = value
                         custom[key] = value
                         custom[normalized] = value
@@ -620,8 +684,8 @@ object M3UParser {
                 }
             }
         }
-        
-        return ParsedUrl(cleanUrl, headers, custom)
+
+        return ParsedUrl(rawUrl, headers, custom)
     }
 
     // ---------------------------------------------------------------------
@@ -656,14 +720,16 @@ object M3UParser {
         }
 
         if (firstNonEmpty.isNotEmpty() && !firstNonEmpty.startsWith("http", ignoreCase = true)) {
-            if (firstNonEmpty.endsWith(".png", ignoreCase = true) || firstNonEmpty.endsWith(".webp", ignoreCase = true) ||
-                firstNonEmpty.endsWith(".jpg", ignoreCase = true) || firstNonEmpty.endsWith(".jpeg", ignoreCase = true)
+            if (firstNonEmpty.endsWith(".png", ignoreCase = true) ||
+                firstNonEmpty.endsWith(".webp", ignoreCase = true) ||
+                firstNonEmpty.endsWith(".jpg", ignoreCase = true) ||
+                firstNonEmpty.endsWith(".jpeg", ignoreCase = true)
             ) {
-                return if (RE_LOGO_NUMERIC.matches(firstNonEmpty)) {
-                    "https://tstatic.akash-go.com/cms-ui/images/custom-content/$firstNonEmpty".replace(" ", "%20")
-                } else {
-                    "https://cdnhost.akashbd.net/assets/uploads/channels_images/$firstNonEmpty?v=10.5.10".replace(" ", "%20")
-                }
+                // Previously this block fabricated a provider-specific CDN
+                // URL from hardcoded hostnames. Those were provider-specific
+                // and broke when the CDN changed. Return the bare filename
+                // unchanged; the caller can attach a host from remote config.
+                return firstNonEmpty.replace(" ", "%20")
             }
         }
 
