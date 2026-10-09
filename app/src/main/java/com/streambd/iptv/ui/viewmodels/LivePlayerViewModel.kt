@@ -23,6 +23,20 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * The URL that will actually be handed to ExoPlayer when this channel is
+ * tuned for the first time.
+ *
+ * IMPORTANT: [LivePlayerScreen] must initialize `currentSourceUrl` via this
+ * same helper so that the resolve-time cache key
+ *   "${channel.name}|${sourceUrl}"
+ * matches the prefetch-time cache key produced by [LivePlayerViewModel].
+ * Without this, prefetching is silently useless because the two sides
+ * disagree on which source URL represents the channel.
+ */
+internal fun Channel.primarySourceUrl(): String =
+    sources.values.firstOrNull() ?: url
+
 class LivePlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
@@ -70,6 +84,13 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         const val PREFETCH_DELAY_MS = 1000L
         // Re-resolve neighbours before CACHE_TTL_MS expires (must stay below the TTL).
         const val REFRESH_INTERVAL_MS = 4 * 60 * 1000L
+
+        // Tokens that force the resolver to actually go out to a page / WebView.
+        // Kept in sync with MediaResolver.mustUseResolver tokens.
+        private val RESOLVER_ONLY_TOKENS = setOf(
+            "streambd", "streamplay", "crichd", "dlhd"
+        )
+        private val NUMERIC_TOKEN_REGEX = Regex("""^[\\/]?\d+$""")
     }
 
     private fun getCached(key: String): ResolvedMediaParams? {
@@ -83,6 +104,24 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun putCached(key: String, params: ResolvedMediaParams) {
         prefetchCache[key] = CacheEntry(params, System.currentTimeMillis())
+        // Always keep the cache bounded. Previously this trim only ran inside
+        // prefetchChannels, which meant a workflow that never triggered prefetch
+        // could grow the map without bound.
+        if (prefetchCache.size > MAX_CACHE_SIZE) {
+            val now = System.currentTimeMillis()
+            // 1) Drop expired entries first — they're free wins.
+            prefetchCache.entries
+                .filter { now - it.value.timestamp > CACHE_TTL_MS }
+                .forEach { prefetchCache.remove(it.key) }
+            // 2) If still over budget, evict oldest-first until we fit.
+            if (prefetchCache.size > MAX_CACHE_SIZE) {
+                val excess = prefetchCache.size - MAX_CACHE_SIZE
+                prefetchCache.entries
+                    .sortedBy { it.value.timestamp }
+                    .take(excess)
+                    .forEach { prefetchCache.remove(it.key) }
+            }
+        }
     }
 
     fun resolveChannel(channel: Channel, sourceUrl: String) {
@@ -180,30 +219,20 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         prefetchJob = viewModelScope.launch(Dispatchers.IO) {
             delay(PREFETCH_DELAY_MS)
 
-            // Determine next and previous channels to pre-resolve
+            // Determine next and previous channels to pre-resolve.
             val nextIndex = if (currentIndex < playlist.size - 1) currentIndex + 1 else 0
             val prevIndex = if (currentIndex > 0) currentIndex - 1 else playlist.size - 1
 
             val nextChannel = playlist[nextIndex]
             val prevChannel = playlist[prevIndex]
 
-            val currentKey = "${playlist[currentIndex].name}|${playlist[currentIndex].url}"
-            val nextCacheKey = "${nextChannel.name}|${nextChannel.url}"
-            val prevCacheKey = "${prevChannel.name}|${prevChannel.url}"
-
-            // Clean up old cache to prevent memory leaks
-            if (prefetchCache.size > MAX_CACHE_SIZE) {
-                val keysToKeep = setOf(currentKey, nextCacheKey, prevCacheKey)
-                prefetchCache.keys.retainAll(keysToKeep)
-            }
-
-            prefetchNeighbors(nextChannel, nextCacheKey, prevChannel, prevCacheKey, force = false)
+            prefetchNeighbors(nextChannel, prevChannel, force = false)
 
             // Refresh neighbours before the cache TTL runs out, so Up/Down still hits the
             // cache after a long time on one channel. Stops when the job is cancelled.
             while (isActive) {
                 delay(REFRESH_INTERVAL_MS)
-                prefetchNeighbors(nextChannel, nextCacheKey, prevChannel, prevCacheKey, force = true)
+                prefetchNeighbors(nextChannel, prevChannel, force = true)
             }
         }
     }
@@ -216,35 +245,45 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
     private suspend fun prefetchNeighbors(
         nextChannel: Channel,
-        nextCacheKey: String,
         prevChannel: Channel,
-        prevCacheKey: String,
         force: Boolean
     ) {
         coroutineScope {
-            launch { prefetchOne(nextChannel, nextCacheKey, force) }
-            launch { prefetchOne(prevChannel, prevCacheKey, force) }
+            launch { prefetchOne(nextChannel, force) }
+            launch { prefetchOne(prevChannel, force) }
         }
     }
 
+    /**
+     * True when resolving this channel requires an interactive WebView and thus
+     * can't be safely backgrounded. Mirrors the token set used by
+     * [MediaResolver]'s `mustUseResolver` check.
+     */
     private fun needsWebView(channel: Channel): Boolean {
-    val u = channel.url.lowercase()
-    return u.contains("tokenurl=streamplay") || u.contains("tokenurl=streambd") ||
-        channel.tokenUrl.equals("streamplay", true) || channel.tokenUrl.equals("streambd", true)
-}
-
-private suspend fun prefetchOne(channel: Channel, cacheKey: String, force: Boolean) {
-    if (needsWebView(channel)) return
-    if (!force && getCached(cacheKey) != null) return
-    try {
-        MediaResolver.resolveMediaParams(appContext, channel, channel.url)
-            ?.let { putCached(cacheKey, it) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(TAG, "Prefetch failed for ${channel.name}", e)
+        val u = channel.url.lowercase()
+        val token = channel.tokenUrl.lowercase()
+        if (u.contains("tokenurl=") && RESOLVER_ONLY_TOKENS.any { u.contains("tokenurl=$it") }) return true
+        if (token in RESOLVER_ONLY_TOKENS) return true
+        if (token.isNotEmpty() && NUMERIC_TOKEN_REGEX.matches(token)) return true
+        return false
     }
-}
+
+    private suspend fun prefetchOne(channel: Channel, force: Boolean) {
+        if (needsWebView(channel)) return
+        // CRITICAL: use the same URL the screen will pass to resolveChannel.
+        // Anything else produces a cache key mismatch and makes prefetch useless.
+        val sourceUrl = channel.primarySourceUrl()
+        val cacheKey = "${channel.name}|$sourceUrl"
+        if (!force && getCached(cacheKey) != null) return
+        try {
+            MediaResolver.resolveMediaParams(appContext, channel, sourceUrl)
+                ?.let { putCached(cacheKey, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Prefetch failed for ${channel.name}", e)
+        }
+    }
 
     fun retryResolution(channel: Channel, sourceUrl: String) {
         val cacheKey = "${channel.name}|$sourceUrl"
