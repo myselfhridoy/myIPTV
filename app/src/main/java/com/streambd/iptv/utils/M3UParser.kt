@@ -55,8 +55,7 @@ object M3UParser {
         "user-agent|referer|referrer|origin|cookie|authorization|http-[a-z-]+|x-[a-z0-9-]+|" +
         "token[a-z-]*|drm[a-z-]*|playref|play-ref|streamref|stream-ref|stream-referer|" +
         "m3u8-referer|cdnref|mediaref|liveref"
-    private val RE_AMP_SPLIT = Regex("&(?=(?:$KNOWN_KEYS)\s*[=:])", IC)
-
+private val RE_AMP_SPLIT = Regex("""&(?=(?:$KNOWN_KEYS)\s*[=:])""", IC)
     private val STANDARD_HEADERS = setOf("user-agent", "referer", "origin", "cookie")
 
     // ---------------------------------------------------------------------
