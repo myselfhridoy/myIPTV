@@ -58,21 +58,21 @@ fun AppNavigation(
     val context = LocalContext.current
 
     // ── Track selector ────────────────────────────────────────────────────
-    // We disable audio offload via TrackSelectionParameters — the correct
-    // replacement for the removed DefaultRenderersFactory.setEnableAudioOffload
-    // in media3 1.2+. Offload bypasses ExoPlayer's Sonic audio processor,
-    // which is where speed/pitch correction for A/V sync lives.
-    val trackSelector = remember {
-        DefaultTrackSelector(context).apply {
-            // AUDIO_OFFLOAD_PREFERENCE_DISABLED exists in media3 1.2+.
-            // If your media3 version is older than 1.2, this block will need
-            // to be wrapped in a version check — but since setUseLazyPreparation
-            // below compiled fine, we're on 1.4+, so the API is present.
-            parameters = buildUponParameters()
-                .setAudioOffloadPreference(C.AUDIO_OFFLOAD_PREFERENCE_DISABLED)
-                .build()
-        }
-    }
+    // Plain default selector. We deliberately do NOT touch
+    // TrackSelectionParameters.setAudioOffloadPreference here, because that
+    // API only exists in media3 1.2.0+. Audio offload defaults to DISABLED
+    // in media3 unless explicitly enabled, so leaving it alone keeps A/V
+    // sync correction (via the Sonic audio processor) active.
+    //
+    // If you later upgrade to media3 1.2.0+ and want to explicitly force
+    // offload off, add:
+    //
+    //   parameters = buildUponParameters()
+    //       .setAudioOffloadPreference(C.AUDIO_OFFLOAD_PREFERENCE_DISABLED)
+    //       .build()
+    //
+    // (requires importing androidx.media3.common.C).
+    val trackSelector = remember { DefaultTrackSelector(context) }
 
     // ── LoadControl tuned for LIVE streaming ─────────────────────────────
     // Heap-scaled forward buffer. Fixed 45s values caused GC pressure on
@@ -109,9 +109,10 @@ fun AppNavigation(
     //  • setEnableDecoderFallback(true): if a hardware decoder chokes
     //    mid-stream, fall back instead of dying.
     //
-    // NOTE: setEnableAudioOffload() was removed from DefaultRenderersFactory
-    // in media3 1.2.0. Audio offload is now controlled via the track
-    // selector's TrackSelectionParameters — see the trackSelector above.
+    // NOTE: setEnableAudioOffload() was removed in media3 1.2.0; audio
+    // offload is now controlled via TrackSelectionParameters. Since we're
+    // on an older version and don't need it (default is disabled), we
+    // simply don't touch it.
     val renderersFactory = remember {
         DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
@@ -138,9 +139,9 @@ fun AppNavigation(
             .setUseLazyPreparation(true)
             .build()
             .apply {
-                // Java setter — Kotlin property synthesis does NOT occur for
-                // methods declared on the super-interface (Player) when the
-                // receiver is typed as the sub-interface (ExoPlayer).
+                // setRepeatMode() is a method on the Player interface.
+                // Kotlin property synthesis (repeatMode = ...) does not
+                // happen here because ExoPlayer is a sub-interface.
                 setRepeatMode(Player.REPEAT_MODE_OFF)
             }
     }
@@ -155,7 +156,9 @@ fun AppNavigation(
         val playerRoutes = setOf(Routes.LIVE_PLAYER, Routes.VOD_PLAYER)
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val arriving = destination.route
-            if (arriving !in playerRoutes) {
+            // Guard on the ARRIVING destination only. route can briefly be
+            // null during NavHost initialisation.
+            if (arriving != null && arriving !in playerRoutes) {
                 if (globalExoPlayer.isPlaying ||
                     globalExoPlayer.playbackState != Player.STATE_IDLE
                 ) {
