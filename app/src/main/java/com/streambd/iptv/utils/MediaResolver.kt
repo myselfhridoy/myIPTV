@@ -567,47 +567,25 @@ object MediaResolver {
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 
         // ── Error handling: fast-fail on non-recoverable errors so we move
-        //    to the next source instead of spinning for two minutes.
-        //
-        //    403 / 404 / 410 / 451 are terminal — a retry will never succeed
-        //    without new credentials, so fail immediately. Same for parse
-        //    errors (broken manifest) and file-not-found. Everything else
-        //    gets a short exponential backoff, capped at 3 retries so a dead
-        //    source can't hold the failover chain hostage.
-        val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
-            override fun getRetryDelayMsFor(
-                info: LoadErrorHandlingPolicy.LoadErrorInfo
-            ): Long {
-                val cause = info.loadException
+// ── Error handling: shorter retry cadence for faster failover. The
+//    default policy already returns C.TIME_UNSET for non-retryable
+//    errors (parse, 4xx via the datasource layer), so we don't need
+//    to inspect the exception cause directly — a call that doesn't
+//    compile on older media3 versions anyway.
+val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
+    override fun getRetryDelayMsFor(
+        info: LoadErrorHandlingPolicy.LoadErrorInfo
+    ): Long {
+        val defaultDelay = super.getRetryDelayMsFor(info)
+        if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+        // Short backoff: 500ms, 1s, 2s, 4s.
+        return if (info.errorCount <= 4) {
+            500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+        } else defaultDelay
+    }
 
-                // Hard 4xx — no amount of retrying will fix auth/not-found.
-                if (cause is HttpDataSource.InvalidResponseCodeException) {
-                    val code = cause.responseCode
-                    if (code == 403 || code == 404 || code == 410 || code == 451) {
-                        return C.TIME_UNSET
-                    }
-                }
-
-                // Malformed manifest / file-not-found — same story.
-                when (cause?.errorCode) {
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
-                        return C.TIME_UNSET
-                }
-
-                val defaultDelay = super.getRetryDelayMsFor(info)
-                if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-                // Short backoff: 500 ms, 1 s, 2 s, 4 s.
-                return if (info.errorCount <= 4) {
-                    500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
-                } else {
-                    defaultDelay
-                }
-            }
-
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
-        }
+    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+}
 
         val extractorsFactory = DefaultExtractorsFactory()
             .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
