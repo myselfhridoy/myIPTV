@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -73,6 +74,8 @@ enum class VideoScaleMode(val title: String) {
     CINEMA("Cinema (18:9)")
 }
 
+// ---------- top-level helpers ----------------------------------------------
+
 private data class UiPlaybackError(
     val message: String,
     val causeMessage: String?,
@@ -83,18 +86,24 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
     when (error.errorCode) {
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return true
+
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> return false
+
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED -> return false
     }
     val text = buildString {
-        append(error.message.orEmpty()); append(' '); append(error.cause?.message.orEmpty())
+        append(error.message.orEmpty())
+        append(' ')
+        append(error.cause?.message.orEmpty())
     }.lowercase()
-    return text.contains("#extm3u") || text.contains("ext-x-") ||
-        text.contains("contentismalformed") || text.contains("does not start with the #extm3u")
+    return text.contains("#extm3u") ||
+        text.contains("ext-x-") ||
+        text.contains("contentismalformed") ||
+        text.contains("does not start with the #extm3u")
 }
 
 private fun List<Channel>.indexOfChannel(channel: Channel): Int {
@@ -113,6 +122,8 @@ private fun formatTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
+
+// ---------- screen ---------------------------------------------------------
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -136,7 +147,10 @@ fun LivePlayerScreen(
     }
 
     val channel = selectedChannel!!
-    val channelKey = channel.tokenId ?: channel.name
+    // Compound key: two channels with the same name but different URLs
+    // (or different tokenIds) must be distinct. Previously `tokenId ?: name`
+    // collided for same-named channels.
+    val channelKey = "${channel.tokenId ?: channel.name}|${channel.primarySourceUrl()}"
 
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
@@ -147,7 +161,6 @@ fun LivePlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
-    // Shared with the ViewModel — see Channel.primarySourceUrl().
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.primarySourceUrl())
     }
@@ -198,11 +211,9 @@ fun LivePlayerScreen(
     }
 
     // ── Real exit ────────────────────────────────────────────────────────
-    // Runs on the Activity's lifecycleScope (not a composition scope) so the
-    // continuation survives recomposition. As long as the player Activity
-    // declares `configChanges` for orientation (any video player must, since
-    // PlayerWindowEffect rotates programmatically) the Activity is not
-    // recreated and the scope lives long enough to reach popBackStack.
+    // Runs on the Activity lifecycleScope (survives recomposition) so the
+    // continuation reaches popBackStack even if the screen re-composes
+    // between the orientation request and the teardown.
     val finishExit: () -> Unit = {
         val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
@@ -274,7 +285,12 @@ fun LivePlayerScreen(
         if (index != -1) playerViewModel.prefetchChannels(currentPlaylist, index)
     }
 
-    DisposableEffect(exoPlayer) {
+    // ── Player listener ──────────────────────────────────────────────────
+    // Keyed on channelKey so a channel switch re-registers the listener
+    // with fresh closures over the new failedSourceUrls / currentSourceUrl
+    // state. Previously this listener captured state from the first
+    // composition and mishandled failover after surfing.
+    DisposableEffect(exoPlayer, channelKey) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
@@ -283,8 +299,15 @@ fun LivePlayerScreen(
                     lastHlsError = false
                 }
             }
-            override fun onIsPlayingChanged(isPlayingState: Boolean) { isPlaying = isPlayingState }
-            override fun onVolumeChanged(volume: Float) { isMuted = volume == 0f }
+
+            override fun onIsPlayingChanged(isPlayingState: Boolean) {
+                isPlaying = isPlayingState
+            }
+
+            override fun onVolumeChanged(volume: Float) {
+                isMuted = volume == 0f
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 val hls = isHlsFormatError(error)
                 PlaybackLogger.logLivePlaybackError(
@@ -298,7 +321,8 @@ fun LivePlayerScreen(
                     isHlsFormatError = hls
                 )
                 val allUrls = (listOf(channel.url) + channel.sources.values.toList())
-                    .filter { it.isNotBlank() }.distinct()
+                    .filter { it.isNotBlank() }
+                    .distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
                 if (remaining.isNotEmpty()) {
                     failedSourceUrls = failedSourceUrls + currentSourceUrl
@@ -321,7 +345,12 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(exoPlayer) {
+    // ── Position polling — only while the overlay is visible. ────────────
+    // Previously this ran every 500 ms unconditionally, forcing the whole
+    // screen to recompose even when the user wasn't looking at the seek
+    // bar. Gating on showOverlay cuts recomposition on live playback.
+    LaunchedEffect(exoPlayer, showOverlay) {
+        if (!showOverlay) return@LaunchedEffect
         while (currentCoroutineContext().isActive) {
             currentPosition = exoPlayer.currentPosition
             bufferedPosition = exoPlayer.bufferedPosition
@@ -391,11 +420,13 @@ fun LivePlayerScreen(
                                 if (!showOverlay) { showOverlay = true; true } else false
                             }
                             in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
-                                channelNumberInput += (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0).toString()
+                                channelNumberInput +=
+                                    (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0).toString()
                                 true
                             }
                             in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
-                                channelNumberInput += (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0).toString()
+                                channelNumberInput +=
+                                    (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0).toString()
                                 true
                             }
                             else -> false
@@ -596,6 +627,7 @@ fun LivePlayerScreen(
                             }
                         }
 
+                        // ── Bottom bar: seek slider ONLY for seekable streams ─
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -604,35 +636,66 @@ fun LivePlayerScreen(
                                 .padding(horizontal = 24.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
+                            val isLive = duration == C.TIME_UNSET || duration <= 0L
+                            val seekable = !isLive && exoPlayer.isCurrentMediaItemSeekable
+
+                            Text(
+                                text = if (isLive) "LIVE" else formatTime(currentPosition),
+                                color = if (isLive) Color.Red else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = if (isLive) FontWeight.Bold else FontWeight.Normal
+                            )
                             Box(
                                 modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val bufferFraction = if (duration > 0)
-                                    (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                                LinearProgressIndicator(
-                                    progress = { bufferFraction },
-                                    modifier = Modifier.fillMaxWidth()
-                                        .padding(horizontal = 8.dp)
-                                        .height(4.dp)
-                                        .clip(CircleShape),
-                                    color = Color.White.copy(alpha = 0.4f),
-                                    trackColor = Color.Gray.copy(alpha = 0.3f)
-                                )
-                                Slider(
-                                    value = (if (duration > 0) currentPosition.toFloat() / duration else 0f)
-                                        .coerceIn(0f, 1f),
-                                    onValueChange = { value -> exoPlayer.seekTo((value * duration).toLong()) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = Color.White,
-                                        activeTrackColor = Color.Red,
-                                        inactiveTrackColor = Color.Transparent
+                                if (seekable) {
+                                    val bufferFraction =
+                                        (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f)
+                                    LinearProgressIndicator(
+                                        progress = { bufferFraction },
+                                        modifier = Modifier.fillMaxWidth()
+                                            .padding(horizontal = 8.dp)
+                                            .height(4.dp)
+                                            .clip(CircleShape),
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        trackColor = Color.Gray.copy(alpha = 0.3f)
                                     )
-                                )
+                                    Slider(
+                                        value = (currentPosition.toFloat() / duration).coerceIn(0f, 1f),
+                                        onValueChange = { value ->
+                                            exoPlayer.seekTo((value * duration).toLong())
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = Color.White,
+                                            activeTrackColor = Color.Red,
+                                            inactiveTrackColor = Color.Transparent
+                                        )
+                                    )
+                                } else {
+                                    // Pure live: passive buffer indicator only.
+                                    // Slider is hidden because seeking on a live
+                                    // window would jump to the DVR start (i.e.
+                                    // rewind the user away from the live edge).
+                                    val bufferFraction = if (duration > 0)
+                                        (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                    LinearProgressIndicator(
+                                        progress = { bufferFraction },
+                                        modifier = Modifier.fillMaxWidth()
+                                            .padding(horizontal = 8.dp)
+                                            .height(4.dp)
+                                            .clip(CircleShape),
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        trackColor = Color.Gray.copy(alpha = 0.3f)
+                                    )
+                                }
                             }
-                            Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+                            Text(
+                                text = if (isLive) "--:--" else formatTime(duration),
+                                color = Color.White,
+                                fontSize = 12.sp
+                            )
                             Spacer(Modifier.width(16.dp))
                             TvIconButton(onClick = {
                                 val newMuted = !isMuted
@@ -683,7 +746,8 @@ fun LivePlayerScreen(
                         Spacer(Modifier.height(6.dp))
                         Text(
                             "Hint: The resolver could not extract a valid HLS/DASH manifest.",
-                            color = Color(0xFFFFC107), fontSize = 11.sp
+                            color = Color(0xFFFFC107),
+                            fontSize = 11.sp
                         )
                     }
 
@@ -699,12 +763,13 @@ fun LivePlayerScreen(
                             lastHlsError = false
                             isBuffering = true
                             failedSourceUrls = emptySet()
+                            // Always reset to the primary source AND bust the
+                            // cache. Setting currentSourceUrl to the same
+                            // value won't trigger the LaunchedEffect, so we
+                            // also call retryResolution to force a re-resolve.
                             val retryUrl = channel.primarySourceUrl()
-                            if (currentSourceUrl != retryUrl) {
-                                currentSourceUrl = retryUrl
-                            } else {
-                                playerViewModel.retryResolution(channel, currentSourceUrl)
-                            }
+                            currentSourceUrl = retryUrl
+                            playerViewModel.retryResolution(channel, retryUrl)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
                     ) {
@@ -761,7 +826,9 @@ fun LivePlayerScreen(
                 ) {
                     Text(
                         text = channelNumberInput,
-                        color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -791,17 +858,21 @@ fun LivePlayerScreen(
 private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
     val w = 96
     val h = 54
-
-    // Hold the current frame as state. Each tick replaces the ImageBitmap with
-    // a fresh wrapper around the same pixel buffer, so Compose sees a state
-    // change and invalidates the draw.
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
         val pixels = IntArray(w * h)
-        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        // Two bitmaps ping-ponged: while the previous frame is still being
+        // drawn from one bitmap, we write into the other. Prevents tearing
+        // that a single reused Bitmap produces.
+        val bitmaps = Array(2) {
+            android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        }
+        var idx = 0
         val rnd = java.util.Random()
         while (isActive) {
+            val bmp = bitmaps[idx]
+            idx = 1 - idx
             for (i in pixels.indices) {
                 val v = rnd.nextInt(256)
                 pixels[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
