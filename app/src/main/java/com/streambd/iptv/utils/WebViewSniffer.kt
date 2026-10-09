@@ -78,12 +78,26 @@ object WebViewSniffer {
 
     private fun isAdVideoUrl(url: String) = adVideoKeywords.any { url.lowercase().contains(it) }
 
+    // ফিক্সড: Query Parameter-এ ad থাকলেও যেন আসল ভিডিও ব্লক না হয়
     private fun isAdUrl(url: String): Boolean {
         val lower = url.lowercase()
-        if (adKeywords.any { lower.contains(it) }) return true
-        if (adultKeywords.any { lower.contains(it) }) return true
         val host = try { Uri.parse(url).host?.lowercase().orEmpty() } catch (e: Exception) { "" }
-        if (host.isNotEmpty() && adultHostSuffixes.any { host.endsWith(it) }) return true
+        val path = try { Uri.parse(url).path?.lowercase().orEmpty() } catch (e: Exception) { "" }
+
+        // ১. অ্যাডাল্ট ডোমেইন চেক
+        if (adultKeywords.any { host.contains(it) }) return true
+        if (adultHostSuffixes.any { host.endsWith(it) }) return true
+
+        // ২. অ্যাড ডোমেইন চেক (শুধু হোস্টের মধ্যে)
+        if (adKeywords.any { host.contains(it) }) return true
+
+        // ৩. অ্যাড পাথ চেক (শুধু পাথের মধ্যে, Query Parameter-এ নয়)
+        val adPathKeywords = listOf(
+            "preroll", "midroll", "postroll", "advertisement", 
+            "vast", "vmap", "adbreak", "ad_segment", "/ads/", "/ad/", "popunder"
+        )
+        if (adPathKeywords.any { path.contains(it) }) return true
+
         return false
     }
 
@@ -234,8 +248,7 @@ object WebViewSniffer {
         headers: Map<String, String>? = null,
         userAgent: String? = null
     ): ResolvedToken? = withContext(Dispatchers.Main) {
-        // TX3 Mini-র জন্য টাইমআউট ২০ সেকেন্ড থেকে বাড়িয়ে ৬০ সেকেন্ড করা হয়েছে
-        withTimeoutOrNull(60000L) {
+        withTimeoutOrNull(60000L) { // TX3 Mini-র জন্য ৬০ সেকেন্ড টাইমআউট
             suspendCancellableCoroutine { continuation ->
                 var isResumed = false
                 var foundMpdUrl: String? = null
@@ -245,20 +258,20 @@ object WebViewSniffer {
                 val handler = Handler(Looper.getMainLooper())
                 var currentPageUrl = url
 
-                // TX3 Mini-র জন্য উপযুক্ত User Agent (Android TV / Generic Android)
+                // ফিক্স ১: Mobile User Agent (সাইটগুলো যাতে হালকা মোবাইল ভার্সন লোড করে)
                 val bypassUA = userAgent
-                    ?: "Mozilla/5.0 (Linux; Android 8.1.0; TX3 Mini) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+                    ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36"
 
                 CookieManager.getInstance().apply { setAcceptCookie(true) }
 
                 val webView = WebView(context).apply {
                     alpha = 0f
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    // দুর্বল ডিভাইসে ক্র্যাশ এড়াতে সফটওয়্যার রেন্ডারিং ফলব্যাক
+                    // ফিক্স ২: TX3 Mini-র দুর্বল GPU-র জন্য Software Rendering
                     try {
-                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                    } catch (e: Exception) {
                         setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Layer type error: ${e.message}")
                     }
                 }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -279,7 +292,6 @@ object WebViewSniffer {
                 }
 
                 if (!addedToWindow) {
-                    // Overlay permission না থাকলে ডিটাচড WebView-তে সঠিক সাইজ সেট করা হচ্ছে
                     webView.measure(
                         android.view.View.MeasureSpec.makeMeasureSpec(1280, android.view.View.MeasureSpec.EXACTLY),
                         android.view.View.MeasureSpec.makeMeasureSpec(720, android.view.View.MeasureSpec.EXACTLY)
@@ -391,7 +403,6 @@ object WebViewSniffer {
                     javaScriptCanOpenWindowsAutomatically = true
                 }
 
-                // WebChromeClient যোগ করা হয়েছে মিডিয়া প্লেব্যাক এবং কনসোল ডিবাগ এর জন্য
                 webView.webChromeClient = object : WebChromeClient() {
                     override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
                         Log.d("WebViewSniffer_Console", "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
@@ -408,7 +419,6 @@ object WebViewSniffer {
                         var _token = '$secretToken';
                         var _pageUrl = window.location.href;
 
-                        // JS Error Handler যোগ করা হয়েছে
                         window.onerror = function(msg, url, line, col, error) {
                             if (_b) _b.log('[JS Error] ' + msg + ' at ' + url + ':' + line);
                             return false;
@@ -795,6 +805,16 @@ object WebViewSniffer {
                         }
                     }
 
+                    // ফিক্স ৩: পেজ লোড এরর ডিটেক্ট করার জন্য
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: android.webkit.WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        Log.e("WebViewSniffer_Debug", "Page Load Error: ${error?.description} for URL: ${request?.url}")
+                    }
+
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
                         if (!url.isNullOrBlank()) currentPageUrl = url
@@ -804,6 +824,7 @@ object WebViewSniffer {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         if (!url.isNullOrBlank()) currentPageUrl = url
+                        Log.d("WebViewSniffer_Debug", "Page Finished Loading: $url")
                         CookieManager.getInstance().flush()
 
                         view?.let { wv ->
