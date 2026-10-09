@@ -6,8 +6,10 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -21,6 +23,8 @@ import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 
 object WebViewSniffer {
+
+    private const val TAG = "WebViewSniffer"
 
     private val knownStreamDomains = listOf(
         "dlhd", "daddylive", "streamserver", "hdstreams",
@@ -41,8 +45,6 @@ object WebViewSniffer {
         "caligaoctrois", "/lp/i/"
     )
 
-    // NOTE: ".cyou" is checked separately (host suffix) so it doesn't match
-    // inside query strings or path segments.
     private val adultKeywords = listOf("bongacams", "chaturbate", "jerkmate")
     private val adultHostSuffixes = listOf(".cyou")
 
@@ -51,29 +53,15 @@ object WebViewSniffer {
         "vast", "vmap", "adbreak", "ad_segment"
     )
 
-    // Page-URL hints that must NEVER be classified as a video URL.
-    private val pageUrlHints = listOf(
-        "tokenurl=",
-        "streamplay",
-        "streambd"
-    )
+    private val pageUrlHints = listOf("tokenurl=", "streamplay", "streambd")
     private val pageUrlExts = listOf(".php", ".html", ".htm", ".asp", ".aspx", ".jsp")
 
     private val videoExtRegex = Regex("""\.(m3u8|mpd|mp4|webm|flv|mkv)(?=$|[/;])""", RegexOption.IGNORE_CASE)
     private val bareVideoNames = setOf("manifest", "chunklist")
 
-    /**
-     * Returns true only for URLs that are genuinely playable media.
-     *
-     * Fixes the case where `.../playlist?tokenUrl=streambd` (a page) was treated as
-     * video, then ExoPlayer complained:
-     *   "Input does not start with the #EXTM3U header".
-     */
     private fun isVideoUrl(url: String): Boolean {
         if (url.isBlank()) return false
         val lower = url.lowercase()
-
-        // 1) Reject page URLs that carry token/page hints.
         if (pageUrlHints.any { lower.contains(it) }) return false
         if (pageUrlExts.any { lower.substringBefore("?").endsWith(it) }) return false
 
@@ -83,11 +71,7 @@ object WebViewSniffer {
             url.substringBefore("?")
         }
         if (path.isEmpty()) return false
-
-        // 2) Must end with a real media extension…
         if (videoExtRegex.containsMatchIn(path)) return true
-
-        // 3) …or be an extensionless bare manifest name.
         val last = path.trimEnd('/').substringAfterLast('/').lowercase()
         return !last.contains('.') && last in bareVideoNames
     }
@@ -124,9 +108,7 @@ object WebViewSniffer {
         return try {
             val u = Uri.parse(url)
             "${u.scheme}://${u.host}"
-        } catch (e: Exception) {
-            ""
-        }
+        } catch (e: Exception) { "" }
     }
 
     private val garbageCookiePrefixes = listOf(
@@ -149,7 +131,7 @@ object WebViewSniffer {
         }
         val cleanMap = cookieMap.filterKeys { key ->
             garbageCookiePrefixes.none { g -> key.startsWith(g, ignoreCase = true) } &&
-                !key.contains("mixpanel", ignoreCase = true)
+            !key.contains("mixpanel", ignoreCase = true)
         }
         return cleanMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
@@ -170,9 +152,6 @@ object WebViewSniffer {
         return map
     }
 
-    /**
-     * 403 for blocked requests — 200-with-empty-body causes some players to retry the URL.
-     */
     private fun blockedResponse(): WebResourceResponse {
         val response = WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
         response.setStatusCodeAndReasonPhrase(403, "Forbidden")
@@ -236,14 +215,14 @@ object WebViewSniffer {
 
                 onVideoDetected(ResolvedToken(url = videoUrl, headers = extraHeaders))
             } catch (e: Exception) {
-                android.util.Log.e("WebViewSniffer", "Header parse error: ${e.message}")
+                Log.e(TAG, "Header parse error: ${e.message}")
             }
         }
 
         @JavascriptInterface
         fun log(msg: String) {
             if (com.streambd.iptv.BuildConfig.DEBUG) {
-                android.util.Log.d("WebViewSniffer_JS", msg)
+                Log.d("WebViewSniffer_JS", msg)
             }
         }
     }
@@ -255,7 +234,8 @@ object WebViewSniffer {
         headers: Map<String, String>? = null,
         userAgent: String? = null
     ): ResolvedToken? = withContext(Dispatchers.Main) {
-        withTimeoutOrNull(20000L) {
+        // TX3 Mini-র জন্য টাইমআউট ২০ সেকেন্ড থেকে বাড়িয়ে ৬০ সেকেন্ড করা হয়েছে
+        withTimeoutOrNull(60000L) {
             suspendCancellableCoroutine { continuation ->
                 var isResumed = false
                 var foundMpdUrl: String? = null
@@ -265,19 +245,25 @@ object WebViewSniffer {
                 val handler = Handler(Looper.getMainLooper())
                 var currentPageUrl = url
 
+                // TX3 Mini-র জন্য উপযুক্ত User Agent (Android TV / Generic Android)
                 val bypassUA = userAgent
-                    ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                    ?: "Mozilla/5.0 (Linux; Android 8.1.0; TX3 Mini) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
 
                 CookieManager.getInstance().apply { setAcceptCookie(true) }
 
                 val webView = WebView(context).apply {
                     alpha = 0f
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    // দুর্বল ডিভাইসে ক্র্যাশ এড়াতে সফটওয়্যার রেন্ডারিং ফলব্যাক
+                    try {
+                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                    } catch (e: Exception) {
+                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                    }
                 }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
                 var windowManager: android.view.WindowManager? = null
-                var layoutParams: android.view.WindowManager.LayoutParams? = null
                 var addedToWindow = false
 
                 try {
@@ -289,23 +275,22 @@ object WebViewSniffer {
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("WebViewSniffer", "Error attaching WebView to Activity", e)
+                    Log.e(TAG, "Error attaching WebView to Activity", e)
                 }
 
                 if (!addedToWindow) {
-    // Overlay permission লাগে বলে window-তে না যোগ করে detached রেখে সাইজ দিচ্ছি
-    webView.measure(
-        android.view.View.MeasureSpec.makeMeasureSpec(1280, android.view.View.MeasureSpec.EXACTLY),
-        android.view.View.MeasureSpec.makeMeasureSpec(720, android.view.View.MeasureSpec.EXACTLY)
-    )
-    webView.layout(0, 0, 1280, 720)
-}
+                    // Overlay permission না থাকলে ডিটাচড WebView-তে সঠিক সাইজ সেট করা হচ্ছে
+                    webView.measure(
+                        android.view.View.MeasureSpec.makeMeasureSpec(1280, android.view.View.MeasureSpec.EXACTLY),
+                        android.view.View.MeasureSpec.makeMeasureSpec(720, android.view.View.MeasureSpec.EXACTLY)
+                    )
+                    webView.layout(0, 0, 1280, 720)
+                }
 
                 var isCleanedUp = false
                 fun cleanup() {
                     if (isCleanedUp) return
                     isCleanedUp = true
-                    // Safe to clear ALL callbacks — this handler is local to the coroutine.
                     handler.removeCallbacksAndMessages(null)
                     try {
                         webView.stopLoading()
@@ -406,6 +391,14 @@ object WebViewSniffer {
                     javaScriptCanOpenWindowsAutomatically = true
                 }
 
+                // WebChromeClient যোগ করা হয়েছে মিডিয়া প্লেব্যাক এবং কনসোল ডিবাগ এর জন্য
+                webView.webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                        Log.d("WebViewSniffer_Console", "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
+                        return true
+                    }
+                }
+
                 fun injectEarlyHooks(view: WebView) {
                     val js = """
                         (function() {
@@ -414,6 +407,12 @@ object WebViewSniffer {
                         var _b = window.AndroidBridge;
                         var _token = '$secretToken';
                         var _pageUrl = window.location.href;
+
+                        // JS Error Handler যোগ করা হয়েছে
+                        window.onerror = function(msg, url, line, col, error) {
+                            if (_b) _b.log('[JS Error] ' + msg + ' at ' + url + ':' + line);
+                            return false;
+                        };
 
                         function buildHeadersJson(extraObj) {
                             var h = {};
@@ -429,8 +428,6 @@ object WebViewSniffer {
                             return JSON.stringify(h);
                         }
 
-                        // IMPORTANT: same rules as the Kotlin side. Page URLs like
-                        // `.../playlist?tokenUrl=streambd` MUST NOT be reported.
                         function isVideoUrl(url) {
                             if (!url || typeof url !== 'string') return false;
                             var l = url.toLowerCase();
@@ -456,7 +453,6 @@ object WebViewSniffer {
                             } catch(e) {}
                         }
 
-                        // ─── Auto-click player buttons ────────────────────────────────────────
                         setInterval(function() {
                             var ads = document.querySelectorAll('#first-click-ads-layer, .delayed-popup-ads-layer, [id*="ads"], [class*="ads"]');
                             ads.forEach(function(ad) { ad.remove(); });
@@ -502,7 +498,6 @@ object WebViewSniffer {
                             } catch(e) {}
                         }, 1000);
 
-                        // ─── iframe reload trick ──────────────────────────────────────────────
                         document.querySelectorAll('iframe').forEach(function(f) {
                             var origSrc = f.getAttribute('src') || f.getAttribute('data-src');
                             if (!origSrc) return;
@@ -511,7 +506,6 @@ object WebViewSniffer {
                             setTimeout(function() { f.setAttribute('src', origSrc); }, 100);
                         });
 
-                        // ─── MutationObserver ────────────────────────────────────────────────
                         var _observer = new MutationObserver(function(mutations) {
                             mutations.forEach(function(m) {
                                 m.addedNodes.forEach(function(node) {
@@ -527,7 +521,6 @@ object WebViewSniffer {
                         });
                         _observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
 
-                        // ─── MSE hook (log only) ─────────────────────────────────────────────
                         if (window.MediaSource) {
                             var _origMSOpen = MediaSource.prototype.addSourceBuffer;
                             MediaSource.prototype.addSourceBuffer = function(mime) {
@@ -536,7 +529,6 @@ object WebViewSniffer {
                             };
                         }
 
-                        // ─── Text scanner ────────────────────────────────────────────────────
                         function scanTextForStream(text, extraHeaders) {
                             if (!text || typeof text !== 'string') return;
                             var patterns = [
@@ -552,7 +544,6 @@ object WebViewSniffer {
                             });
                         }
 
-                        // ─── XHR hook ────────────────────────────────────────────────────────
                         var _origOpen  = XMLHttpRequest.prototype.open;
                         var _origSend  = XMLHttpRequest.prototype.send;
                         var _origSetRH = XMLHttpRequest.prototype.setRequestHeader;
@@ -580,7 +571,6 @@ object WebViewSniffer {
                             return _origSend.apply(this, arguments);
                         };
 
-                        // ─── Fetch hook ──────────────────────────────────────────────────────
                         var _origFetch = window.fetch;
                         window.fetch = function(input, init) {
                             var url = typeof input === 'string' ? input
@@ -611,12 +601,10 @@ object WebViewSniffer {
                             return p;
                         };
 
-                        // ─── Page source scan ────────────────────────────────────────────────
                         setTimeout(function() {
                             try { scanTextForStream(document.documentElement.innerHTML, {}); } catch(e){}
                         }, 2000);
 
-                        // ─── EME (ClearKey) hook ─────────────────────────────────────────────
                         if (!window.hookedEME && window.MediaKeySession) {
                             window.hookedEME = true;
                             const originalUpdate = MediaKeySession.prototype.update;
@@ -686,7 +674,6 @@ object WebViewSniffer {
                             } catch(e) {}
                         }
 
-                        // ─── HLS.js hook ────────────────────────────────────────────────────
                         if (window.Hls && !window.Hls.__hooked) {
                             window.Hls.__hooked = true;
                             var _origLS = window.Hls.prototype.loadSource;
@@ -701,7 +688,6 @@ object WebViewSniffer {
                             _b && _b.log('[Sniffer] HLS.js hooked');
                         }
 
-                        // ─── Shaka Player hook ──────────────────────────────────────────────
                         if (window.shaka && window.shaka.Player && !window.shaka.__hooked) {
                             window.shaka.__hooked = true;
                             var _origLoad = window.shaka.Player.prototype.load;
@@ -712,7 +698,6 @@ object WebViewSniffer {
                             };
                         }
 
-                        // ─── Video.js hook ──────────────────────────────────────────────────
                         if (window.videojs && !window.videojs.__hooked) {
                             window.videojs.__hooked = true;
                             var _origVjsSrc = window.videojs.prototype && window.videojs.prototype.src;
@@ -727,7 +712,6 @@ object WebViewSniffer {
                             }
                         }
 
-                        // ─── JW Player hook ─────────────────────────────────────────────────
                         if (window.jwplayer && !window.jwplayer.__hooked) {
                             window.jwplayer.__hooked = true;
                             var _origJwSetup = window.jwplayer.prototype && window.jwplayer.prototype.setup;
@@ -744,7 +728,6 @@ object WebViewSniffer {
                             }
                         }
 
-                        // ─── HTMLMediaElement.src hook ──────────────────────────────────────
                         if (!window.__mediaSrcHooked) {
                             window.__mediaSrcHooked = true;
                             var _nativeSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
@@ -762,7 +745,6 @@ object WebViewSniffer {
                             }
                         }
 
-                        // ─── All script tags scan ───────────────────────────────────────────
                         document.querySelectorAll('script').forEach(function(s) {
                             var text = s.textContent;
                             if (!text || typeof text !== 'string') return;
@@ -779,7 +761,6 @@ object WebViewSniffer {
                             });
                         });
 
-                        // ─── DOM-এ video element poll (40s) ────────────────────────────────
                         var pollCount = 0;
                         var pollInterval = setInterval(function() {
                             document.querySelectorAll('video').forEach(function(v) {
@@ -973,7 +954,7 @@ object WebViewSniffer {
         } ?: run {
             try {
                 com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance()
-                    .recordException(Exception("WebViewSniffer Timeout after 20s for URL: $url"))
+                    .recordException(Exception("WebViewSniffer Timeout after 60s for URL: $url"))
             } catch (e: Exception) {}
             null
         }
