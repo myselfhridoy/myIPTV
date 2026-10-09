@@ -18,15 +18,23 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- WebView Sniffer-এর জন্য প্রয়োজনীয় (TX3 Mini) -->
+    <!-- WebView Sniffer (TX3 Mini) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+
+    <!-- Storage: write only needed up to API 28; read is legacy (scoped up to 32) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
-    <!-- TV features (optional) -->
+    <!-- ─────────────── Feature flags ─────────────── -->
+    <!-- TV: both are optional so the app installs on phones too -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <!-- Recommended for TV Play Store listing -->
+    <uses-feature android:name="android.hardware.audio.output" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -39,7 +47,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.StreamBDPlayer"
         android:usesCleartextTraffic="true"
-        android:hardwareAccelerated="true"
         android:requestLegacyExternalStorage="true"
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
@@ -51,17 +58,21 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboard|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustPan"
             android:theme="@style/Theme.StreamBDPlayer">
+
+            <!-- Phone/tablet launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Android TV / set-top box launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Firebase messaging service: NOT exported, only Firebase can trigger -->
+        <!-- Firebase messaging: not exported, only Firebase can trigger -->
         <service
             android:name=".utils.MyFirebaseMessagingService"
             android:exported="false">
