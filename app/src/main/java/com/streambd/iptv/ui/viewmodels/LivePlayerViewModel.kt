@@ -27,12 +27,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * The URL that will actually be handed to ExoPlayer when this channel is
  * tuned for the first time.
  *
- * IMPORTANT: [LivePlayerScreen] must initialize `currentSourceUrl` via this
+ * CRITICAL: [LivePlayerScreen] must initialize `currentSourceUrl` via this
  * same helper so that the resolve-time cache key
  *   "${channel.name}|${sourceUrl}"
  * matches the prefetch-time cache key produced by [LivePlayerViewModel].
- * Without this, prefetching is silently useless because the two sides
- * disagree on which source URL represents the channel.
+ * Without this, prefetch silently never hits.
  */
 internal fun Channel.primarySourceUrl(): String =
     sources.values.firstOrNull() ?: url
@@ -47,13 +46,6 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    /**
-     * True when the last [resolveChannel] finished without producing a usable MediaSource
-     * (params == null, or an exception was thrown).
-     *
-     * The screen reads this to render an error card instead of leaving the user on a
-     * silent black screen. Reset to `false` at the start of every new resolve.
-     */
     private val _resolutionFailed = MutableStateFlow(false)
     val resolutionFailed: StateFlow<Boolean> = _resolutionFailed.asStateFlow()
 
@@ -64,29 +56,20 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     private var resolveJob: Job? = null
     private var prefetchJob: Job? = null
 
-    /**
-     * Generation counter for channel resolution.
-     *
-     * Every call to [resolveChannel] increments this. Any result produced by a resolve whose
-     * generation no longer matches the current one is discarded. This protects against the
-     * case where [MediaResolver.resolveMediaParams] swallows [CancellationException] or is
-     * otherwise slow to unwind — cancelling the previous job alone would not prevent the
-     * stale write to [_currentMediaSource] (or to [_resolutionFailed]).
-     */
     private val resolveGeneration = AtomicInteger(0)
 
     private companion object {
         const val TAG = "LivePlayerViewModel"
-        const val MAX_CACHE_SIZE = 10
-        // Resolved stream URLs/tokens can expire, so don't reuse them forever.
+        const val MAX_CACHE_SIZE = 12
         const val CACHE_TTL_MS = 5 * 60 * 1000L
         // Don't prefetch while the user is quickly channel-surfing.
-        const val PREFETCH_DELAY_MS = 1000L
-        // Re-resolve neighbours before CACHE_TTL_MS expires (must stay below the TTL).
+        const val PREFETCH_DELAY_MS = 1_200L
+        // Refresh neighbours before CACHE_TTL_MS expires.
         const val REFRESH_INTERVAL_MS = 4 * 60 * 1000L
 
-        // Tokens that force the resolver to actually go out to a page / WebView.
-        // Kept in sync with MediaResolver.mustUseResolver tokens.
+        // Tokens that require the resolver to actually visit a page / WebView
+        // and therefore cannot be prefetched in the background. Kept in sync
+        // with MediaResolver's mustUseResolver list.
         private val RESOLVER_ONLY_TOKENS = setOf(
             "streambd", "streamplay", "crichd", "dlhd"
         )
@@ -104,16 +87,17 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun putCached(key: String, params: ResolvedMediaParams) {
         prefetchCache[key] = CacheEntry(params, System.currentTimeMillis())
-        // Always keep the cache bounded. Previously this trim only ran inside
-        // prefetchChannels, which meant a workflow that never triggered prefetch
-        // could grow the map without bound.
+
+        // Always keep the cache bounded. Previously the trim only ran inside
+        // prefetchChannels, so a workflow that never triggered prefetch could
+        // grow the map without bound.
         if (prefetchCache.size > MAX_CACHE_SIZE) {
             val now = System.currentTimeMillis()
-            // 1) Drop expired entries first — they're free wins.
+            // 1) Drop expired entries first.
             prefetchCache.entries
                 .filter { now - it.value.timestamp > CACHE_TTL_MS }
                 .forEach { prefetchCache.remove(it.key) }
-            // 2) If still over budget, evict oldest-first until we fit.
+            // 2) Evict oldest-first if still over budget.
             if (prefetchCache.size > MAX_CACHE_SIZE) {
                 val excess = prefetchCache.size - MAX_CACHE_SIZE
                 prefetchCache.entries
@@ -125,8 +109,6 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun resolveChannel(channel: Channel, sourceUrl: String) {
-        // Bump the generation first so any in-flight older resolve is invalidated even
-        // before its coroutine has finished unwinding.
         val myGeneration = resolveGeneration.incrementAndGet()
 
         resolveJob?.cancel()
@@ -137,8 +119,6 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         val cacheKey = "${channel.name}|$sourceUrl"
         val cachedParams = getCached(cacheKey)
         if (cachedParams != null) {
-            // Cache hit — synchronous on the caller's (main) dispatcher, so no interleaving
-            // is possible. Still verify generation for consistency.
             if (myGeneration == resolveGeneration.get()) {
                 try {
                     _currentMediaSource.value = MediaResolver.buildMediaSource(appContext, cachedParams)
@@ -157,20 +137,13 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
             try {
                 val params = MediaResolver.resolveMediaParams(appContext, channel, sourceUrl)
 
-                // ---- Generation check #1: bail out before doing any expensive work. ----
                 if (myGeneration != resolveGeneration.get()) {
-                    Log.d(
-                        TAG,
-                        "Dropping stale resolve (pre-build) for ${channel.name} " +
-                            "(gen=$myGeneration, current=${resolveGeneration.get()})"
-                    )
+                    Log.d(TAG, "Dropping stale resolve (pre-build) for ${channel.name}")
                     return@launch
                 }
                 ensureActive()
 
                 if (params == null) {
-                    // Resolver could not produce a usable URL. Mark failure so the UI
-                    // can show a proper error card instead of a forever-spinner.
                     _resolutionFailed.value = true
                     return@launch
                 }
@@ -181,14 +154,8 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
                     MediaResolver.buildMediaSource(appContext, params)
                 }
 
-                // ---- Generation check #2: another resolve may have started while we
-                //      were hopping to the main thread. Drop if so. ----
                 if (myGeneration != resolveGeneration.get()) {
-                    Log.d(
-                        TAG,
-                        "Dropping stale resolve (post-build) for ${channel.name} " +
-                            "(gen=$myGeneration, current=${resolveGeneration.get()})"
-                    )
+                    Log.d(TAG, "Dropping stale resolve (post-build) for ${channel.name}")
                     return@launch
                 }
                 ensureActive()
@@ -203,8 +170,6 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
                     _resolutionFailed.value = true
                 }
             } finally {
-                // Only the latest generation may clear the loading flag; a stale job
-                // must not hide the spinner belonging to a newer job.
                 if (myGeneration == resolveGeneration.get()) {
                     _isLoading.value = false
                 }
@@ -219,20 +184,23 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         prefetchJob = viewModelScope.launch(Dispatchers.IO) {
             delay(PREFETCH_DELAY_MS)
 
-            // Determine next and previous channels to pre-resolve.
             val nextIndex = if (currentIndex < playlist.size - 1) currentIndex + 1 else 0
             val prevIndex = if (currentIndex > 0) currentIndex - 1 else playlist.size - 1
 
             val nextChannel = playlist[nextIndex]
             val prevChannel = playlist[prevIndex]
 
-            prefetchNeighbors(nextChannel, prevChannel, force = false)
+            // Serialize the initial prefetch (next first, then prev). Running
+            // them in parallel doubles bandwidth usage and — on congested
+            // connections — delays the current live stream's segments, which
+            // shows up as A/V drift.
+            prefetchOne(nextChannel, force = false)
+            prefetchOne(prevChannel, force = false)
 
-            // Refresh neighbours before the cache TTL runs out, so Up/Down still hits the
-            // cache after a long time on one channel. Stops when the job is cancelled.
             while (isActive) {
                 delay(REFRESH_INTERVAL_MS)
-                prefetchNeighbors(nextChannel, prevChannel, force = true)
+                prefetchOne(nextChannel, force = true)
+                prefetchOne(prevChannel, force = true)
             }
         }
     }
@@ -243,35 +211,23 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
         prefetchJob = null
     }
 
-    private suspend fun prefetchNeighbors(
-        nextChannel: Channel,
-        prevChannel: Channel,
-        force: Boolean
-    ) {
-        coroutineScope {
-            launch { prefetchOne(nextChannel, force) }
-            launch { prefetchOne(prevChannel, force) }
-        }
+    /**
+     * True when resolving this channel requires an interactive WebView and
+     * thus can't be safely backgrounded.
+     */
+    private fun needsWebView(channel: Channel): Boolean {
+        val u = channel.url.lowercase()
+        val token = channel.tokenUrl?.lowercase().orEmpty()
+        if (u.contains("tokenurl=") && RESOLVER_ONLY_TOKENS.any { u.contains("tokenurl=$it") }) return true
+        if (token.isNotEmpty() && token in RESOLVER_ONLY_TOKENS) return true
+        if (token.isNotEmpty() && NUMERIC_TOKEN_REGEX.matches(token)) return true
+        return false
     }
-
-/**
- * True when resolving this channel requires an interactive WebView and thus
- * can't be safely backgrounded. Mirrors the token set used by
- * [MediaResolver]'s `mustUseResolver` check.
- */
-private fun needsWebView(channel: Channel): Boolean {
-    val u = channel.url.lowercase()
-    val token = channel.tokenUrl?.lowercase().orEmpty()
-    if (u.contains("tokenurl=") && RESOLVER_ONLY_TOKENS.any { u.contains("tokenurl=$it") }) return true
-    if (token.isNotEmpty() && token in RESOLVER_ONLY_TOKENS) return true
-    if (token.isNotEmpty() && NUMERIC_TOKEN_REGEX.matches(token)) return true
-    return false
-}
 
     private suspend fun prefetchOne(channel: Channel, force: Boolean) {
         if (needsWebView(channel)) return
-        // CRITICAL: use the same URL the screen will pass to resolveChannel.
-        // Anything else produces a cache key mismatch and makes prefetch useless.
+        // CRITICAL: use the same URL the screen passes to resolveChannel.
+        // Anything else produces a cache key mismatch.
         val sourceUrl = channel.primarySourceUrl()
         val cacheKey = "${channel.name}|$sourceUrl"
         if (!force && getCached(cacheKey) != null) return
