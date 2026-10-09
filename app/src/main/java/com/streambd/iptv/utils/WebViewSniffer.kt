@@ -80,7 +80,6 @@ object WebViewSniffer {
 
     // ফিক্সড: Query Parameter-এ ad থাকলেও যেন আসল ভিডিও ব্লক না হয়
     private fun isAdUrl(url: String): Boolean {
-        val lower = url.lowercase()
         val host = try { Uri.parse(url).host?.lowercase().orEmpty() } catch (e: Exception) { "" }
         val path = try { Uri.parse(url).path?.lowercase().orEmpty() } catch (e: Exception) { "" }
 
@@ -258,7 +257,7 @@ object WebViewSniffer {
                 val handler = Handler(Looper.getMainLooper())
                 var currentPageUrl = url
 
-                // ফিক্স ১: Mobile User Agent (সাইটগুলো যাতে হালকা মোবাইল ভার্সন লোড করে)
+                // মোবাইল/সব ডিভাইসের জন্য Mobile User Agent
                 val bypassUA = userAgent
                     ?: "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36"
 
@@ -267,7 +266,7 @@ object WebViewSniffer {
                 val webView = WebView(context).apply {
                     alpha = 0f
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    // ফিক্স ২: TX3 Mini-র দুর্বল GPU-র জন্য Software Rendering
+                    // TX3 Mini-র জন্য Software Rendering (ভালো ডিভাইসেও কোনো সমস্যা হবে না)
                     try {
                         setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                     } catch (e: Exception) {
@@ -276,9 +275,7 @@ object WebViewSniffer {
                 }
                 CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-                var windowManager: android.view.WindowManager? = null
                 var addedToWindow = false
-
                 try {
                     if (context is android.app.Activity && !context.isFinishing && !context.isDestroyed) {
                         val rootView = context.findViewById<android.view.ViewGroup>(android.R.id.content)
@@ -310,8 +307,6 @@ object WebViewSniffer {
                         try {
                             if (webView.parent != null) {
                                 (webView.parent as? android.view.ViewGroup)?.removeView(webView)
-                            } else {
-                                windowManager?.removeView(webView)
                             }
                         } catch (e: Exception) {}
                         webView.destroy()
@@ -401,6 +396,10 @@ object WebViewSniffer {
                     userAgentString = bypassUA
                     setSupportMultipleWindows(true)
                     javaScriptCanOpenWindowsAutomatically = true
+                    
+                    // ⬇️ মেমরি সাশ্রয়ের জন্য ইমেজ লোড বন্ধ ⬇️
+                    blockNetworkImage = true 
+                    loadsImagesAutomatically = false 
                 }
 
                 webView.webChromeClient = object : WebChromeClient() {
@@ -463,6 +462,7 @@ object WebViewSniffer {
                             } catch(e) {}
                         }
 
+                        // ⬇️ জাভাস্ক্রিপ্ট লুপ ১ সেকেন্ড থেকে ৩ সেকেন্ড করা হয়েছে (CPU সাশ্রয়ের জন্য) ⬇️
                         setInterval(function() {
                             var ads = document.querySelectorAll('#first-click-ads-layer, .delayed-popup-ads-layer, [id*="ads"], [class*="ads"]');
                             ads.forEach(function(ad) { ad.remove(); });
@@ -506,7 +506,7 @@ object WebViewSniffer {
                                 var elAt = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
                                 if (elAt) elAt.dispatchEvent(clickEvent);
                             } catch(e) {}
-                        }, 1000);
+                        }, 3000);
 
                         document.querySelectorAll('iframe').forEach(function(f) {
                             var origSrc = f.getAttribute('src') || f.getAttribute('data-src');
@@ -771,6 +771,7 @@ object WebViewSniffer {
                             });
                         });
 
+                        // ⬇️ DOM Polling ৫০০ms থেকে ১৫০০ms করা হয়েছে (CPU সাশ্রয়ের জন্য) ⬇️
                         var pollCount = 0;
                         var pollInterval = setInterval(function() {
                             document.querySelectorAll('video').forEach(function(v) {
@@ -780,8 +781,8 @@ object WebViewSniffer {
                             document.querySelectorAll('source').forEach(function(s) {
                                 if (s.src && s.src.startsWith('http')) report(s.src);
                             });
-                            if (++pollCount > 80) clearInterval(pollInterval);
-                        }, 500);
+                            if (++pollCount > 40) clearInterval(pollInterval); // ৪০ * ১.৫ সেকেন্ড = ৬০ সেকেন্ড টাইমআউট
+                        }, 1500);
 
                         _b && _b.log('[Sniffer] Deep sniffer injected on: ' + _pageUrl);
                         })();
@@ -805,7 +806,6 @@ object WebViewSniffer {
                         }
                     }
 
-                    // ফিক্স ৩: পেজ লোড এরর ডিটেক্ট করার জন্য
                     override fun onReceivedError(
                         view: WebView?,
                         request: WebResourceRequest?,
