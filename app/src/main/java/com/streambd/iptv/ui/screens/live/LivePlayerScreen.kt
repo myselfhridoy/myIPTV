@@ -73,8 +73,6 @@ enum class VideoScaleMode(val title: String) {
     CINEMA("Cinema (18:9)")
 }
 
-// ---------- top-level helpers ----------------------------------------------
-
 private data class UiPlaybackError(
     val message: String,
     val causeMessage: String?,
@@ -85,24 +83,18 @@ private fun isHlsFormatError(error: PlaybackException): Boolean {
     when (error.errorCode) {
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return true
-
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> return false
-
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED -> return false
     }
     val text = buildString {
-        append(error.message.orEmpty())
-        append(' ')
-        append(error.cause?.message.orEmpty())
+        append(error.message.orEmpty()); append(' '); append(error.cause?.message.orEmpty())
     }.lowercase()
-    return text.contains("#extm3u") ||
-        text.contains("ext-x-") ||
-        text.contains("contentismalformed") ||
-        text.contains("does not start with the #extm3u")
+    return text.contains("#extm3u") || text.contains("ext-x-") ||
+        text.contains("contentismalformed") || text.contains("does not start with the #extm3u")
 }
 
 private fun List<Channel>.indexOfChannel(channel: Channel): Int {
@@ -121,8 +113,6 @@ private fun formatTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
-
-// ---------- screen ---------------------------------------------------------
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -157,14 +147,11 @@ fun LivePlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
-    // Uses the shared [Channel.primarySourceUrl] helper so this URL and the
-    // prefetch cache key built in [LivePlayerViewModel] always agree.
+    // Shared with the ViewModel — see Channel.primarySourceUrl().
     var currentSourceUrl by remember(channelKey) {
         mutableStateOf(channel.primarySourceUrl())
     }
-    var failedSourceUrls by remember(channelKey) {
-        mutableStateOf(setOf<String>())
-    }
+    var failedSourceUrls by remember(channelKey) { mutableStateOf(setOf<String>()) }
 
     var currentPosition by remember { mutableStateOf(0L) }
     var bufferedPosition by remember { mutableStateOf(0L) }
@@ -210,18 +197,12 @@ fun LivePlayerScreen(
         onDispose { playerViewModel.stopPrefetch() }
     }
 
-    // ── Real exit ──
-    // Request portrait FIRST while screen is still black (fade-out already done),
-    // wait for rotation, then pop. Under PlayerWindowEffect's onDispose the
-    // original orientation is restored anyway — this just gets us back to
-    // portrait before the source screen becomes visible.
-    //
-    // NOTE: we launch on the Activity's lifecycleScope instead of a
-    // rememberCoroutineScope. That way the continuation survives any
-    // recomposition between the orientation request and popBackStack. As long as
-    // the player Activity declares `configChanges` for orientation (which any
-    // video player must, since PlayerWindowEffect rotates it programmatically),
-    // the Activity is not recreated and the scope lives long enough.
+    // ── Real exit ────────────────────────────────────────────────────────
+    // Runs on the Activity's lifecycleScope (not a composition scope) so the
+    // continuation survives recomposition. As long as the player Activity
+    // declares `configChanges` for orientation (any video player must, since
+    // PlayerWindowEffect rotates programmatically) the Activity is not
+    // recreated and the scope lives long enough to reach popBackStack.
     val finishExit: () -> Unit = {
         val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
@@ -274,8 +255,6 @@ fun LivePlayerScreen(
     LaunchedEffect(currentMediaSource) {
         val source = currentMediaSource ?: return@LaunchedEffect
         val sourceUri = source.mediaItem.localConfiguration?.uri?.toString().orEmpty()
-        // Uses the shared MediaResolver.isKnownPageUrl so screen-side and
-        // resolver-side classification stay in sync.
         if (MediaResolver.isKnownPageUrl(sourceUri)) {
             playerError = UiPlaybackError(
                 message = "Stream resolver returned a page URL instead of a video stream.",
@@ -292,9 +271,7 @@ fun LivePlayerScreen(
 
     LaunchedEffect(channel, currentPlaylist) {
         val index = currentPlaylist.indexOfChannel(channel)
-        if (index != -1) {
-            playerViewModel.prefetchChannels(currentPlaylist, index)
-        }
+        if (index != -1) playerViewModel.prefetchChannels(currentPlaylist, index)
     }
 
     DisposableEffect(exoPlayer) {
@@ -306,15 +283,8 @@ fun LivePlayerScreen(
                     lastHlsError = false
                 }
             }
-
-            override fun onIsPlayingChanged(isPlayingState: Boolean) {
-                isPlaying = isPlayingState
-            }
-
-            override fun onVolumeChanged(volume: Float) {
-                isMuted = volume == 0f
-            }
-
+            override fun onIsPlayingChanged(isPlayingState: Boolean) { isPlaying = isPlayingState }
+            override fun onVolumeChanged(volume: Float) { isMuted = volume == 0f }
             override fun onPlayerError(error: PlaybackException) {
                 val hls = isHlsFormatError(error)
                 PlaybackLogger.logLivePlaybackError(
@@ -328,8 +298,7 @@ fun LivePlayerScreen(
                     isHlsFormatError = hls
                 )
                 val allUrls = (listOf(channel.url) + channel.sources.values.toList())
-                    .filter { it.isNotBlank() }
-                    .distinct()
+                    .filter { it.isNotBlank() }.distinct()
                 val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
                 if (remaining.isNotEmpty()) {
                     failedSourceUrls = failedSourceUrls + currentSourceUrl
@@ -422,13 +391,11 @@ fun LivePlayerScreen(
                                 if (!showOverlay) { showOverlay = true; true } else false
                             }
                             in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
-                                val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0
-                                channelNumberInput += digit.toString()
+                                channelNumberInput += (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0).toString()
                                 true
                             }
                             in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
-                                val digit = event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0
-                                channelNumberInput += digit.toString()
+                                channelNumberInput += (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0).toString()
                                 true
                             }
                             else -> false
@@ -569,8 +536,7 @@ fun LivePlayerScreen(
                                 }
                                 TvIconButton(onClick = {
                                     val modes = VideoScaleMode.entries.toTypedArray()
-                                    val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
-                                    scaleMode = modes[nextIndex]
+                                    scaleMode = modes[(modes.indexOf(scaleMode) + 1) % modes.size]
                                     android.widget.Toast.makeText(
                                         context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
                                     ).show()
@@ -604,11 +570,8 @@ fun LivePlayerScreen(
                                 modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    "Prev Channel", tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Prev Channel",
+                                    tint = Color.White, modifier = Modifier.size(28.dp))
                             }
                             TvIconButton(
                                 onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
@@ -628,11 +591,8 @@ fun LivePlayerScreen(
                                 modifier = Modifier.size(48.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                             ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    "Next Channel", tint = Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next Channel",
+                                    tint = Color.White, modifier = Modifier.size(28.dp))
                             }
                         }
 
@@ -723,8 +683,7 @@ fun LivePlayerScreen(
                         Spacer(Modifier.height(6.dp))
                         Text(
                             "Hint: The resolver could not extract a valid HLS/DASH manifest.",
-                            color = Color(0xFFFFC107),
-                            fontSize = 11.sp
+                            color = Color(0xFFFFC107), fontSize = 11.sp
                         )
                     }
 
@@ -802,22 +761,13 @@ fun LivePlayerScreen(
                 ) {
                     Text(
                         text = channelNumberInput,
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold
+                        color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Dialogs inside PlayerRevealContainer.
-            // Under Approach B the Activity is landscape, so a standard Dialog
-            // window will also be landscape — this remains valid even though
-            // LocalPlayerIsRotated is now always false.
             if (showTrackSelector) {
-                TrackSelectionDialog(
-                    player = exoPlayer,
-                    onDismiss = { showTrackSelector = false }
-                )
+                TrackSelectionDialog(player = exoPlayer, onDismiss = { showTrackSelector = false })
             }
 
             if (showSourceSelector) {
@@ -843,16 +793,13 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
     val h = 54
 
     // Hold the current frame as state. Each tick replaces the ImageBitmap with
-    // a fresh wrapper around the same underlying pixel buffer, so Compose sees
-    // a state change and invalidates the draw. This is more idiomatic than
-    // relying on a state read inside the Canvas draw lambda.
+    // a fresh wrapper around the same pixel buffer, so Compose sees a state
+    // change and invalidates the draw.
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
         val pixels = IntArray(w * h)
-        val bmp = android.graphics.Bitmap.createBitmap(
-            w, h, android.graphics.Bitmap.Config.ARGB_8888
-        )
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
         val rnd = java.util.Random()
         while (isActive) {
             for (i in pixels.indices) {
@@ -860,8 +807,6 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
                 pixels[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
             }
             bmp.setPixels(pixels, 0, w, 0, 0, w, h)
-            // asImageBitmap() returns a new ImageBitmap wrapper each call, so
-            // assigning it here always triggers a recomposition/invalidate.
             imageBitmap = bmp.asImageBitmap()
             delay(70)
         }
