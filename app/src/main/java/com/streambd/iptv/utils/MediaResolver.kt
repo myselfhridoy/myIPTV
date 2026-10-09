@@ -71,9 +71,6 @@ object MediaResolver {
     /** ClearKey raw key pair (`kid:key`). */
     private val DRM_KEY_REGEX = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
 
-    /** Any file-like extension at the end of the path component. */
-    private val EXT_ONLY_REGEX = Regex("\\.[a-zA-Z0-9]{2,5}(\\?|$)")
-
     /**
      * Path segments that hint the response is a media manifest even
      * without a `.m3u8`/`.mpd` extension.
@@ -99,7 +96,8 @@ object MediaResolver {
         "portal.php",           // generic Stalker / IPTV portal
         "action=create_link",   // generic Stalker API action
         "action=get_profile",   // generic Stalker API action
-        "action=handshake"      // generic Stalker API action
+        "action=handshake",     // generic Stalker API action
+        "/player.php"           // known page endpoint, distinct from /stream.php
     )
 
     // Max bytes read when sniffing a response body. Playlists / JSON are small; this
@@ -129,16 +127,20 @@ object MediaResolver {
      * If we don't detect these, the mimeType fallback below would force-assign
      * `application/x-mpegURL` to an extensionless page URL, and ExoPlayer would
      * then fail with "Input does not start with the #EXTM3U header".
+     *
+     * Public so the UI layer can reuse this exact classification — keeping the
+     * screen-side and resolver-side logic in lockstep.
      */
-    private fun isKnownPageUrl(url: String?): Boolean {
+    fun isKnownPageUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
 
         // Marker tokens in the URL (query, path, or fragment).
         if (PAGE_URL_MARKERS.any { lower.contains(it) }) return true
 
-        // Literal HTML files. `.php` and other server-side extensions are NOT blocked
-        // here — many valid streams hide behind `live.php`, `stream.php`, etc.
+        // Literal HTML files. `.php` is NOT blocked here — many valid streams hide
+        // behind `live.php`, `stream.php`, etc. Only `/player.php` above is
+        // treated as a page endpoint.
         val path = lower.substringBefore("?").substringBefore("#")
         if (path.endsWith(".html") || path.endsWith(".htm")) return true
 
@@ -253,8 +255,8 @@ object MediaResolver {
             if (resolved == null) {
                 val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
                 val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
-    tokenLower == "crichd" || tokenLower == "dlhd" ||
-    Regex("""^[\\/]?\d+$""").matches(tokenLower)
+                    tokenLower == "crichd" || tokenLower == "dlhd" ||
+                    Regex("""^[\\/]?\d+$""").matches(tokenLower)
                 // এই token-গুলোর resolver ফেইল করলে page/API URL ExoPlayer-কে দেওয়া চলবে না
                 if (mustUseResolver) return@withContext null
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
@@ -281,8 +283,16 @@ object MediaResolver {
                 rawSourceUrl.contains("tokenUrl=crichd", ignoreCase = true) ||
                 finalUrl.contains("tokenUrl=crichd", ignoreCase = true)
 
+            // Path-only view of the URL (query/fragment stripped) — used for both
+            // the TS detection below and the mimeType override further down. Doing
+            // it once avoids duplication and, more importantly, fixes the previous
+            // bug where `.ts?token=x` was not recognized as MPEG-TS.
+            val pathOnly = finalUrl.substringBefore("?").substringBefore("#").lowercase()
+
             val isMacUrl = isStalkerMacUrl(rawSourceUrl) || isStalkerMacUrl(finalUrl)
-            val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || finalUrl.endsWith(".ts", ignoreCase = true)
+            val isTsUrl = finalUrl.contains("extension=ts", ignoreCase = true) ||
+                finalUrl.contains("output=ts", ignoreCase = true) ||
+                pathOnly.endsWith(".ts")
             val shouldWrapMac = isMacUrl && !isTsUrl
 
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
@@ -316,13 +326,13 @@ object MediaResolver {
                 }
             }
 
-            val pathOnly = finalUrl.substringBefore("?").substringBefore("#").lowercase()
             if (!finalUrl.startsWith("data:", ignoreCase = true) &&
                 !pathOnly.contains(".m3u8") && !pathOnly.contains(".mpd") &&
                 (pathOnly.endsWith("/mpegts") || pathOnly.endsWith(".ts"))
             ) {
                 mimeType = MimeTypes.VIDEO_MP2T
             }
+
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
