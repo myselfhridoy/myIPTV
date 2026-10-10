@@ -7,7 +7,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
@@ -51,46 +50,33 @@ object MediaResolver {
     // URL pattern tables — no provider names anywhere.
     // -------------------------------------------------------------------------
 
-    /** URL extensions that almost always indicate a directly playable file. */
     private val EXT_REGEX = Regex(
         "\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp|m4v|3gp)(\\?|#|$|[\"'])",
         RegexOption.IGNORE_CASE
     )
 
-    /** Streaming protocols that ExoPlayer can hand off directly. */
     private val PROTO_REGEX = Regex(
         "^(rtmp|rtsp|udp|srt|rtp|mms)://",
         RegexOption.IGNORE_CASE
     )
 
-    /** URL patterns that suggest an intermediate redirect / shortener. */
     private val REDIRECT_REGEX = Regex(
         "(is\\.gd|tinyurl|bit\\.ly|t\\.co|redirect|url=|goto=)",
         RegexOption.IGNORE_CASE
     )
 
-    /** ClearKey raw key pair (`kid:key`). */
     private val DRM_KEY_REGEX = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
 
-    /**
-     * Path segments that hint the response is a media manifest even
-     * without a `.m3u8`/`.mpd` extension.
-     */
     private val MEDIA_PATH_HINT_REGEX = Regex(
         "/(hls|dash|mpegts|manifest|playlist|chunklist|master|index|live)(\\?|/|#|$)",
         RegexOption.IGNORE_CASE
     )
 
-    /** Query parameters that hint at a media format. */
     private val MEDIA_QUERY_HINT_REGEX = Regex(
         "[?&](extension|output|type|format|stream|mimetype|media|container)=(m3u8|mpd|ts|hls|dash|mpegts)",
         RegexOption.IGNORE_CASE
     )
 
-    /**
-     * Page-URL markers. These flag URLs the resolver must not hand to
-     * ExoPlayer as if they were media.
-     */
     private val PAGE_URL_MARKERS = listOf(
         "tokenurl=",
         "portal.php",
@@ -100,10 +86,8 @@ object MediaResolver {
         "/player.php"
     )
 
-    // Max bytes read when sniffing a response body.
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
-    /** Stalker MAC param: ?mac=00:1A:79:46:06:F3 (colon, %3A or dash work) */
     private val STALKER_MAC_REGEX = Regex(
         "[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)",
         RegexOption.IGNORE_CASE
@@ -112,48 +96,13 @@ object MediaResolver {
     fun isStalkerMacUrl(url: String?): Boolean =
         !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
 
-    // Use a single OkHttpClient instance for better performance and resource
-    // management.
     val sharedOkHttpClient: OkHttpClient by lazy {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().build()
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Header sanitization for the PLAYBACK layer
-    //
-    // The playlist is free to declare any HTTP header it wants — that's
-    // the source of truth. But two headers are incompatible with OkHttp
-    // itself:
-    //
-    //   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
-    //     transparently decompresses the response. If we send our own
-    //     value, OkHttp stops decompressing.
-    //
-    //   • `Content-Length` — must never be set manually on a GET.
-    //
-    // Every other header (sec-fetch-*, sec-ch-*, Origin, Referer, etc.)
-    // is preserved because many IPTV CDNs check for browser-style
-    // fetch-metadata.
-    // ─────────────────────────────────────────────────────────────────────
-    private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
-        "accept-encoding",
-        "content-length"
-    )
-
-    private fun sanitizeHeadersForPlayback(
-        headers: Map<String, String>
-    ): Map<String, String> {
-        if (headers.isEmpty()) return headers
-        val out = LinkedHashMap<String, String>(headers.size)
-        for ((k, v) in headers) {
-            if (k.lowercase() in PLAYBACK_HEADER_BLOCKLIST) continue
-            out[k] = v
-        }
-        return out
-    }
-
     /**
      * Returns true for URLs that are obviously HTML/API pages, not streams.
+     * Public so the UI layer can reuse this exact classification.
      */
     fun isKnownPageUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
@@ -167,10 +116,6 @@ object MediaResolver {
         return false
     }
 
-    /**
-     * True if the URL looks like a media URL by extension, protocol, path, or
-     * query hint.
-     */
     private fun looksLikeMediaUrl(url: String): Boolean {
         if (url.isBlank()) return false
         if (url.startsWith("data:", ignoreCase = true)) return true
@@ -181,10 +126,6 @@ object MediaResolver {
         return false
     }
 
-    /**
-     * Cancellable OkHttp call: cancelling the coroutine also cancels the
-     * network request.
-     */
     private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
         cont.invokeOnCancellation { cancel() }
         enqueue(object : Callback {
@@ -219,13 +160,14 @@ object MediaResolver {
             channel.httpHeaders?.forEach { (k, v) -> rawHeaders[k] = v }
             parsedSource.headers.forEach { (k, v) -> rawHeaders[k] = v }
 
-            val initialHeaders = linkedMapOf<String, String>()
+            // Case-insensitive dedup: last-wins for conflicting keys.
+            val deduped = linkedMapOf<String, Pair<String, String>>()
             rawHeaders.forEach { (k, v) ->
-                val lower = k.lowercase()
-                val existing = initialHeaders.keys.firstOrNull { it.lowercase() == lower }
-                if (existing != null) initialHeaders.remove(existing)
-                initialHeaders[k] = v
+                deduped[k.lowercase()] = k to v
             }
+            val initialHeaders = linkedMapOf<String, String>()
+            deduped.values.forEach { (k, v) -> initialHeaders[k] = v }
+
             if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
                 initialHeaders["User-Agent"] = UnsafeOkHttpClient.DEFAULT_USER_AGENT
             }
@@ -237,7 +179,7 @@ object MediaResolver {
                 parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
             val currentPlayRef = parsedSource.custom["playref"]
 
-            // ---- DRM extraction from URL custom params --------------------
+            // ---- DRM extraction from URL custom params ----
             var sourceDrm = channel.drm
             if (parsedSource.custom.containsKey("drm-type")) {
                 val drmType = parsedSource.custom["drm-type"]
@@ -252,7 +194,7 @@ object MediaResolver {
             val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
                 rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
-            // ---- Try the token/page resolver first ------------------------
+            // ---- Try the token/page resolver first ----
             var resolved: ResolvedToken? = null
             if (!currentTokenUrl.isNullOrEmpty() ||
                 isStalkerOrPortal ||
@@ -278,7 +220,7 @@ object MediaResolver {
                 }
             }
 
-            // ---- Fall back to generic redirect / playlist sniffing --------
+            // ---- Fall back to generic redirect / playlist sniffing ----
             if (resolved == null) {
                 val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
                 val mustUseResolver = tokenLower == "streambd" ||
@@ -300,7 +242,7 @@ object MediaResolver {
                 return@withContext null
             }
 
-            // ---- Compute stream-type flags BEFORE any wrapping -----------
+            // ---- Compute stream-type flags BEFORE any wrapping ----
             val preWrapPath = finalUrl.substringBefore("?").substringBefore("#").lowercase()
 
             val isMacUrl = isStalkerMacUrl(rawSourceUrl) || isStalkerMacUrl(finalUrl)
@@ -314,7 +256,7 @@ object MediaResolver {
                 (resolved?.needsPlaylistWrap == true || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = 2000000
+                val bandwidth = 2_000_000
                 val masterPlaylist =
                     "#EXTM3U\n#EXT-X-VERSION:3\n" +
                         "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
@@ -322,7 +264,7 @@ object MediaResolver {
                     Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
             }
 
-            // ---- MimeType detection ---------------------------------------
+            // ---- MimeType detection ----
             var mimeType: String? = if (shouldWrapInMasterPlaylist ||
                 finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)
             ) {
@@ -487,24 +429,7 @@ object MediaResolver {
     }
 
     // =========================================================================
-    // MediaSource builder
-    //
-    // This is where the ONLY header filtering for the playback layer
-    // happens. The playlist may declare whatever it wants; before we hand
-    // the headers to OkHttp / ExoPlayer we drop the small set of headers
-    // that break the transport (see PLAYBACK_HEADER_BLOCKLIST).
-    //
-    // IMPORTANT: We deliberately DO NOT set MediaItem.LiveConfiguration
-    // here. Many IPTV channels served by our JS-based playlists are
-    // actually fixed-duration DVR manifests (a 30-minute chunk of live TV
-    // served as a static MPD), not true live streams. Setting
-    // LiveConfiguration on a static manifest makes ExoPlayer try to reach
-    // a live edge that doesn't exist, which causes an infinite
-    // STATE_BUFFERING with no video and no audio — exactly the symptom
-    // we saw on channels like Colors HD. The VOD player works with the
-    // same URL because it doesn't set LiveConfiguration either. By
-    // leaving it unset here, ExoPlayer's default behaviour matches what
-    // the VOD player does and the same channels play correctly.
+    // MediaSource builder — matches your 1-week-ago working code
     // =========================================================================
     @androidx.annotation.MainThread
     fun buildMediaSource(
@@ -516,47 +441,56 @@ object MediaResolver {
         }
 
         val finalUrl = params.url
+        val finalHeaders = params.headers
         val mimeType = params.mimeType
         val finalDrm = params.drm
 
-        // ── Header sanitization happens HERE ────────────────────────────
-        val playbackHeaders = sanitizeHeadersForPlayback(params.headers)
-
+        // Pass ALL headers through, exactly as your old working code did.
+        // No sanitization — the CDN requires the browser-style headers
+        // (sec-fetch-*, Accept-Encoding, etc.) to serve the stream.
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->
                 val originalReq = chain.request()
                 val builder = originalReq.newBuilder()
-                playbackHeaders.forEach { (k, v) -> builder.header(k, v) }
+                finalHeaders.forEach { (k, v) -> builder.header(k, v) }
                 chain.proceed(builder.build())
             }
         }.build()
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setDefaultRequestProperties(playbackHeaders)
+            .setDefaultRequestProperties(finalHeaders)
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // ── LiveConfiguration is intentionally NOT set. ──
-        // See the block comment above for why. ExoPlayer's default
-        // behaviour handles both true-live and fixed-duration DVR
-        // manifests correctly without any tuning.
+        // ── LiveConfiguration: same window as your old working code ──
+        // 20s target / 10s min / 60s max. This is what made the JioTV
+        // dynamic MPD channels play in the past. Playback speed is
+        // unlocked (0.97–1.03) for A/V sync on weak TV boxes.
+        val liveConfig = MediaItem.LiveConfiguration.Builder()
+            .setTargetOffsetMs(20_000)
+            .setMinOffsetMs(10_000)
+            .setMaxOffsetMs(60_000)
+            .setMinPlaybackSpeed(0.97f)
+            .setMaxPlaybackSpeed(1.03f)
+            .build()
+        mediaItemBuilder.setLiveConfiguration(liveConfig)
 
-        // ── Error handling: shorter retry cadence for faster failover. ──
+        // ── Error handling: shorter retry cadence for faster failover ──
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(
                 info: LoadErrorHandlingPolicy.LoadErrorInfo
             ): Long {
                 val defaultDelay = super.getRetryDelayMsFor(info)
                 if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-                return if (info.errorCount <= 4) {
+                return if (info.errorCount <= 5) {
                     500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
                 } else defaultDelay
             }
 
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
         }
 
         val extractorsFactory = DefaultExtractorsFactory()
@@ -655,9 +589,7 @@ object MediaResolver {
                 } else {
                     drmBuilder.setLicenseUri(finalDrm.licenseServer)
                     drmBuilder.setLicenseRequestHeaders(
-                        playbackHeaders.filterKeys {
-                            it.lowercase() != "user-agent"
-                        }
+                        finalHeaders.filterKeys { it.lowercase() != "user-agent" }
                     )
                     drmBuilder.setMultiSession(true)
                 }
