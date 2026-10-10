@@ -89,21 +89,18 @@ object MediaResolver {
 
     /**
      * Page-URL markers. These flag URLs the resolver must not hand to
-     * ExoPlayer as if they were media. Public so the UI layer can share the
-     * exact same classification.
+     * ExoPlayer as if they were media.
      */
     private val PAGE_URL_MARKERS = listOf(
-        "tokenurl=",            // our own page-marker convention
-        "portal.php",           // generic Stalker / IPTV portal
-        "action=create_link",   // generic Stalker API action
-        "action=get_profile",   // generic Stalker API action
-        "action=handshake",     // generic Stalker API action
-        "/player.php"           // page endpoint, distinct from /stream.php
+        "tokenurl=",
+        "portal.php",
+        "action=create_link",
+        "action=get_profile",
+        "action=handshake",
+        "/player.php"
     )
 
-    // Max bytes read when sniffing a response body. Playlists / JSON are
-    // small; this stops a live stream that reports a text-like content type
-    // from being read forever.
+    // Max bytes read when sniffing a response body.
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
     /** Stalker MAC param: ?mac=00:1A:79:46:06:F3 (colon, %3A or dash work) */
@@ -121,29 +118,102 @@ object MediaResolver {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().build()
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Header sanitization for the PLAYBACK layer
+    //
+    // Why this exists
+    // ---------------
+    // The playlist (JS script, M3U file, JSON API, …) is free to declare
+    // any HTTP header it wants — that's the source of truth and we do
+    // NOT want to strip anything at the parse layer.
+    //
+    // But some of those headers are *incompatible with OkHttp itself*.
+    // OkHttp is not a browser; it manages several headers on its own and
+    // breaks if we override them. Before handing a request to the media
+    // data source we therefore drop only the specific headers that:
+    //
+    //   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
+    //     transparently decompresses the response. If we send our own
+    //     value (e.g. `gzip, deflate, br, zstd`), OkHttp stops
+    //     decompressing, and any response the CDN sends as brotli (`br`)
+    //     or `zstd` arrives as binary garbage. The manifest and segments
+    //     then fail to parse and playback hangs at STATE_BUFFERING with
+    //     a black screen and no audio.
+    //
+    //   • `Content-Length` — must never be set manually on a GET. Some
+    //     servers respond 400 to a request that violates this.
+    //
+    //   • `Host` — OkHttp sets this from the URL. Overriding it makes
+    //     the request go to the wrong virtual host.
+    //
+    //   • `Connection`, `Keep-Alive`, `Transfer-Encoding`, `TE`, `Upgrade`,
+    //     `Proxy-Connection` — connection-level headers managed by the
+    //     transport stack.
+    //
+    //   • `sec-fetch-*`, `sec-ch-ua-*` — browser fetch-metadata / client
+    //     hints. Browsers send these alongside a specific TLS
+    //     fingerprint. If we forward them from a non-browser client,
+    //     a CDN that inspects them may reject the request because the
+    //     fingerprint does not match. Dropping them makes the request
+    //     look like a normal media client, which the CDN accepts.
+    //
+    // The playlist keeps declaring them (documentation, portability
+    // with other players); only the OkHttp boundary filters them out.
+    // ─────────────────────────────────────────────────────────────────────
+    private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
+        // Headers OkHttp must own
+        "accept-encoding",
+        "content-length",
+        "host",
+        "connection",
+        "keep-alive",
+        "transfer-encoding",
+        "te",
+        "upgrade",
+        "proxy-connection",
+        // Browser fetch-metadata that confuses non-browser clients
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-dest",
+        "sec-fetch-user",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-ch-ua-arch",
+        "sec-ch-ua-model",
+        "sec-ch-ua-bitness",
+        "sec-ch-ua-full-version",
+        "sec-ch-ua-full-version-list",
+        "sec-ch-ua-platform-version"
+    )
+
+    /**
+     * Drop headers that break OkHttp's request handling or its response
+     * decompression. Case-insensitive. Original casing of surviving
+     * headers is preserved so CDNs that inspect exact casing still
+     * recognise them.
+     */
+    private fun sanitizeHeadersForPlayback(
+        headers: Map<String, String>
+    ): Map<String, String> {
+        if (headers.isEmpty()) return headers
+        val out = LinkedHashMap<String, String>(headers.size)
+        for ((k, v) in headers) {
+            if (k.lowercase() in PLAYBACK_HEADER_BLOCKLIST) continue
+            out[k] = v
+        }
+        return out
+    }
+
     /**
      * Returns true for URLs that are obviously HTML/API pages, not streams.
-     *
-     * Generic check — uses marker tokens, not provider names. The markers are
-     * the same ones our own M3U pages use to flag "this is not a stream,
-     * resolve me". If we don't detect these, the mimeType fallback below
-     * would force-assign `application/x-mpegURL` to an extensionless page URL,
-     * and ExoPlayer would then fail with "Input does not start with the
-     * #EXTM3U header".
-     *
-     * Public so the UI layer can reuse this exact classification — keeping
-     * the screen-side and resolver-side logic in lockstep.
      */
     fun isKnownPageUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
 
-        // Marker tokens in the URL (query, path, or fragment).
         if (PAGE_URL_MARKERS.any { lower.contains(it) }) return true
 
-        // Literal HTML files. `.php` is NOT blocked here — many valid streams
-        // hide behind `live.php`, `stream.php`, etc. Only `/player.php` above
-        // is treated as a page endpoint.
         val path = lower.substringBefore("?").substringBefore("#")
         if (path.endsWith(".html") || path.endsWith(".htm")) return true
 
@@ -152,8 +222,7 @@ object MediaResolver {
 
     /**
      * True if the URL looks like a media URL by extension, protocol, path, or
-     * query hint. Deliberately broad so we don't reject valid streams that
-     * come without an explicit `.m3u8` / `.mpd` extension.
+     * query hint.
      */
     private fun looksLikeMediaUrl(url: String): Boolean {
         if (url.isBlank()) return false
@@ -195,9 +264,6 @@ object MediaResolver {
             val rawSourceUrl = parsedSource.cleanUrl
 
             // ---- Merge headers from channel metadata + URL custom params ----
-            // Build a raw map first, then dedup case-insensitively into a
-            // fresh map. Do NOT clear-and-refill the source map — a fresh
-            // map avoids aliasing and duplicate lowercase keys.
             val rawHeaders = mutableMapOf<String, String>()
             channel.userAgent?.let { rawHeaders["User-Agent"] = it }
             channel.cookie?.let { rawHeaders["Cookie"] = it }
@@ -208,7 +274,6 @@ object MediaResolver {
 
             val initialHeaders = linkedMapOf<String, String>()
             rawHeaders.forEach { (k, v) ->
-                // Remove any existing entry whose lowercase form collides.
                 val lower = k.lowercase()
                 val existing = initialHeaders.keys.firstOrNull { it.lowercase() == lower }
                 if (existing != null) initialHeaders.remove(existing)
@@ -241,9 +306,6 @@ object MediaResolver {
                 rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
             // ---- Try the token/page resolver first ------------------------
-            // withTimeoutOrNull: whatever the resolver does (regex, network,
-            // etc.), we never hang more than 15 seconds — on timeout
-            // `resolved = null` and we show "resolve failed".
             var resolved: ResolvedToken? = null
             if (!currentTokenUrl.isNullOrEmpty() ||
                 isStalkerOrPortal ||
@@ -277,8 +339,6 @@ object MediaResolver {
                     tokenLower == "crichd" ||
                     tokenLower == "dlhd" ||
                     Regex("""^[\\/]?\d+$""").matches(tokenLower)
-                // If the resolver failed for one of these, we must NOT fall
-                // back to raw page/API URLs — ExoPlayer can't play them.
                 if (mustUseResolver) return@withContext null
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
             }
@@ -289,18 +349,11 @@ object MediaResolver {
                 TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: sourceDrm
 
-            // ---- Guard: resolver failed and URL is still a page ----------
-            // Handing a page URL to ExoPlayer as if it were an HLS manifest
-            // produces "Input does not start with the #EXTM3U header". Return
-            // null so the ViewModel shows "resolver failed" instead.
             if (resolved == null && isKnownPageUrl(finalUrl)) {
                 return@withContext null
             }
 
             // ---- Compute stream-type flags BEFORE any wrapping -----------
-            // Once the master-playlist wrap runs, finalUrl becomes a data:
-            // URI and every path-based check below would look at the wrong
-            // string. Capture the pre-wrap path here.
             val preWrapPath = finalUrl.substringBefore("?").substringBefore("#").lowercase()
 
             val isMacUrl = isStalkerMacUrl(rawSourceUrl) || isStalkerMacUrl(finalUrl)
@@ -310,15 +363,11 @@ object MediaResolver {
                 preWrapPath.endsWith("/mpegts")
             val shouldWrapMac = isMacUrl && !isTsStream
 
-            // Only wrap in a synthetic master playlist when the resolver
-            // explicitly flagged it (crichd-style obfuscated bare URLs) or
-            // when the URL is a Stalker MAC endpoint that ExoPlayer refuses
-            // to sniff on its own.
             val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
                 (resolved?.needsPlaylistWrap == true || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
-                val bandwidth = 2000000 // 2 Mbps hint
+                val bandwidth = 2000000
                 val masterPlaylist =
                     "#EXTM3U\n#EXT-X-VERSION:3\n" +
                         "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
@@ -335,10 +384,6 @@ object MediaResolver {
                 TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
             }
 
-            // Universal mimeType fallback: only force m3u8 when the URL gives
-            // us a positive media hint. Never force m3u8 just because the URL
-            // is extensionless — that was the root cause of "Input does not
-            // start with the #EXTM3U header".
             if (mimeType == null && !isKnownPageUrl(finalUrl) && looksLikeMediaUrl(finalUrl)) {
                 mimeType = when {
                     finalUrl.contains(".mpd", ignoreCase = true) ||
@@ -348,12 +393,15 @@ object MediaResolver {
                 }
             }
 
-            // TS override — uses the pre-wrap captured flag so it still
-            // fires when the URL got wrapped into a data: URI.
             if (isTsStream && !finalUrl.startsWith("data:", ignoreCase = true)) {
                 mimeType = MimeTypes.VIDEO_MP2T
             }
 
+            // IMPORTANT: We return `finalHeaders` UNCHANGED here. Header
+            // sanitization happens later, at the OkHttp boundary, in
+            // buildMediaSource(). That way the parse layer stays free of
+            // transport-layer decisions, and any other consumer of
+            // ResolvedMediaParams still sees the full header set.
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
@@ -361,7 +409,6 @@ object MediaResolver {
                 mimeType = mimeType
             )
         } catch (e: CancellationException) {
-            // Never swallow cancellation.
             throw e
         } catch (e: Exception) {
             e.printStackTrace()
@@ -371,9 +418,6 @@ object MediaResolver {
 
     // =========================================================================
     // Generic redirect / playlist resolver
-    //
-    // Handles URLs that aren't handled by TokenParser (no tokenUrl) and that
-    // look like they might be a redirect or a raw playlist body.
     // =========================================================================
     private suspend fun resolveRedirectsAndPlaylists(
         rawSourceUrl: String,
@@ -385,8 +429,6 @@ object MediaResolver {
             rawSourceUrl
         }
 
-        // PHP files that explicitly declare HLS in their own query string are
-        // treated as stream endpoints even though their path has `.php`.
         val isExplicitHlsPhp =
             rawSourceUrl.contains("live.php", ignoreCase = true) ||
                 rawSourceUrl.contains("extension=m3u8", ignoreCase = true) ||
@@ -400,7 +442,6 @@ object MediaResolver {
         val isKnownFileHost =
             rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
 
-        // Skip pre-resolve for known page URLs — the resolver path handles them.
         if (isKnownPageUrl(rawSourceUrl)) return null
 
         val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) ||
@@ -427,12 +468,9 @@ object MediaResolver {
                 var isMasterPlaylist = false
 
                 if (res.isSuccessful && isPlaylistOrJsonType && contentLength < 10_000_000L) {
-                    // peekBody caps how much is read, so an endless stream
-                    // can't hang/OOM here.
                     val bodyStr = res.peekBody(MAX_SNIFF_BYTES).string()
                     isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
 
-                    // JSON body that might be a Stalker / API response.
                     if (bodyStr.trim().startsWith("{")) {
                         val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(
                             rawSourceUrl, initialHeaders, bodyStr
@@ -443,8 +481,6 @@ object MediaResolver {
                     val isHlsStream = bodyStr.contains("#EXTINF:") ||
                         bodyStr.contains("EXT-X-STREAM-INF")
 
-                    // Body IS a playlist with custom EXTHTTP headers → parse
-                    // the first entry.
                     if (bodyStr.contains("#EXTM3U") &&
                         (bodyStr.contains("EXTHTTP:") || !isHlsStream)
                     ) {
@@ -470,12 +506,6 @@ object MediaResolver {
                         }
                     }
 
-                    // Body is an HLS stream missing the leading #EXTM3U.
-                    // We deliberately DO NOT base64-wrap it into a data: URI —
-                    // relative segment URLs inside would then break because a
-                    // data: URI has no base URL to resolve against. Hand back
-                    // the original URL so ExoPlayer can fetch it fresh with
-                    // the correct base.
                     if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
                         return ResolvedToken(
                             url = res.request.url.toString(),
@@ -516,76 +546,80 @@ object MediaResolver {
 
     // =========================================================================
     // MediaSource builder
+    //
+    // This is where the ONLY header filtering for the playback layer
+    // happens. The playlist may declare whatever it wants; before we hand
+    // the headers to OkHttp / ExoPlayer we drop the small set of headers
+    // that break the transport (see PLAYBACK_HEADER_BLOCKLIST).
     // =========================================================================
     @androidx.annotation.MainThread
     fun buildMediaSource(
         context: Context,
         params: ResolvedMediaParams
     ): MediaSource {
-        // Fail fast if a caller ever invokes us off the main thread. Media3's
-        // DefaultMediaSourceFactory and ExoPlayer internals assert main-thread
-        // access; surfacing the violation here makes debugging trivial.
         check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             "MediaResolver.buildMediaSource must be called on the main thread"
         }
 
         val finalUrl = params.url
-        val finalHeaders = params.headers
         val mimeType = params.mimeType
         val finalDrm = params.drm
+
+        // ── Header sanitization happens HERE ────────────────────────────
+        // Everything downstream (the network interceptor, the data-source
+        // factory, the DRM license request headers) uses this sanitized
+        // set, so we never accidentally forward a header that would
+        // disable OkHttp's transparent decompression.
+        val playbackHeaders = sanitizeHeadersForPlayback(params.headers)
 
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->
                 val originalReq = chain.request()
                 val builder = originalReq.newBuilder()
-                finalHeaders.forEach { (k, v) -> builder.header(k, v) }
+                // Apply sanitized headers to every request OkHttp makes
+                // on behalf of ExoPlayer — including manifest fetches,
+                // segment fetches, and redirects.
+                playbackHeaders.forEach { (k, v) -> builder.header(k, v) }
                 chain.proceed(builder.build())
             }
         }.build()
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setDefaultRequestProperties(finalHeaders)
+            .setDefaultRequestProperties(playbackHeaders)
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // ── Live configuration: sync-friendly, low-latency, and — critically
-        //    — with playback speed UNLOCKED so ExoPlayer's auto-sync
-        //    correction can nudge audio/video back into alignment.
-        //
-        //    Previously min/max speed were both 1f, which fully disabled
-        //    that correction and was the single biggest cause of A/V drift.
+        // ── Live configuration: sync-friendly, low-latency, playback
+        //    speed UNLOCKED so ExoPlayer's auto-sync correction can nudge
+        //    audio/video back into alignment.
         val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10_000)   // 20s → 10s: less room for drift
+            .setTargetOffsetMs(10_000)
             .setMinOffsetMs(5_000)
             .setMaxOffsetMs(30_000)
-            .setMinPlaybackSpeed(0.97f)  // unlock the sync corrector
+            .setMinPlaybackSpeed(0.97f)
             .setMaxPlaybackSpeed(1.03f)
             .build()
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 
-        // ── Error handling: fast-fail on non-recoverable errors so we move
-// ── Error handling: shorter retry cadence for faster failover. The
-//    default policy already returns C.TIME_UNSET for non-retryable
-//    errors (parse, 4xx via the datasource layer), so we don't need
-//    to inspect the exception cause directly — a call that doesn't
-//    compile on older media3 versions anyway.
-val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
-    override fun getRetryDelayMsFor(
-        info: LoadErrorHandlingPolicy.LoadErrorInfo
-    ): Long {
-        val defaultDelay = super.getRetryDelayMsFor(info)
-        if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-        // Short backoff: 500ms, 1s, 2s, 4s.
-        return if (info.errorCount <= 4) {
-            500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
-        } else defaultDelay
-    }
+        // ── Error handling: shorter retry cadence for faster failover.
+        //    The default policy already returns C.TIME_UNSET for
+        //    non-retryable errors (parse, 4xx via the datasource layer).
+        val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
+            override fun getRetryDelayMsFor(
+                info: LoadErrorHandlingPolicy.LoadErrorInfo
+            ): Long {
+                val defaultDelay = super.getRetryDelayMsFor(info)
+                if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+                return if (info.errorCount <= 4) {
+                    500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+                } else defaultDelay
+            }
 
-    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
-}
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+        }
 
         val extractorsFactory = DefaultExtractorsFactory()
             .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
@@ -642,7 +676,6 @@ val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
                         if (jsonObj.has("keys")) {
                             clearKeyBytes = jsonStr.toByteArray()
                         } else {
-                            // Legacy {kidHex: keyHex} map → JWK set.
                             val keysArray = JSONArray()
                             jsonObj.keys().forEach { kidHex ->
                                 val keyHex = jsonObj.getString(kidHex)
@@ -683,8 +716,12 @@ val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
                     }
                 } else {
                     drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                    // License server also gets the sanitized headers —
+                    // minus User-Agent (DRM servers usually want their own).
                     drmBuilder.setLicenseRequestHeaders(
-                        finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                        playbackHeaders.filterKeys {
+                            it.lowercase() != "user-agent"
+                        }
                     )
                     drmBuilder.setMultiSession(true)
                 }
