@@ -118,39 +118,28 @@ object MediaResolver {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().build()
     }
 
-// ─────────────────────────────────────────────────────────────────────
-// Header sanitization for the PLAYBACK layer
-//
-// The playlist is free to declare any HTTP header it wants — that's
-// the source of truth. But two headers are incompatible with OkHttp
-// itself:
-//
-//   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
-//     transparently decompresses the response. If we send our own
-//     value (e.g. `gzip, deflate, br, zstd`), OkHttp stops
-//     decompressing, and any response the CDN sends as brotli (`br`)
-//     or `zstd` arrives as binary garbage to ExoPlayer. The manifest
-//     and segments then fail to parse and playback hangs at
-//     STATE_BUFFERING with a black screen and no audio.
-//
-//   • `Content-Length` — must never be set manually on a GET. Some
-//     servers respond 400 to a request that violates this.
-//
-// Every other header (sec-fetch-*, sec-ch-*, Origin, Referer, etc.)
-// is preserved because many IPTV CDNs check for browser-style
-// fetch-metadata and reject requests that omit them.
-// ─────────────────────────────────────────────────────────────────────
-private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
-    "accept-encoding",
-    "content-length"
-)
+    // ─────────────────────────────────────────────────────────────────────
+    // Header sanitization for the PLAYBACK layer
+    //
+    // The playlist is free to declare any HTTP header it wants — that's
+    // the source of truth. But two headers are incompatible with OkHttp
+    // itself:
+    //
+    //   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
+    //     transparently decompresses the response. If we send our own
+    //     value, OkHttp stops decompressing.
+    //
+    //   • `Content-Length` — must never be set manually on a GET.
+    //
+    // Every other header (sec-fetch-*, sec-ch-*, Origin, Referer, etc.)
+    // is preserved because many IPTV CDNs check for browser-style
+    // fetch-metadata.
+    // ─────────────────────────────────────────────────────────────────────
+    private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
+        "accept-encoding",
+        "content-length"
+    )
 
-    /**
-     * Drop headers that break OkHttp's request handling or its response
-     * decompression. Case-insensitive. Original casing of surviving
-     * headers is preserved so CDNs that inspect exact casing still
-     * recognise them.
-     */
     private fun sanitizeHeadersForPlayback(
         headers: Map<String, String>
     ): Map<String, String> {
@@ -355,11 +344,6 @@ private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
                 mimeType = MimeTypes.VIDEO_MP2T
             }
 
-            // IMPORTANT: We return `finalHeaders` UNCHANGED here. Header
-            // sanitization happens later, at the OkHttp boundary, in
-            // buildMediaSource(). That way the parse layer stays free of
-            // transport-layer decisions, and any other consumer of
-            // ResolvedMediaParams still sees the full header set.
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
@@ -509,6 +493,18 @@ private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
     // happens. The playlist may declare whatever it wants; before we hand
     // the headers to OkHttp / ExoPlayer we drop the small set of headers
     // that break the transport (see PLAYBACK_HEADER_BLOCKLIST).
+    //
+    // IMPORTANT: We deliberately DO NOT set MediaItem.LiveConfiguration
+    // here. Many IPTV channels served by our JS-based playlists are
+    // actually fixed-duration DVR manifests (a 30-minute chunk of live TV
+    // served as a static MPD), not true live streams. Setting
+    // LiveConfiguration on a static manifest makes ExoPlayer try to reach
+    // a live edge that doesn't exist, which causes an infinite
+    // STATE_BUFFERING with no video and no audio — exactly the symptom
+    // we saw on channels like Colors HD. The VOD player works with the
+    // same URL because it doesn't set LiveConfiguration either. By
+    // leaving it unset here, ExoPlayer's default behaviour matches what
+    // the VOD player does and the same channels play correctly.
     // =========================================================================
     @androidx.annotation.MainThread
     fun buildMediaSource(
@@ -524,19 +520,12 @@ private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
         val finalDrm = params.drm
 
         // ── Header sanitization happens HERE ────────────────────────────
-        // Everything downstream (the network interceptor, the data-source
-        // factory, the DRM license request headers) uses this sanitized
-        // set, so we never accidentally forward a header that would
-        // disable OkHttp's transparent decompression.
         val playbackHeaders = sanitizeHeadersForPlayback(params.headers)
 
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->
                 val originalReq = chain.request()
                 val builder = originalReq.newBuilder()
-                // Apply sanitized headers to every request OkHttp makes
-                // on behalf of ExoPlayer — including manifest fetches,
-                // segment fetches, and redirects.
                 playbackHeaders.forEach { (k, v) -> builder.header(k, v) }
                 chain.proceed(builder.build())
             }
@@ -550,21 +539,12 @@ private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // ── Live configuration: sync-friendly, low-latency, playback
-        //    speed UNLOCKED so ExoPlayer's auto-sync correction can nudge
-        //    audio/video back into alignment.
-        val liveConfig = MediaItem.LiveConfiguration.Builder()
-            .setTargetOffsetMs(10_000)
-            .setMinOffsetMs(5_000)
-            .setMaxOffsetMs(30_000)
-            .setMinPlaybackSpeed(0.97f)
-            .setMaxPlaybackSpeed(1.03f)
-            .build()
-        mediaItemBuilder.setLiveConfiguration(liveConfig)
+        // ── LiveConfiguration is intentionally NOT set. ──
+        // See the block comment above for why. ExoPlayer's default
+        // behaviour handles both true-live and fixed-duration DVR
+        // manifests correctly without any tuning.
 
-        // ── Error handling: shorter retry cadence for faster failover.
-        //    The default policy already returns C.TIME_UNSET for
-        //    non-retryable errors (parse, 4xx via the datasource layer).
+        // ── Error handling: shorter retry cadence for faster failover. ──
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
             override fun getRetryDelayMsFor(
                 info: LoadErrorHandlingPolicy.LoadErrorInfo
@@ -674,8 +654,6 @@ private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
                     }
                 } else {
                     drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                    // License server also gets the sanitized headers —
-                    // minus User-Agent (DRM servers usually want their own).
                     drmBuilder.setLicenseRequestHeaders(
                         playbackHeaders.filterKeys {
                             it.lowercase() != "user-agent"
