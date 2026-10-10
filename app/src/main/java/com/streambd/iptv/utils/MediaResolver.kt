@@ -118,74 +118,32 @@ object MediaResolver {
         UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().build()
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Header sanitization for the PLAYBACK layer
-    //
-    // Why this exists
-    // ---------------
-    // The playlist (JS script, M3U file, JSON API, …) is free to declare
-    // any HTTP header it wants — that's the source of truth and we do
-    // NOT want to strip anything at the parse layer.
-    //
-    // But some of those headers are *incompatible with OkHttp itself*.
-    // OkHttp is not a browser; it manages several headers on its own and
-    // breaks if we override them. Before handing a request to the media
-    // data source we therefore drop only the specific headers that:
-    //
-    //   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
-    //     transparently decompresses the response. If we send our own
-    //     value (e.g. `gzip, deflate, br, zstd`), OkHttp stops
-    //     decompressing, and any response the CDN sends as brotli (`br`)
-    //     or `zstd` arrives as binary garbage. The manifest and segments
-    //     then fail to parse and playback hangs at STATE_BUFFERING with
-    //     a black screen and no audio.
-    //
-    //   • `Content-Length` — must never be set manually on a GET. Some
-    //     servers respond 400 to a request that violates this.
-    //
-    //   • `Host` — OkHttp sets this from the URL. Overriding it makes
-    //     the request go to the wrong virtual host.
-    //
-    //   • `Connection`, `Keep-Alive`, `Transfer-Encoding`, `TE`, `Upgrade`,
-    //     `Proxy-Connection` — connection-level headers managed by the
-    //     transport stack.
-    //
-    //   • `sec-fetch-*`, `sec-ch-ua-*` — browser fetch-metadata / client
-    //     hints. Browsers send these alongside a specific TLS
-    //     fingerprint. If we forward them from a non-browser client,
-    //     a CDN that inspects them may reject the request because the
-    //     fingerprint does not match. Dropping them makes the request
-    //     look like a normal media client, which the CDN accepts.
-    //
-    // The playlist keeps declaring them (documentation, portability
-    // with other players); only the OkHttp boundary filters them out.
-    // ─────────────────────────────────────────────────────────────────────
-    private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
-        // Headers OkHttp must own
-        "accept-encoding",
-        "content-length",
-        "host",
-        "connection",
-        "keep-alive",
-        "transfer-encoding",
-        "te",
-        "upgrade",
-        "proxy-connection",
-        // Browser fetch-metadata that confuses non-browser clients
-        "sec-fetch-site",
-        "sec-fetch-mode",
-        "sec-fetch-dest",
-        "sec-fetch-user",
-        "sec-ch-ua",
-        "sec-ch-ua-mobile",
-        "sec-ch-ua-platform",
-        "sec-ch-ua-arch",
-        "sec-ch-ua-model",
-        "sec-ch-ua-bitness",
-        "sec-ch-ua-full-version",
-        "sec-ch-ua-full-version-list",
-        "sec-ch-ua-platform-version"
-    )
+// ─────────────────────────────────────────────────────────────────────
+// Header sanitization for the PLAYBACK layer
+//
+// The playlist is free to declare any HTTP header it wants — that's
+// the source of truth. But two headers are incompatible with OkHttp
+// itself:
+//
+//   • `Accept-Encoding` — OkHttp sets this to `gzip` internally and
+//     transparently decompresses the response. If we send our own
+//     value (e.g. `gzip, deflate, br, zstd`), OkHttp stops
+//     decompressing, and any response the CDN sends as brotli (`br`)
+//     or `zstd` arrives as binary garbage to ExoPlayer. The manifest
+//     and segments then fail to parse and playback hangs at
+//     STATE_BUFFERING with a black screen and no audio.
+//
+//   • `Content-Length` — must never be set manually on a GET. Some
+//     servers respond 400 to a request that violates this.
+//
+// Every other header (sec-fetch-*, sec-ch-*, Origin, Referer, etc.)
+// is preserved because many IPTV CDNs check for browser-style
+// fetch-metadata and reject requests that omit them.
+// ─────────────────────────────────────────────────────────────────────
+private val PLAYBACK_HEADER_BLOCKLIST: Set<String> = setOf(
+    "accept-encoding",
+    "content-length"
+)
 
     /**
      * Drop headers that break OkHttp's request handling or its response
