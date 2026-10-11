@@ -46,13 +46,28 @@ import kotlin.coroutines.resumeWithException
 /**
  * Kotlin port of the Python DLStreamsExtractor — with bug fixes.
  *
- * FIXES APPLIED (v2):
+ * FIXES APPLIED (v3):
  *   [1] isStreamAlive: no more false-positive on PNG (Case B verified via decodeRawPngToTs)
  *   [2] BitmapFactory: inPremultiplied=false, inDither=false, inScreenDensity=0
  *   [3] decodeRawPngToTs sync-search window widened (4 KB) + 4th sync check
  *   [4] Local proxy: forwards Range header, emits CORS + Accept-Ranges + Content-Range
  *   [5] proxySessions: bounded size, oldest evicted
  *   [6] Rich debug logging at every stage
+ *   [7] Player priority matches the Python reference: `cast` (Player 2) first,
+ *       `stream` (Player 1) only for channel 861. Player 1's TikTok CDN returns
+ *       7 MB+ PNG-wrapped segments that the Kotlin PNG unwrapper cannot always
+ *       decode — which caused "Cannot find sync byte" errors when a Player 1
+ *       segment slipped through. Restoring the Python priority avoids the
+ *       problem at the source.
+ *   [8] Proxy now rejects non-media payloads (HTML error pages, JSON, tiny
+ *       garbage) with HTTP 204 instead of forwarding them as video/mp2t.
+ *       ExoPlayer treats 204 as "this segment is empty, skip it" — no more
+ *       TsExtractor sync-byte failures when the upstream returns an error
+ *       page mid-playback.
+ *   [9] looksLikeMediaChunk now requires at least 188 bytes (one TS packet)
+ *       and validates 3 consecutive sync bytes, matching the Python check
+ *       `len(unwrapped) > 188 and unwrapped[0] == 0x47`. The looser version
+ *       let tiny fragments through.
  */
 object DlhdResolver {
 
@@ -70,8 +85,11 @@ object DlhdResolver {
     private const val ACCEPT_HTML =
         "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
 
+    // Path segments tried in order when scraping a channel. The actual
+    // order is chosen by [orderedPlayerPaths] below: `cast` first by
+    // default, `stream` only for the special channel 861.
     private val PLAYER_PATHS =
-        listOf("stream", "cast", "watch", "plus", "casting", "player", "hub")
+        listOf("cast", "stream", "watch", "plus", "casting", "player", "hub")
 
     // ------------------------------------------------------------------ state
 
@@ -310,7 +328,6 @@ object DlhdResolver {
             if (isPng(head)) {
                 Log.w(TAG, "  segment is PNG: size=${head.size} first8=${head.take(8).joinToString(" "){"%02x".format(it)}}")
 
-                // Fetch a bigger window (512 KB) so IEND can be found if it exists
                 val big: ByteArray = clientFor(t(10_000))
                     .newCall(buildRequest(segment, headers + ("Range" to "bytes=0-524287")))
                     .await().use { res ->
@@ -324,11 +341,9 @@ object DlhdResolver {
 
                 val fromIend = stripPng(big)
                 if (fromIend != null && fromIend.isNotEmpty()) {
-                    // Case A: TS appended after IEND
                     Log.d(TAG, "  Case A: TS after IEND, payload=${fromIend.size} bytes")
                     head = fromIend
                 } else {
-                    // Case B candidate — verify by decoding pixels
                     val pixelDecoded = decodeRawPngToTs(big)
                     if (pixelDecoded == null || pixelDecoded.isEmpty()) {
                         Log.w(TAG, "  PNG not decodable to TS (Case B failed) — rejecting")
@@ -355,7 +370,6 @@ object DlhdResolver {
                 return true
             }
 
-            // Encrypted: fetch key and decrypt first 16-byte block ourselves
             val keyUrl = inheritQueryIfMissing(join(currentUrl, keyUri!!), currentUrl)
             val keyBytes: ByteArray? = clientFor(t(8_000)).newCall(buildRequest(keyUrl, headers)).await().use { res ->
                 if (res.code == 200) res.body?.bytes() else {
@@ -399,13 +413,45 @@ object DlhdResolver {
 
     // ----------------------------------------------------- chunk sniffing
 
+    /**
+     * True when [b] looks like the start of a real media chunk.
+     *
+     * The previous version accepted tiny fragments (as small as 8 bytes)
+     * with a single sync byte, which let random garbage through. Now we
+     * require at least one full TS packet (188 bytes) and, when a TS
+     * stream is detected, verify sync bytes at offsets 0, 188, and 376
+     * to be sure this is actually a continuous TS. This mirrors the
+     * Python reference check `len(data) > 188 and data[0] == 0x47`.
+     */
     private fun looksLikeMediaChunk(b: ByteArray): Boolean {
-        if (b.size < 8) return false
-        if (b[0] == 0x47.toByte() && (b.size <= 188 || b[188] == 0x47.toByte())) return true
-        val box = String(b, 4, 4, Charsets.ISO_8859_1)
-        if (box == "ftyp" || box == "styp" || box == "moof" || box == "mdat") return true
-        if (b[0] == 'I'.code.toByte() && b[1] == 'D'.code.toByte() && b[2] == '3'.code.toByte()) return true
-        if ((b[0].toInt() and 0xFF) == 0xFF && (b[1].toInt() and 0xF0) == 0xF0) return true
+        if (b.size < 188) return false
+
+        // MPEG-TS: sync byte 0x47 at 0, 188, 376 (three confirmations).
+        if (b[0] == 0x47.toByte() &&
+            (b.size < 188 || b[188] == 0x47.toByte()) &&
+            (b.size < 376 || b[376] == 0x47.toByte())) {
+            return true
+        }
+
+        // ISO-BMFF (fMP4): ftyp/styp/moof/mdat box at offset 4.
+        if (b.size >= 8) {
+            val box = String(b, 4, 4, Charsets.ISO_8859_1)
+            if (box == "ftyp" || box == "styp" || box == "moof" || box == "mdat") return true
+        }
+
+        // ID3v2 tag (some HLS audio segments).
+        if (b.size >= 3 &&
+            b[0] == 'I'.code.toByte() &&
+            b[1] == 'D'.code.toByte() &&
+            b[2] == '3'.code.toByte()
+        ) return true
+
+        // AAC ADTS frame sync (0xFFF).
+        if (b.size >= 2 &&
+            (b[0].toInt() and 0xFF) == 0xFF &&
+            (b[1].toInt() and 0xF0) == 0xF0
+        ) return true
+
         return false
     }
 
@@ -434,11 +480,6 @@ object DlhdResolver {
 
     /**
      * Decodes a PNG whose pixel values encode raw MPEG-TS bytes.
-     *
-     * FIXES:
-     *   - BitmapFactory: inPremultiplied=false, inDither=false, inScreenDensity=0
-     *   - sync search window widened to 4 KB
-     *   - requires 4 consecutive sync bytes for confidence
      */
     internal fun decodeRawPngToTs(b: ByteArray): ByteArray? {
         return try {
@@ -472,7 +513,6 @@ object DlhdResolver {
                 i3 += 3; i4 += 4
             }
 
-            // Widened window: 4 KB instead of 200 bytes
             fun findSyncOffset(data: ByteArray): Int {
                 if (data.size < 565) return -1
                 val limit = minOf(4096, data.size - 565)
@@ -480,7 +520,7 @@ object DlhdResolver {
                     if ((data[off].toInt() and 0xFF) == 0x47 &&
                         (data[off + 188].toInt() and 0xFF) == 0x47 &&
                         (data[off + 376].toInt() and 0xFF) == 0x47 &&
-                        (data[off + 564].toInt() and 0xFF) == 0x47) {   // 4th sync
+                        (data[off + 564].toInt() and 0xFF) == 0x47) {
                         return off
                     }
                 }
@@ -609,7 +649,6 @@ object DlhdResolver {
         val id = Integer.toHexString(streamUrl.substringBefore("?").hashCode())
         proxySessions[id] = playbackHeaders
 
-        // Bounded session map — evict oldest when over 50
         if (proxySessions.size > 50) {
             val keysToRemove = proxySessions.keys.filter { it != id }
                 .take(proxySessions.size - 30)
@@ -633,6 +672,7 @@ object DlhdResolver {
     ) {
         val reason = when (code) {
             200 -> "OK"
+            204 -> "No Content"
             206 -> "Partial Content"
             404 -> "Not Found"
             502 -> "Bad Gateway"
@@ -682,100 +722,140 @@ object DlhdResolver {
         }
     }
 
-private fun handleProxyClient(sock: Socket) {
-    try {
-        sock.use {
-            sock.soTimeout = 20_000
-            val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
-            val requestLine = reader.readLine() ?: return
+    private fun handleProxyClient(sock: Socket) {
+        try {
+            sock.use {
+                sock.soTimeout = 20_000
+                val reader = sock.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+                val requestLine = reader.readLine() ?: return
 
-            // Parse incoming headers (so we can forward Range)
-            val inHeaders = mutableMapOf<String, String>()
-            while (true) {
-                val l = reader.readLine() ?: break
-                if (l.isEmpty()) break
-                val idx = l.indexOf(':')
-                if (idx > 0) {
-                    inHeaders[l.substring(0, idx).trim().lowercase()] =
-                        l.substring(idx + 1).trim()
+                val inHeaders = mutableMapOf<String, String>()
+                while (true) {
+                    val l = reader.readLine() ?: break
+                    if (l.isEmpty()) break
+                    val idx = l.indexOf(':')
+                    if (idx > 0) {
+                        inHeaders[l.substring(0, idx).trim().lowercase()] =
+                            l.substring(idx + 1).trim()
+                    }
                 }
-            }
-            val out = sock.getOutputStream().buffered()
+                val out = sock.getOutputStream().buffered()
 
-            val target = requestLine.split(" ").getOrNull(1)
-            if (target == null) {
-                proxyReply(out, 400, "text/plain", ByteArray(0)); return
-            }
-            val segs = target.substringBefore("?").split("/").filter { it.isNotEmpty() }
-            val id = segs.getOrNull(1)
-            val kind = segs.getOrNull(2).orEmpty()
-            val upstreamUrl = target.substringAfter("?", "").split("&")
-                .firstOrNull { it.startsWith("u=") }
-                ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
-            val sessionHeaders = id?.let { proxySessions[it] }
-            if (segs.firstOrNull() != "p" || sessionHeaders == null || upstreamUrl == null) {
-                proxyReply(out, 404, "text/plain", ByteArray(0)); return
-            }
-
-            // ← FIX: use val (not var) so Kotlin can smart-cast inside the lambda
-            val hdrs: Map<String, String> = inHeaders["range"]?.let { r ->
-                sessionHeaders + ("Range" to r)
-            } ?: sessionHeaders
-
-            clientFor(15_000).newCall(buildRequest(upstreamUrl, hdrs)).execute().use { res ->
-                if (!res.isSuccessful) {
-                    Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
-                    proxyReply(
-                        out,
-                        if (res.code in 400..599) res.code else 502,
-                        "text/plain",
-                        ByteArray(0)
-                    )
-                    return
+                val target = requestLine.split(" ").getOrNull(1)
+                if (target == null) {
+                    proxyReply(out, 400, "text/plain", ByteArray(0)); return
                 }
-                if (kind.endsWith(".m3u8")) {
-                    val text = res.body?.string().orEmpty()
-                    val rewritten = rewritePlaylist(
-                        text,
-                        res.request.url.toString(),
-                        sock.localPort,
-                        id!!
-                    )
-                    proxyReply(
-                        out, 200, "application/vnd.apple.mpegurl",
-                        rewritten.toByteArray(Charsets.UTF_8)
-                    )
-                } else {
-                    var data = res.body?.bytes() ?: ByteArray(0)
-                    if (isPng(data)) {
-                        val fromIend = stripPng(data)
-                        data = if (fromIend != null && fromIend.isNotEmpty()) {
-                            fromIend
-                        } else {
-                            decodeRawPngToTs(data) ?: run {
-                                Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
-                                proxyReply(out, 502, "text/plain", ByteArray(0))
-                                return
+                val segs = target.substringBefore("?").split("/").filter { it.isNotEmpty() }
+                val id = segs.getOrNull(1)
+                val kind = segs.getOrNull(2).orEmpty()
+                val upstreamUrl = target.substringAfter("?", "").split("&")
+                    .firstOrNull { it.startsWith("u=") }
+                    ?.substring(2)?.let { URLDecoder.decode(it, "UTF-8") }
+                val sessionHeaders = id?.let { proxySessions[it] }
+                if (segs.firstOrNull() != "p" || sessionHeaders == null || upstreamUrl == null) {
+                    proxyReply(out, 404, "text/plain", ByteArray(0)); return
+                }
+
+                val hdrs: Map<String, String> = inHeaders["range"]?.let { r ->
+                    sessionHeaders + ("Range" to r)
+                } ?: sessionHeaders
+
+                clientFor(15_000).newCall(buildRequest(upstreamUrl, hdrs)).execute().use { res ->
+                    if (!res.isSuccessful) {
+                        Log.w(TAG, "proxy: upstream ${res.code} for $upstreamUrl")
+                        proxyReply(
+                            out,
+                            if (res.code in 400..599) res.code else 502,
+                            "text/plain",
+                            ByteArray(0)
+                        )
+                        return
+                    }
+                    if (kind.endsWith(".m3u8")) {
+                        val text = res.body?.string().orEmpty()
+                        val rewritten = rewritePlaylist(
+                            text,
+                            res.request.url.toString(),
+                            sock.localPort,
+                            id!!
+                        )
+                        proxyReply(
+                            out, 200, "application/vnd.apple.mpegurl",
+                            rewritten.toByteArray(Charsets.UTF_8)
+                        )
+                    } else {
+                        var data = res.body?.bytes() ?: ByteArray(0)
+
+                        // ── PNG unwrap (may be a segment wrapped in an
+                        //     image container by the TikTok CDN). ──
+                        if (isPng(data)) {
+                            val fromIend = stripPng(data)
+                            data = if (fromIend != null && fromIend.isNotEmpty()) {
+                                fromIend
+                            } else {
+                                val unwrapped = decodeRawPngToTs(data)
+                                if (unwrapped == null || unwrapped.isEmpty()) {
+                                    Log.w(TAG, "proxy: PNG segment not decodable from $upstreamUrl")
+                                    proxyReply(out, 204, "text/plain", ByteArray(0))
+                                    return
+                                }
+                                unwrapped
                             }
                         }
+
+                        // ── Validate the resulting payload. If the upstream
+                        //     returned an HTML error page, a JSON auth
+                        //     failure, or anything else that isn't a media
+                        //     chunk, drop it with 204 No Content. ExoPlayer
+                        //     treats 204 as "this segment is empty, skip it"
+                        //     and moves on cleanly, instead of spinning on
+                        //     garbage and throwing TsExtractor sync-byte
+                        //     errors. ──
+                        if (!looksLikeMediaChunk(data)) {
+                            Log.w(
+                                TAG,
+                                "proxy: dropping non-media segment from " +
+                                    "$upstreamUrl (${describeBytes(data)})"
+                            )
+                            proxyReply(out, 204, "text/plain", ByteArray(0))
+                            return
+                        }
+
+                        val type = when {
+                            kind.endsWith(".key") -> "application/octet-stream"
+                            kind.endsWith(".mp4") -> "video/mp4"
+                            else -> "video/mp2t"
+                        }
+                        val status = if (res.code in 200..299) res.code else 200
+                        val rangeHdr = res.header("Content-Range")
+                        proxyReply(out, status, type, data, rangeHdr)
                     }
-                    val type = when {
-                        kind.endsWith(".key") -> "application/octet-stream"
-                        kind.endsWith(".mp4") -> "video/mp4"
-                        else -> "video/mp2t"
-                    }
-                    val status = if (res.code in 200..299) res.code else 200
-                    val rangeHdr = res.header("Content-Range")
-                    proxyReply(out, status, type, data, rangeHdr)
                 }
             }
+        } catch (e: Exception) {
+            Log.d(TAG, "proxy client error: ${e.message}")
         }
-    } catch (e: Exception) {
-        Log.d(TAG, "proxy client error: ${e.message}")
     }
-}
 
     // ---------------------------------------------------------- extraction
+
+    /**
+     * Returns the ordered list of player paths to try for [channelId].
+     *
+     * Default order: `cast` first, then `stream`, then the long tail.
+     * `cast` (Player 2) serves clean native MPEG-TS segments — no PNG
+     * wrapping, no 7 MB+ TikTok CDN overhead, no frequent 403s. `stream`
+     * (Player 1) is only preferred for channel 861, whose `cast` backend
+     * serves a technically valid but unplayable stream. This mirrors the
+     * Python reference implementation exactly.
+     */
+    private fun orderedPlayerPaths(channelId: String): List<String> {
+        return if (channelId == "861") {
+            listOf("stream", "cast", "watch", "plus", "casting", "player", "hub")
+        } else {
+            listOf("cast", "stream", "watch", "plus", "casting", "player", "hub")
+        }
+    }
 
     private suspend fun extractImpl(
         baseUrl: String,
@@ -784,7 +864,8 @@ private fun handleProxyClient(sock: Socket) {
     ): Extracted? = withContext(Dispatchers.IO) {
         val entryOrigin = try { originOf(URL(baseUrl)) }
             catch (_: Exception) { return@withContext null }
-        val genericPaths = PLAYER_PATHS.map { "$entryOrigin/$it/stream-$channelId.php" }
+        val orderedPaths = orderedPlayerPaths(channelId)
+        val genericPaths = orderedPaths.map { "$entryOrigin/$it/stream-$channelId.php" }
         val playerUrls: List<String> =
             if (baseUrl != "$entryOrigin/" && !genericPaths.contains(baseUrl)) {
                 listOf(baseUrl) + genericPaths
