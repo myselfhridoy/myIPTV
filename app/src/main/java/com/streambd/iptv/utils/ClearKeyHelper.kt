@@ -153,11 +153,20 @@ object ClearKeyHelper {
      */
     fun buildSyntheticDrmInitData(kidBytesList: List<ByteArray>): DrmInitData {
         val schemes = mutableListOf<DrmInitData.SchemeData>()
-        for (kid in kidBytesList) {
-            val ckPssh = buildPsshBox(C.CLEARKEY_UUID, listOf(kid))
-            val cmPssh = buildPsshBox(C.COMMON_PSSH_UUID, listOf(kid))
-            schemes.add(DrmInitData.SchemeData(C.CLEARKEY_UUID, "video/mp4", ckPssh))
-            schemes.add(DrmInitData.SchemeData(C.COMMON_PSSH_UUID, "video/mp4", cmPssh))
+        // 1. Combined PSSH box containing all KIDs
+        val allCkPssh = buildPsshBox(C.CLEARKEY_UUID, kidBytesList)
+        val allCmPssh = buildPsshBox(C.COMMON_PSSH_UUID, kidBytesList)
+        schemes.add(DrmInitData.SchemeData(C.CLEARKEY_UUID, "video/mp4", allCkPssh))
+        schemes.add(DrmInitData.SchemeData(C.COMMON_PSSH_UUID, "video/mp4", allCmPssh))
+
+        // 2. If multiple KIDs, also add per-KID PSSH boxes so single-key decoders match
+        if (kidBytesList.size > 1) {
+            for (kid in kidBytesList) {
+                val ckPssh = buildPsshBox(C.CLEARKEY_UUID, listOf(kid))
+                val cmPssh = buildPsshBox(C.COMMON_PSSH_UUID, listOf(kid))
+                schemes.add(DrmInitData.SchemeData(C.CLEARKEY_UUID, "video/mp4", ckPssh))
+                schemes.add(DrmInitData.SchemeData(C.COMMON_PSSH_UUID, "video/mp4", cmPssh))
+            }
         }
         return DrmInitData(schemes)
     }
@@ -219,23 +228,30 @@ object ClearKeyHelper {
 
         private fun patchFormat(format: Format): Format {
             val originalInit = format.drmInitData
-            if (originalInit == null) {
-                return format.buildUpon().setDrmInitData(syntheticDrmInitData).build()
-            }
-            for (i in 0 until originalInit.schemeDataCount) {
-                val s = originalInit.get(i)
-                if (s.matches(C.CLEARKEY_UUID) || s.matches(C.COMMON_PSSH_UUID)) {
-                    return format
-                }
-            }
             val merged = mutableListOf<DrmInitData.SchemeData>()
+
+            // 1. Injected ClearKey synthetic schemes ALWAYS come first so DefaultDrmSessionManager
+            // (configured with CLEARKEY_UUID) immediately finds a valid SchemeData with actual PSSH box bytes.
             for (i in 0 until syntheticDrmInitData.schemeDataCount) {
                 merged.add(syntheticDrmInitData.get(i))
             }
-            for (i in 0 until originalInit.schemeDataCount) {
-                merged.add(originalInit.get(i))
+
+            // 2. Append original schemes from the manifest/stream format, but skip empty placeholders
+            // (like cenc:default_KID without PSSH box) that could confuse decoders.
+            if (originalInit != null) {
+                for (i in 0 until originalInit.schemeDataCount) {
+                    val s = originalInit.get(i)
+                    if ((s.matches(C.COMMON_PSSH_UUID) || s.matches(C.CLEARKEY_UUID)) && s.data == null) {
+                        continue
+                    }
+                    merged.add(s)
+                }
             }
-            return format.buildUpon().setDrmInitData(DrmInitData(originalInit.schemeType, merged)).build()
+
+            val schemeType = originalInit?.schemeType ?: C.CENC_TYPE_cenc
+            return format.buildUpon()
+                .setDrmInitData(DrmInitData(schemeType, merged))
+                .build()
         }
     }
 }

@@ -140,7 +140,9 @@ class LivePlayerViewModel(application: Application) : AndroidViewModel(applicati
 
         val cacheKey = "${channel.name}|$sourceUrl"
         val cachedParams = getCached(cacheKey)
-        if (cachedParams != null) {
+        val hasDrmInfo = channel.drm != null || sourceUrl.contains("drm", ignoreCase = true) || sourceUrl.contains("clearkey", ignoreCase = true)
+        val isStaleCache = cachedParams != null && hasDrmInfo && cachedParams.drm == null
+        if (cachedParams != null && !isStaleCache) {
             // Cache hit — synchronous on the caller's (main) dispatcher, so no
             // interleaving is possible. Still verify generation for
             // consistency.

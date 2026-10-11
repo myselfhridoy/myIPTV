@@ -171,7 +171,15 @@ object M3UParser {
             parsed.custom["tokenreplace"]?.let { currentTokenReplace = it }
             parsed.custom["tokenid"]?.toIntOrNull()?.let { currentTokenId = it }
 
-            buildDrm(parsed.custom)?.let { currentDrm = it }
+            buildDrm(parsed.custom)?.let { newDrm ->
+                val existingPairs = currentDrm?.rawKeyPair?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+                val newPairs = newDrm.rawKeyPair?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+                val mergedPairs = (existingPairs + newPairs).distinct().joinToString(",").ifBlank { null }
+                currentDrm = newDrm.copy(
+                    rawKeyPair = mergedPairs ?: newDrm.rawKeyPair ?: currentDrm?.rawKeyPair,
+                    licenseServer = newDrm.licenseServer ?: currentDrm?.licenseServer
+                )
+            }
         }
 
         for (rawLine in content.lineSequence()) {
@@ -259,9 +267,11 @@ object M3UParser {
                                     .copy(type = "clearkey", licenseServer = raw)
                             }
                             RE_CLEARKEY_ANYWHERE.containsMatchIn(raw) -> {
-                                val pairs = RE_CLEARKEY_ANYWHERE.findAll(raw).map { it.value }.distinct().joinToString(",")
+                                val existingPairs = currentDrm?.rawKeyPair?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+                                val newPairs = RE_CLEARKEY_ANYWHERE.findAll(raw).map { it.value }
+                                val mergedPairs = (existingPairs + newPairs).distinct().joinToString(",")
                                 (currentDrm ?: DrmConfig(type = "clearkey"))
-                                    .copy(type = "clearkey", rawKeyPair = pairs)
+                                    .copy(type = "clearkey", rawKeyPair = mergedPairs)
                             }
                             else -> {
                                 // Treat as license server URL.
@@ -389,11 +399,13 @@ object M3UParser {
         headers.filterKeys { it.lowercase() !in STANDARD_HEADERS }.takeIf { it.isNotEmpty() }
 
     private fun buildDrm(custom: Map<String, String>): DrmConfig? {
-        val type = custom["drm-type"] ?: return null
+        val type = custom["drm-type"] ?: if (custom.containsKey("drm-key")) "clearkey" else return null
         val key = custom["drm-url"] ?: custom["drm-key"] ?: return DrmConfig(type = type)
         return if (RE_CLEARKEY_ANYWHERE.containsMatchIn(key)) {
             val pairs = RE_CLEARKEY_ANYWHERE.findAll(key).map { it.value }.distinct().joinToString(",")
             DrmConfig(type = "clearkey", rawKeyPair = pairs)
+        } else if (key.trim().startsWith("{")) {
+            DrmConfig(type = "clearkey", licenseServer = key)
         } else {
             DrmConfig(type = type, licenseServer = key)
         }
@@ -680,7 +692,8 @@ object M3UParser {
         // ── 1) Raw ClearKey pair(s): <32hex>:<32hex> ──
         if (RE_CLEARKEY_ANYWHERE.containsMatchIn(piece)) {
             val pairs = RE_CLEARKEY_ANYWHERE.findAll(piece).map { it.value }.distinct().joinToString(",")
-            custom["drm-key"] = pairs
+            val existing = custom["drm-key"]
+            custom["drm-key"] = if (!existing.isNullOrBlank()) "$existing,$pairs" else pairs
             if (!custom.containsKey("drm-type")) custom["drm-type"] = "clearkey"
             return
         }

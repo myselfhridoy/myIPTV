@@ -187,11 +187,15 @@ object MediaResolver {
             ) {
                 val drmType = parsedSource.custom["drm-type"] ?: "clearkey"
                 val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
+                val existingPairs = sourceDrm?.rawKeyPair?.split(",")?.filter { it.isNotBlank() }.orEmpty()
                 sourceDrm = if (drmKey != null && DRM_KEY_REGEX.containsMatchIn(drmKey)) {
-                    val pairs = DRM_KEY_REGEX.findAll(drmKey).map { it.value }.distinct().joinToString(",")
-                    DrmConfig(type = "clearkey", rawKeyPair = pairs)
+                    val newPairs = DRM_KEY_REGEX.findAll(drmKey).map { it.value }
+                    val mergedPairs = (existingPairs + newPairs).distinct().joinToString(",")
+                    DrmConfig(type = "clearkey", rawKeyPair = mergedPairs)
+                } else if (drmKey != null && drmKey.trim().startsWith("{")) {
+                    DrmConfig(type = "clearkey", licenseServer = drmKey, rawKeyPair = sourceDrm?.rawKeyPair)
                 } else {
-                    DrmConfig(type = drmType, licenseServer = drmKey)
+                    DrmConfig(type = drmType, licenseServer = drmKey, rawKeyPair = sourceDrm?.rawKeyPair)
                 }
             }
 
@@ -338,8 +342,12 @@ object MediaResolver {
         if (!shouldPreResolve) return null
 
         try {
+            val safeInitialHeaders = initialHeaders.filterKeys { k ->
+                val lower = k.lowercase()
+                lower != "accept-encoding" && lower != "host" && lower != "range" && lower != "content-length" && lower != "connection"
+            }
             val req = Request.Builder().url(rawSourceUrl).apply {
-                initialHeaders.forEach { (k, v) -> header(k, v) }
+                safeInitialHeaders.forEach { (k, v) -> header(k, v) }
             }.build()
 
             sharedOkHttpClient.newCall(req).await().use { res ->
@@ -449,20 +457,29 @@ object MediaResolver {
         val mimeType = params.mimeType
         val finalDrm = params.drm
 
-        // Pass ALL headers through, exactly as your old working code did.
-        // No sanitization — the CDN requires the browser-style headers
-        // (sec-fetch-*, Accept-Encoding, etc.) to serve the stream.
+        // Pass browser headers (Referer, Origin, sec-fetch-*, etc.) but filter out
+        // hop-by-hop and transport headers that break OkHttp's transparent decompression,
+        // chunk range loading, or CDN edge host routing.
+        val safeHeaders = finalHeaders.filterKeys { key ->
+            val lower = key.lowercase()
+            lower != "accept-encoding" &&
+                lower != "host" &&
+                lower != "range" &&
+                lower != "content-length" &&
+                lower != "connection"
+        }
+
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->
                 val originalReq = chain.request()
                 val builder = originalReq.newBuilder()
-                finalHeaders.forEach { (k, v) -> builder.header(k, v) }
+                safeHeaders.forEach { (k, v) -> builder.header(k, v) }
                 chain.proceed(builder.build())
             }
         }.build()
 
         val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setDefaultRequestProperties(finalHeaders)
+            .setDefaultRequestProperties(safeHeaders)
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
@@ -509,20 +526,27 @@ object MediaResolver {
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
             .setLoadErrorHandlingPolicy(loadErrorPolicy)
 
-        if (finalDrm != null && finalDrm.type != null) {
-            val drmScheme = when (finalDrm.type.lowercase()) {
-                "widevine" -> C.WIDEVINE_UUID
-                "playready" -> C.PLAYREADY_UUID
-                "clearkey" -> C.CLEARKEY_UUID
-                else -> C.WIDEVINE_UUID
+        if (finalDrm != null && (finalDrm.type != null || !finalDrm.rawKeyPair.isNullOrBlank() || !finalDrm.licenseServer.isNullOrBlank())) {
+            var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
+            val isClearKey = finalDrm.type?.contains("clearkey", ignoreCase = true) == true ||
+                !finalDrm.rawKeyPair.isNullOrBlank()
+
+            if (isClearKey) {
+                clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
+            }
+
+            val drmScheme = if (clearKeyParsed != null || isClearKey) {
+                C.CLEARKEY_UUID
+            } else {
+                when (finalDrm.type?.lowercase()) {
+                    "widevine" -> C.WIDEVINE_UUID
+                    "playready" -> C.PLAYREADY_UUID
+                    "clearkey" -> C.CLEARKEY_UUID
+                    else -> C.WIDEVINE_UUID
+                }
             }
 
             val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
-
-            var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
-            if (finalDrm.type.lowercase() == "clearkey") {
-                clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
-            }
 
             if (clearKeyParsed != null) {
                 val drmSessionManager = ClearKeyHelper.createClearKeyDrmSessionManager(
@@ -535,12 +559,12 @@ object MediaResolver {
             } else if (finalDrm.licenseServer != null) {
                 drmBuilder.setLicenseUri(finalDrm.licenseServer)
                 drmBuilder.setLicenseRequestHeaders(
-                    finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                    safeHeaders.filterKeys { it.lowercase() != "user-agent" }
                 )
                 drmBuilder.setMultiSession(true)
             }
 
-            if (clearKeyParsed != null || finalDrm.type.lowercase() == "clearkey") {
+            if (clearKeyParsed != null || isClearKey) {
                 drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
             }
             mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
