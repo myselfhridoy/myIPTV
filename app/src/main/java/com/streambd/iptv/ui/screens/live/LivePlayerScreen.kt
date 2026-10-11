@@ -309,6 +309,24 @@ fun LivePlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // If the player fell behind the live window in DASH/HLS, auto-seek to current live edge
+                var cause: Throwable? = error
+                var isBehindLive = false
+                while (cause != null) {
+                    if (cause is androidx.media3.exoplayer.source.BehindLiveWindowException) {
+                        isBehindLive = true
+                        break
+                    }
+                    cause = cause.cause
+                }
+                if (isBehindLive) {
+                    android.util.Log.d("LivePlayerScreen", "BehindLiveWindowException: auto-recovering to live edge")
+                    exoPlayer.seekToDefaultPosition()
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                    return
+                }
+
                 val hls = isHlsFormatError(error)
                 PlaybackLogger.logLivePlaybackError(
                     context = context,
