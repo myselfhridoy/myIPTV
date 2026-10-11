@@ -294,6 +294,14 @@ object MediaResolver {
                 mimeType = MimeTypes.VIDEO_MP2T
             }
 
+            android.util.Log.d(
+                "MediaResolver",
+                "resolveMediaParams ← url=${finalUrl.take(100)} " +
+                    "mimeType=$mimeType " +
+                    "drm=${finalDrm?.type}/${finalDrm?.rawKeyPair?.take(16)} " +
+                    "headers=${finalHeaders.keys}"
+            )
+
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
                 headers = finalHeaders,
@@ -345,12 +353,18 @@ object MediaResolver {
             val safeInitialHeaders = mutableMapOf<String, String>()
             initialHeaders.forEach { (k, v) ->
                 val lower = k.lowercase()
-                if (lower != "host" && lower != "range" && lower != "content-length" && lower != "connection") {
-                    if (lower == "accept-encoding") {
-                        safeInitialHeaders["Accept-Encoding"] = "gzip, deflate"
-                    } else {
-                        safeInitialHeaders[k] = v
-                    }
+                // Skip hop-by-hop and browser-only Fetch metadata headers.
+                // sec-fetch-* headers are added automatically by browsers for CORS requests;
+                // sending them from a non-browser UA can trigger Cloudflare bot detection.
+                if (lower == "host" || lower == "range" || lower == "content-length" ||
+                    lower == "connection" || lower.startsWith("sec-fetch-")) {
+                    return@forEach
+                }
+                if (lower == "accept-encoding") {
+                    // Limit to encodings OkHttp's interceptor can decompress.
+                    safeInitialHeaders["Accept-Encoding"] = "gzip, deflate"
+                } else {
+                    safeInitialHeaders[k] = v
                 }
             }
             val req = Request.Builder().url(rawSourceUrl).apply {
@@ -464,20 +478,32 @@ object MediaResolver {
         val mimeType = params.mimeType
         val finalDrm = params.drm
 
-        // Pass browser headers (Referer, Origin, sec-fetch-*, etc.) but filter out
-        // hop-by-hop and transport headers that break OkHttp's transparent decompression,
-        // chunk range loading, or CDN edge host routing.
+        // Pass browser headers (Referer, Origin, etc.) but filter out hop-by-hop headers
+        // and browser-only Fetch metadata headers.
+        // sec-fetch-* headers are CORS-only browser annotations — sending them from a
+        // non-browser UA (VLC / OkHttp) can trigger Cloudflare bot-detection and cause 403s.
         val safeHeaders = mutableMapOf<String, String>()
         finalHeaders.forEach { (key, value) ->
             val lower = key.lowercase()
-            if (lower != "host" && lower != "range" && lower != "content-length" && lower != "connection") {
-                if (lower == "accept-encoding") {
-                    safeHeaders["Accept-Encoding"] = "gzip, deflate"
-                } else {
-                    safeHeaders[key] = value
-                }
+            // Skip hop-by-hop and browser-only headers.
+            if (lower == "host" || lower == "range" || lower == "content-length" ||
+                lower == "connection" || lower.startsWith("sec-fetch-")) {
+                return@forEach
+            }
+            if (lower == "accept-encoding") {
+                // Only advertise encodings our decompression interceptor can handle.
+                safeHeaders["Accept-Encoding"] = "gzip, deflate"
+            } else {
+                safeHeaders[key] = value
             }
         }
+
+        android.util.Log.d(
+            "MediaResolver",
+            "buildMediaSource → url=${params.url.take(120)} " +
+                "headers=${safeHeaders.keys} " +
+                "drm=${params.drm?.type}/${params.drm?.rawKeyPair?.take(16)}"
+        )
 
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->

@@ -120,7 +120,17 @@ class LiveRepository {
             }
             
             // Parse using the provided M3UParser
-            M3UParser.parsePlaylist(m3uContent)
+            val channels = M3UParser.parsePlaylist(m3uContent)
+            android.util.Log.d("LiveRepository", "Parsed ${channels.size} channels from $categoryUrl")
+            if (channels.isNotEmpty()) {
+                val first = channels.first()
+                android.util.Log.d("LiveRepository",
+                    "First channel: name=${first.name} url=${first.url.take(80)} " +
+                    "drm=${first.drm} origin=${first.origin} referer=${first.httpReferer} " +
+                    "headers=${first.httpHeaders?.keys}"
+                )
+            }
+            channels
         } catch (e: Exception) {
             e.printStackTrace()
             try {

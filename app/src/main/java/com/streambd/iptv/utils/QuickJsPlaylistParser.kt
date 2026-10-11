@@ -292,7 +292,16 @@ object QuickJsPlaylistParser {
                 scriptResult ?: JsPlaylistResult.Empty
             }
             
-            result ?: JsPlaylistResult.Error("Timeout: JS script execution exceeded 45 seconds")
+            if (result == null) {
+                Log.e(TAG, "JS playlist execution TIMED OUT (>300s)")
+            } else {
+                when (result) {
+                    is JsPlaylistResult.Success -> Log.d(TAG, "JS playlist SUCCESS: ${result.m3u.length} chars, preview=${result.m3u.take(200)}")
+                    is JsPlaylistResult.Error   -> Log.e(TAG, "JS playlist ERROR: ${result.message}", result.exception)
+                    is JsPlaylistResult.Empty   -> Log.w(TAG, "JS playlist EMPTY")
+                }
+            }
+            result ?: JsPlaylistResult.Error("Timeout: JS script execution exceeded 300 seconds")
         }
     }
 }
