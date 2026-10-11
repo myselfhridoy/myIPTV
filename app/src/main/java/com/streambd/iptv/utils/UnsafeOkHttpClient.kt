@@ -4,11 +4,16 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
+import okio.GzipSource
+import okio.InflaterSource
+import okio.buffer
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.zip.Inflater
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
@@ -69,6 +74,35 @@ object UnsafeOkHttpClient {
             .retryOnConnectionFailure(true)
             .pingInterval(10, TimeUnit.SECONDS)     // keeps live TCP sessions warm
             .cookieJar(InMemoryCookieJar)
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                val encoding = response.header("Content-Encoding")
+                if (encoding.equals("gzip", ignoreCase = true) || encoding.equals("deflate", ignoreCase = true)) {
+                    val body = response.body
+                    if (body != null) {
+                        val source = if (encoding.equals("gzip", ignoreCase = true)) {
+                            GzipSource(body.source())
+                        } else {
+                            InflaterSource(body.source(), Inflater())
+                        }
+                        val strippedHeaders = response.headers.newBuilder()
+                            .removeAll("Content-Encoding")
+                            .removeAll("Content-Length")
+                            .build()
+                        val bufferedSource = source.buffer()
+                        val newBody = object : ResponseBody() {
+                            override fun contentType() = body.contentType()
+                            override fun contentLength() = -1L
+                            override fun source() = bufferedSource
+                        }
+                        return@addInterceptor response.newBuilder()
+                            .headers(strippedHeaders)
+                            .body(newBody)
+                            .build()
+                    }
+                }
+                response
+            }
             .addNetworkInterceptor { chain ->
                 val req = chain.request()
                 val hasUserAgent = req.header("User-Agent") != null ||

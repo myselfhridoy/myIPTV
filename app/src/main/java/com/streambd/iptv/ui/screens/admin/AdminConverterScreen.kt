@@ -4,9 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -128,13 +131,18 @@ fun AdminConverterScreen(navController: NavController) {
                         if (jsonUrl.isNotEmpty()) {
                             isLoading = true
                             scope.launch {
-                                val result = fetchAndConvert(
-                                    jsonUrl, arrayPath, streamField, titleField,
-                                    logoField, categoryField, prefix, suffix, requestHeaders
-                                )
-                                outputM3u = result.first
-                                proxyUrl = result.second
-                                isLoading = false
+                                try {
+                                    val result = fetchAndConvert(
+                                        jsonUrl, arrayPath, streamField, titleField,
+                                        logoField, categoryField, prefix, suffix, requestHeaders
+                                    )
+                                    outputM3u = result.first
+                                    proxyUrl = result.second
+                                } catch (e: Throwable) {
+                                    outputM3u = "Error: ${e.message}"
+                                } finally {
+                                    isLoading = false
+                                }
                             }
                         } else {
                             Toast.makeText(
@@ -295,9 +303,9 @@ private fun JsonConverterTab(
 
         if (outputM3u.isNotEmpty()) {
             Spacer(modifier = Modifier.height(16.dp))
-            CopyRow(
+            LargeOutputDisplay(
                 title = "M3U Output:",
-                text = outputM3u,
+                fullText = outputM3u,
                 textColor = Color(0xFFAAAAAA),
                 context = context,
                 height = 300.dp
@@ -382,29 +390,33 @@ private fun VodJsTesterTab(
                 if (jsCode.isNotBlank()) {
                     isExecuting = true
                     scope.launch {
-                        val (resultList, executionLogs) = try {
-                            com.streambd.iptv.utils.QuickJsAddonManager.testAddon(
-                                context,
-                                jsCode,
-                                testType,
-                                testTmdbId.toIntOrNull() ?: 12345,
-                                testSeason.toIntOrNull(),
-                                testEpisode.toIntOrNull()
-                            )
-                        } catch (e: Exception) {
-                            // FIX: was `"\${e.message}"` — produced literal text.
-                            Pair(emptyList(), "Exception: ${e.message}")
-                        }
+                        try {
+                            val (resultList, executionLogs) = try {
+                                com.streambd.iptv.utils.QuickJsAddonManager.testAddon(
+                                    context,
+                                    jsCode,
+                                    testType,
+                                    testTmdbId.toIntOrNull() ?: 12345,
+                                    testSeason.toIntOrNull(),
+                                    testEpisode.toIntOrNull()
+                                )
+                            } catch (e: Throwable) {
+                                Pair(emptyList(), "Exception: ${e.message}")
+                            }
 
-                        jsOutput = if (resultList.isNotEmpty()) {
-                            "LOGS:\n$executionLogs\n\nSTREAMS:\n" +
-                                resultList.joinToString("\n\n") {
-                                    "Provider: ${it.provider}\nURL: ${it.url}\nQuality: ${it.quality}"
-                                }
-                        } else {
-                            "LOGS:\n$executionLogs\n\nNo output generated or error occurred."
+                            jsOutput = if (resultList.isNotEmpty()) {
+                                "LOGS:\n$executionLogs\n\nSTREAMS:\n" +
+                                    resultList.joinToString("\n\n") {
+                                        "Provider: ${it.provider}\nURL: ${it.url}\nQuality: ${it.quality}"
+                                    }
+                            } else {
+                                "LOGS:\n$executionLogs\n\nNo output generated or error occurred."
+                            }
+                        } catch (t: Throwable) {
+                            jsOutput = "Error: ${t.message}"
+                        } finally {
+                            isExecuting = false
                         }
-                        isExecuting = false
                     }
                 }
             },
@@ -426,21 +438,12 @@ private fun VodJsTesterTab(
         }
 
         if (jsOutput.isNotEmpty()) {
-            Text("Output:", color = Color.White, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
-                value = jsOutput,
-                onValueChange = {},
-                readOnly = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(250.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.DarkGray,
-                    unfocusedBorderColor = Color.DarkGray,
-                    focusedTextColor = Color(0xFFAAAAAA),
-                    unfocusedTextColor = Color(0xFFAAAAAA)
-                ),
-                textStyle = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Spacer(modifier = Modifier.height(16.dp))
+            LargeOutputDisplay(
+                title = "Output:",
+                fullText = jsOutput,
+                context = context,
+                height = 250.dp
             )
         }
     }
@@ -488,21 +491,25 @@ private fun LiveJsTesterTab(
                 if (liveJsCode.isNotBlank()) {
                     isLiveExecuting = true
                     scope.launch {
-                        val result = try {
-                            val parsed = com.streambd.iptv.utils.QuickJsPlaylistParser
-                                .executeJsPlaylist(context, liveJsCode)
-                            when (parsed) {
-                                is com.streambd.iptv.utils.JsPlaylistResult.Success -> parsed.m3u
-                                is com.streambd.iptv.utils.JsPlaylistResult.Error -> "Error: ${parsed.message}"
-                                is com.streambd.iptv.utils.JsPlaylistResult.Empty -> "Result was empty"
+                        try {
+                            val result = try {
+                                val parsed = com.streambd.iptv.utils.QuickJsPlaylistParser
+                                    .executeJsPlaylist(context, liveJsCode)
+                                when (parsed) {
+                                    is com.streambd.iptv.utils.JsPlaylistResult.Success -> parsed.m3u
+                                    is com.streambd.iptv.utils.JsPlaylistResult.Error -> "Error: ${parsed.message}"
+                                    is com.streambd.iptv.utils.JsPlaylistResult.Empty -> "Result was empty"
+                                }
+                            } catch (e: Throwable) {
+                                "Exception: ${e.message}"
                             }
-                        } catch (e: Exception) {
-                            // FIX: was `"\${e.message}"` — produced literal text.
-                            "Exception: ${e.message}"
-                        }
 
-                        liveOutput = result
-                        isLiveExecuting = false
+                            liveOutput = result
+                        } catch (t: Throwable) {
+                            liveOutput = "Error: ${t.message}"
+                        } finally {
+                            isLiveExecuting = false
+                        }
                     }
                 }
             },
@@ -524,26 +531,12 @@ private fun LiveJsTesterTab(
         }
 
         if (liveOutput.isNotEmpty()) {
-            Text(
-                "Output:",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            OutlinedTextField(
-                value = liveOutput,
-                onValueChange = {},
-                readOnly = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(250.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.DarkGray,
-                    unfocusedBorderColor = Color.DarkGray,
-                    focusedTextColor = Color(0xFFAAAAAA),
-                    unfocusedTextColor = Color(0xFFAAAAAA)
-                ),
-                textStyle = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Spacer(modifier = Modifier.height(16.dp))
+            LargeOutputDisplay(
+                title = "Output:",
+                fullText = liveOutput,
+                context = context,
+                height = 250.dp
             )
         }
     }
@@ -574,6 +567,107 @@ private fun AdminTextField(
 }
 
 @Composable
+private fun LargeOutputDisplay(
+    title: String,
+    fullText: String,
+    context: Context,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 260.dp,
+    textColor: Color = Color(0xFFAAAAAA)
+) {
+    if (fullText.isEmpty()) return
+
+    val charCount = fullText.length
+    val lineCount = remember(fullText) { fullText.count { it == '\n' } + 1 }
+    val sizeKb = remember(fullText) { fullText.toByteArray(Charsets.UTF_8).size / 1024.0 }
+
+    val maxPreviewChars = 4000
+    val isTruncated = charCount > maxPreviewChars
+    val previewText = remember(fullText) {
+        if (isTruncated) {
+            fullText.take(maxPreviewChars) + "\n\n⚠️ --- [ PREVIEW TRUNCATED: Showing first 4,000 of $charCount chars ($lineCount lines). Click 'Copy Full' to copy 100% of output ] ---"
+        } else {
+            fullText
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = "%.1f KB • %d lines • %d chars".format(sizeKb, lineCount, charCount),
+                    color = if (isTruncated) ADMIN_ACCENT else Color.Gray,
+                    fontSize = 11.sp
+                )
+            }
+
+            Button(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("Copied Output", fullText)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(
+                        context,
+                        "Copied full output (${String.format("%.1f", sizeKb)} KB) to clipboard!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ADMIN_ACCENT),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Copy Full",
+                    tint = Color.Black,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isTruncated) "Copy Full" else "Copy",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .background(Color(0xFF0F131A), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.DarkGray, RoundedCornerShape(8.dp))
+                .padding(10.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            SelectionContainer {
+                Text(
+                    text = previewText,
+                    color = textColor,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CopyRow(
     title: String,
     text: String,
@@ -581,6 +675,17 @@ private fun CopyRow(
     context: Context,
     height: androidx.compose.ui.unit.Dp = 120.dp
 ) {
+    val charCount = text.length
+    val maxPreviewChars = 4000
+    val isTruncated = charCount > maxPreviewChars
+    val previewText = remember(text) {
+        if (isTruncated) {
+            text.take(maxPreviewChars) + "\n\n⚠️ --- [ PREVIEW TRUNCATED: $charCount chars. Click copy icon to copy full text ] ---"
+        } else {
+            text
+        }
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -596,21 +701,25 @@ private fun CopyRow(
             Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", tint = Color.White)
         }
     }
-    OutlinedTextField(
-        value = text,
-        onValueChange = {},
-        readOnly = true,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(height),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color.DarkGray,
-            unfocusedBorderColor = Color.DarkGray,
-            focusedTextColor = textColor,
-            unfocusedTextColor = textColor
-        ),
-        textStyle = TextStyle(fontSize = 12.sp)
-    )
+            .height(height)
+            .background(Color(0xFF0F131A), RoundedCornerShape(8.dp))
+            .border(1.dp, Color.DarkGray, RoundedCornerShape(8.dp))
+            .padding(10.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        SelectionContainer {
+            Text(
+                text = previewText,
+                color = textColor,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                lineHeight = 16.sp
+            )
+        }
+    }
 }
 
 private suspend fun fetchAndConvert(

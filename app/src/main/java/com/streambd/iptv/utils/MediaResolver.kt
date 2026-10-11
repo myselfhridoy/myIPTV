@@ -342,9 +342,16 @@ object MediaResolver {
         if (!shouldPreResolve) return null
 
         try {
-            val safeInitialHeaders = initialHeaders.filterKeys { k ->
+            val safeInitialHeaders = mutableMapOf<String, String>()
+            initialHeaders.forEach { (k, v) ->
                 val lower = k.lowercase()
-                lower != "accept-encoding" && lower != "host" && lower != "range" && lower != "content-length" && lower != "connection"
+                if (lower != "host" && lower != "range" && lower != "content-length" && lower != "connection") {
+                    if (lower == "accept-encoding") {
+                        safeInitialHeaders["Accept-Encoding"] = "gzip, deflate"
+                    } else {
+                        safeInitialHeaders[k] = v
+                    }
+                }
             }
             val req = Request.Builder().url(rawSourceUrl).apply {
                 safeInitialHeaders.forEach { (k, v) -> header(k, v) }
@@ -460,13 +467,16 @@ object MediaResolver {
         // Pass browser headers (Referer, Origin, sec-fetch-*, etc.) but filter out
         // hop-by-hop and transport headers that break OkHttp's transparent decompression,
         // chunk range loading, or CDN edge host routing.
-        val safeHeaders = finalHeaders.filterKeys { key ->
+        val safeHeaders = mutableMapOf<String, String>()
+        finalHeaders.forEach { (key, value) ->
             val lower = key.lowercase()
-            lower != "accept-encoding" &&
-                lower != "host" &&
-                lower != "range" &&
-                lower != "content-length" &&
-                lower != "connection"
+            if (lower != "host" && lower != "range" && lower != "content-length" && lower != "connection") {
+                if (lower == "accept-encoding") {
+                    safeHeaders["Accept-Encoding"] = "gzip, deflate"
+                } else {
+                    safeHeaders[key] = value
+                }
+            }
         }
 
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {

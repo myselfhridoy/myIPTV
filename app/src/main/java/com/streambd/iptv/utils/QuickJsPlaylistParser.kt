@@ -108,8 +108,8 @@ object QuickJsPlaylistParser {
                 
                 try {
                     quickJs {
-                        // 32MB memory limit to prevent OOM but allow 1500+ items array processing
-                        memoryLimit = 32L * 1024L * 1024L
+                        // 64MB memory limit to prevent OOM for large playlist processing
+                        memoryLimit = 64L * 1024L * 1024L
                         
                         // Register simple synchronous functions
                         function("nativeLog") { args -> 
@@ -121,13 +121,20 @@ object QuickJsPlaylistParser {
                             null
                         }
                         function("nativeBtoa") { args -> 
-                            Base64.encodeToString((args[0] as String).toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP) 
+                            val str = args.getOrNull(0)?.toString() ?: ""
+                            Base64.encodeToString(str.toByteArray(Charsets.ISO_8859_1), Base64.NO_WRAP) 
                         }
                         function("nativeAtob") { args -> 
-                            String(Base64.decode((args[0] as String), Base64.DEFAULT), Charsets.ISO_8859_1) 
+                            val str = args.getOrNull(0)?.toString() ?: ""
+                            try {
+                                String(Base64.decode(str, Base64.DEFAULT), Charsets.ISO_8859_1) 
+                            } catch (_: Exception) {
+                                ""
+                            }
                         }
                         function("nativeGetCookies") { args -> 
-                            val httpUrl = (args[0] as String).toHttpUrlOrNull() ?: return@function ""
+                            val str = args.getOrNull(0)?.toString() ?: return@function ""
+                            val httpUrl = str.toHttpUrlOrNull() ?: return@function ""
                             memoryCookieJar.loadForRequest(httpUrl).joinToString("; ") { "${it.name}=${it.value}" }
                         }
                         function("nativeSend") { args ->
@@ -144,8 +151,8 @@ object QuickJsPlaylistParser {
 
                         // Register async fetch
                         asyncFunction("nativeFetchStr") { args ->
-                            val url = args[0] as String
-                            val optionsJson = args.getOrNull(1) as? String
+                            val url = args.getOrNull(0)?.toString() ?: return@asyncFunction "{}"
+                            val optionsJson = args.getOrNull(1)?.toString()
                             
                             try {
                                 val reqBuilder = Request.Builder().url(url)

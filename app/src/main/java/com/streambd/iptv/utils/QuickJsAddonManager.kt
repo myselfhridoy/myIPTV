@@ -332,27 +332,31 @@ object QuickJsAddonManager {
                     }
 
                     function("nativeBtoa") { args ->
-                        val result: String = if (args.isNotEmpty()) {
+                        val str = args.getOrNull(0)?.toString() ?: ""
+                        if (str.isNotEmpty()) {
                             Base64.encodeToString(
-                                (args[0] as String).toByteArray(Charsets.ISO_8859_1),
+                                str.toByteArray(Charsets.ISO_8859_1),
                                 Base64.NO_WRAP
                             )
                         } else {
                             ""
                         }
-                        result
                     }
 
                     function("nativeAtob") { args ->
-                        val result: String = if (args.isNotEmpty()) {
-                            String(
-                                Base64.decode((args[0] as String), Base64.DEFAULT),
-                                Charsets.ISO_8859_1
-                            )
+                        val str = args.getOrNull(0)?.toString() ?: ""
+                        if (str.isNotEmpty()) {
+                            try {
+                                String(
+                                    Base64.decode(str, Base64.DEFAULT),
+                                    Charsets.ISO_8859_1
+                                )
+                            } catch (_: Exception) {
+                                ""
+                            }
                         } else {
                             ""
                         }
-                        result
                     }
 
                     // ═══════════════════════════════════════════════════
@@ -380,8 +384,8 @@ object QuickJsAddonManager {
                     }
 
                     asyncFunction("nativeFetchStr") { args ->
-                        val url = args[0] as String
-                        val optionsJson = if (args.size > 1) args[1] as String else ""
+                        val url = args.getOrNull(0)?.toString() ?: return@asyncFunction "{}"
+                        val optionsJson = args.getOrNull(1)?.toString() ?: ""
 
                         val reqBuilder = Request.Builder().url(url)
                         var method = "GET"
