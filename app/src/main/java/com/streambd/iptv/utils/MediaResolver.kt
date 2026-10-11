@@ -139,6 +139,37 @@ object MediaResolver {
         })
     }
 
+    /**
+     * Filter hop-by-hop headers that OkHttp owns, and constrain
+     * Accept-Encoding to encodings our decompression interceptor handles.
+     *
+     * IMPORTANT: We deliberately DO NOT strip sec-fetch-* headers. Many
+     * IPTV CDNs (Cloudflare-fronted ones in particular) use these browser
+     * Fetch-metadata headers to distinguish a real browser fetch from a
+     * plain HTTP client. Stripping them causes a 403 or 530. The playlist
+     * declares them for a reason; we must forward them untouched.
+     */
+    private fun filterHopByHopHeaders(source: Map<String, String>): Map<String, String> {
+        val out = linkedMapOf<String, String>()
+        source.forEach { (key, value) ->
+            val lower = key.lowercase()
+            when {
+                // Hop-by-hop headers OkHttp sets itself.
+                lower == "host" ||
+                lower == "content-length" ||
+                lower == "connection" -> {
+                    // Skip
+                }
+                // Constrain to what our gzip/deflate interceptor can handle.
+                lower == "accept-encoding" -> {
+                    out["Accept-Encoding"] = "gzip, deflate"
+                }
+                else -> out[key] = value
+            }
+        }
+        return out
+    }
+
     // =========================================================================
     // Public entry point
     // =========================================================================
@@ -350,23 +381,9 @@ object MediaResolver {
         if (!shouldPreResolve) return null
 
         try {
-            val safeInitialHeaders = mutableMapOf<String, String>()
-            initialHeaders.forEach { (k, v) ->
-                val lower = k.lowercase()
-                // Skip hop-by-hop and browser-only Fetch metadata headers.
-                // sec-fetch-* headers are added automatically by browsers for CORS requests;
-                // sending them from a non-browser UA can trigger Cloudflare bot detection.
-                if (lower == "host" || lower == "range" || lower == "content-length" ||
-                    lower == "connection" || lower.startsWith("sec-fetch-")) {
-                    return@forEach
-                }
-                if (lower == "accept-encoding") {
-                    // Limit to encodings OkHttp's interceptor can decompress.
-                    safeInitialHeaders["Accept-Encoding"] = "gzip, deflate"
-                } else {
-                    safeInitialHeaders[k] = v
-                }
-            }
+            // Use the shared header filter — same policy as buildMediaSource.
+            // sec-fetch-* survive intact.
+            val safeInitialHeaders = filterHopByHopHeaders(initialHeaders)
             val req = Request.Builder().url(rawSourceUrl).apply {
                 safeInitialHeaders.forEach { (k, v) -> header(k, v) }
             }.build()
@@ -462,7 +479,7 @@ object MediaResolver {
     }
 
     // =========================================================================
-    // MediaSource builder — matches your 1-week-ago working code
+    // MediaSource builder
     // =========================================================================
     @androidx.annotation.MainThread
     fun buildMediaSource(
@@ -478,25 +495,20 @@ object MediaResolver {
         val mimeType = params.mimeType
         val finalDrm = params.drm
 
-        // Pass browser headers (Referer, Origin, etc.) but filter out hop-by-hop headers
-        // and browser-only Fetch metadata headers.
-        // sec-fetch-* headers are CORS-only browser annotations — sending them from a
-        // non-browser UA (VLC / OkHttp) can trigger Cloudflare bot-detection and cause 403s.
-        val safeHeaders = mutableMapOf<String, String>()
-        finalHeaders.forEach { (key, value) ->
-            val lower = key.lowercase()
-            // Skip hop-by-hop and browser-only headers.
-            if (lower == "host" || lower == "range" || lower == "content-length" ||
-                lower == "connection" || lower.startsWith("sec-fetch-")) {
-                return@forEach
-            }
-            if (lower == "accept-encoding") {
-                // Only advertise encodings our decompression interceptor can handle.
-                safeHeaders["Accept-Encoding"] = "gzip, deflate"
-            } else {
-                safeHeaders[key] = value
-            }
-        }
+        // ── Header policy ────────────────────────────────────────────────
+        // Only strip hop-by-hop headers that OkHttp owns (Host,
+        // Content-Length, Connection). Everything else — including
+        // sec-fetch-*, sec-ch-ua-*, Accept-Language, Origin, Referer —
+        // is forwarded untouched.
+        //
+        // Why sec-fetch-* must survive: Cloudflare-fronted IPTV CDNs
+        // (mini.allinonereborn.site, JioTV catchup, many others) use
+        // these Fetch-metadata headers to detect browser-shaped requests.
+        // Stripping them causes 403 or 530 responses. Forwarding them
+        // makes our client look identical to a browser and the CDN
+        // serves the stream.
+        // ────────────────────────────────────────────────────────────────
+        val safeHeaders = filterHopByHopHeaders(finalHeaders)
 
         android.util.Log.d(
             "MediaResolver",
@@ -522,10 +534,9 @@ object MediaResolver {
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // ── LiveConfiguration: same window as your old working code ──
-        // 20s target / 10s min / 60s max. This is what made the JioTV
-        // dynamic MPD channels play in the past. Playback speed is
-        // unlocked (0.97–1.03) for A/V sync on weak TV boxes.
+        // ── LiveConfiguration ────────────────────────────────────────────
+        // 20s target / 10s min / 60s max. Playback speed unlocked
+        // (0.97–1.03) so ExoPlayer's A/V sync corrector can nudge.
         val liveConfig = MediaItem.LiveConfiguration.Builder()
             .setTargetOffsetMs(20_000)
             .setMinOffsetMs(10_000)
