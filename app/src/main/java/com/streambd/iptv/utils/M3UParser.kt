@@ -236,7 +236,7 @@ object M3UParser {
                 val payload = line.substringAfter(":").trim()
                 when {
                     payload.startsWith("inputstream.adaptive.license_type", ignoreCase = true) ||
-                        payload.startsWith("inputstream.adaptive.license_type=", ignoreCase = true) -> {
+                        payload.startsWith("inputstream.adaptive.drm_type", ignoreCase = true) -> {
                         val type = payload.substringAfter("=", "").trim().lowercase()
                         val parsedType = when {
                             type.contains("clearkey") || type.contains("org.w3.clearkey") -> "clearkey"
@@ -248,7 +248,7 @@ object M3UParser {
                         currentDrm = currentDrm?.copy(type = parsedType) ?: DrmConfig(type = parsedType)
                     }
                     payload.startsWith("inputstream.adaptive.license_key", ignoreCase = true) ||
-                        payload.startsWith("inputstream.adaptive.license_key=", ignoreCase = true) -> {
+                        payload.startsWith("inputstream.adaptive.drm_key", ignoreCase = true) -> {
                         val raw = payload.substringAfter("=", "").trim()
                         // Kodi sometimes embeds the key as JSON: {"keys":[...]}
                         currentDrm = when {
@@ -258,15 +258,10 @@ object M3UParser {
                                 (currentDrm ?: DrmConfig(type = "clearkey"))
                                     .copy(type = "clearkey", licenseServer = raw)
                             }
-                            RE_CLEARKEY_PAIR.matches(raw) -> {
+                            RE_CLEARKEY_ANYWHERE.containsMatchIn(raw) -> {
+                                val pairs = RE_CLEARKEY_ANYWHERE.findAll(raw).map { it.value }.distinct().joinToString(",")
                                 (currentDrm ?: DrmConfig(type = "clearkey"))
-                                    .copy(type = "clearkey", rawKeyPair = raw)
-                            }
-                            // Kodi allows multi-line key definitions separated by '#'
-                            // e.g. "kid:key#kid2:key2". Split and use the first pair.
-                            raw.contains("#") && RE_CLEARKEY_PAIR.matches(raw.substringBefore("#")) -> {
-                                (currentDrm ?: DrmConfig(type = "clearkey"))
-                                    .copy(type = "clearkey", rawKeyPair = raw.substringBefore("#"))
+                                    .copy(type = "clearkey", rawKeyPair = pairs)
                             }
                             else -> {
                                 // Treat as license server URL.
@@ -396,8 +391,9 @@ object M3UParser {
     private fun buildDrm(custom: Map<String, String>): DrmConfig? {
         val type = custom["drm-type"] ?: return null
         val key = custom["drm-url"] ?: custom["drm-key"] ?: return DrmConfig(type = type)
-        return if (RE_CLEARKEY_PAIR.matches(key)) {
-            DrmConfig(type = "clearkey", rawKeyPair = key)
+        return if (RE_CLEARKEY_ANYWHERE.containsMatchIn(key)) {
+            val pairs = RE_CLEARKEY_ANYWHERE.findAll(key).map { it.value }.distinct().joinToString(",")
+            DrmConfig(type = "clearkey", rawKeyPair = pairs)
         } else {
             DrmConfig(type = type, licenseServer = key)
         }
@@ -681,9 +677,10 @@ object M3UParser {
         headers: MutableMap<String, String>,
         custom: MutableMap<String, String>
     ) {
-        // ── 1) Raw ClearKey pair: <32hex>:<32hex> ──
-        if (RE_CLEARKEY_PAIR.matches(piece)) {
-            custom["drm-key"] = piece
+        // ── 1) Raw ClearKey pair(s): <32hex>:<32hex> ──
+        if (RE_CLEARKEY_ANYWHERE.containsMatchIn(piece)) {
+            val pairs = RE_CLEARKEY_ANYWHERE.findAll(piece).map { it.value }.distinct().joinToString(",")
+            custom["drm-key"] = pairs
             if (!custom.containsKey("drm-type")) custom["drm-type"] = "clearkey"
             return
         }

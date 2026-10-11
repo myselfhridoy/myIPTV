@@ -65,7 +65,7 @@ object MediaResolver {
         RegexOption.IGNORE_CASE
     )
 
-    private val DRM_KEY_REGEX = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
+    private val DRM_KEY_REGEX = Regex("[0-9a-fA-F]{32}:[0-9a-fA-F]{32}")
 
     private val MEDIA_PATH_HINT_REGEX = Regex(
         "/(hls|dash|mpegts|manifest|playlist|chunklist|master|index|live)(\\?|/|#|$)",
@@ -181,11 +181,15 @@ object MediaResolver {
 
             // ---- DRM extraction from URL custom params ----
             var sourceDrm = channel.drm
-            if (parsedSource.custom.containsKey("drm-type")) {
-                val drmType = parsedSource.custom["drm-type"]
+            if (parsedSource.custom.containsKey("drm-type") ||
+                parsedSource.custom.containsKey("drm-key") ||
+                parsedSource.custom.containsKey("drm-url")
+            ) {
+                val drmType = parsedSource.custom["drm-type"] ?: "clearkey"
                 val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
-                sourceDrm = if (drmKey != null && DRM_KEY_REGEX.matches(drmKey)) {
-                    DrmConfig(type = "clearkey", rawKeyPair = drmKey)
+                sourceDrm = if (drmKey != null && DRM_KEY_REGEX.containsMatchIn(drmKey)) {
+                    val pairs = DRM_KEY_REGEX.findAll(drmKey).map { it.value }.distinct().joinToString(",")
+                    DrmConfig(type = "clearkey", rawKeyPair = pairs)
                 } else {
                     DrmConfig(type = drmType, licenseServer = drmKey)
                 }
@@ -515,100 +519,31 @@ object MediaResolver {
 
             val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
 
-            var useLocalClearKey = false
-            var clearKeyBytes: ByteArray? = null
-
-            if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
-                val parts = finalDrm.rawKeyPair.split(":")
-                if (parts.size == 2) {
-                    try {
-                        val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                        val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                        val kidB64 = Base64.encodeToString(
-                            kidBytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
-                        )
-                        val keyB64 = Base64.encodeToString(
-                            keyBytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
-                        )
-                        val clearkeyJson =
-                            "{\"keys\":[{\"kty\":\"oct\",\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                        clearKeyBytes = clearkeyJson.toByteArray()
-                        useLocalClearKey = true
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            } else if (finalDrm.licenseServer != null) {
-                if (finalDrm.type.lowercase() == "clearkey" &&
-                    finalDrm.licenseServer.trim().startsWith("{")
-                ) {
-                    val jsonStr = finalDrm.licenseServer.trim()
-                    try {
-                        val jsonObj = JSONObject(jsonStr)
-                        if (jsonObj.has("keys")) {
-                            clearKeyBytes = jsonStr.toByteArray()
-                        } else {
-                            val keysArray = JSONArray()
-                            jsonObj.keys().forEach { kidHex ->
-                                val keyHex = jsonObj.getString(kidHex)
-                                try {
-                                    val kidBytes = kidHex.chunked(2)
-                                        .map { it.toInt(16).toByte() }.toByteArray()
-                                    val keyBytes = keyHex.chunked(2)
-                                        .map { it.toInt(16).toByte() }.toByteArray()
-                                    val kidB64 = Base64.encodeToString(
-                                        kidBytes,
-                                        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
-                                    )
-                                    val keyB64 = Base64.encodeToString(
-                                        keyBytes,
-                                        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
-                                    )
-                                    val keyObj = JSONObject().apply {
-                                        put("kty", "oct")
-                                        put("k", keyB64)
-                                        put("kid", kidB64)
-                                    }
-                                    keysArray.put(keyObj)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            }
-                            val jwkSet = JSONObject().apply {
-                                put("keys", keysArray)
-                                put("type", "temporary")
-                            }
-                            clearKeyBytes = jwkSet.toString().toByteArray()
-                        }
-                        useLocalClearKey = true
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        clearKeyBytes = jsonStr.toByteArray()
-                        useLocalClearKey = true
-                    }
-                } else {
-                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                    drmBuilder.setLicenseRequestHeaders(
-                        finalHeaders.filterKeys { it.lowercase() != "user-agent" }
-                    )
-                    drmBuilder.setMultiSession(true)
-                }
+            var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
+            if (finalDrm.type.lowercase() == "clearkey") {
+                clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
             }
 
-            if (useLocalClearKey || finalDrm.type.lowercase() == "clearkey") {
+            if (clearKeyParsed != null) {
+                val drmSessionManager = ClearKeyHelper.createClearKeyDrmSessionManager(
+                    clearKeyParsed.jwkBytes,
+                    clearKeyParsed.kidBytesList
+                )
+                mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
+                drmBuilder.setMultiSession(true)
+            } else if (finalDrm.licenseServer != null) {
+                drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                drmBuilder.setLicenseRequestHeaders(
+                    finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                )
+                drmBuilder.setMultiSession(true)
+            }
+
+            if (clearKeyParsed != null || finalDrm.type.lowercase() == "clearkey") {
                 drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
             }
             mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-
-            if (useLocalClearKey && clearKeyBytes != null) {
-                val localMediaDrmCallback = LocalMediaDrmCallback(clearKeyBytes)
-                val drmSessionManager = DefaultDrmSessionManager.Builder()
-                    .setUuidAndExoMediaDrmProvider(
-                        C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER
-                    )
-                    .build(localMediaDrmCallback)
-                mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
-            }
         }
 
         val mediaItem = mediaItemBuilder.build()

@@ -38,6 +38,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import com.streambd.iptv.utils.ClearKeyHelper
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -441,58 +442,31 @@ val loadErrorPolicy = object :
 
                 val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
 
-                var useLocalClearKey = false
-                var clearKeyBytes: ByteArray? = null
-
-                if (finalDrm.type.lowercase() == "clearkey" && finalDrm.rawKeyPair != null) {
-                    val parts = finalDrm.rawKeyPair.split(":")
-                    if (parts.size == 2) {
-                        try {
-                            val kidBytes = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                            val keyBytes = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                            val kidB64 = android.util.Base64.encodeToString(
-                                kidBytes,
-                                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                            )
-                            val keyB64 = android.util.Base64.encodeToString(
-                                keyBytes,
-                                android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                            )
-                            val clearkeyJson = "{\"keys\":[{\"kty\":\"oct\"," +
-                                "\"k\":\"$keyB64\",\"kid\":\"$kidB64\"}],\"type\":\"temporary\"}"
-                            clearKeyBytes = clearkeyJson.toByteArray()
-                            useLocalClearKey = true
-                        } catch (e: Exception) { e.printStackTrace() }
-                    }
-                } else if (finalDrm.licenseServer != null) {
-                    if (finalDrm.type.lowercase() == "clearkey" &&
-                        finalDrm.licenseServer.trim().startsWith("{")
-                    ) {
-                        clearKeyBytes = finalDrm.licenseServer.trim().toByteArray()
-                        useLocalClearKey = true
-                    } else {
-                        drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                        drmBuilder.setLicenseRequestHeaders(
-                            finalHeaders.filterKeys { it.lowercase() != "user-agent" }
-                        )
-                        drmBuilder.setMultiSession(true)
-                    }
+                var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
+                if (finalDrm.type.lowercase() == "clearkey") {
+                    clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
                 }
 
-                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
-
-                if (useLocalClearKey && clearKeyBytes != null) {
-                    val localMediaDrmCallback =
-                        androidx.media3.exoplayer.drm.LocalMediaDrmCallback(clearKeyBytes)
-                    val drmSessionManager =
-                        androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-                            .setUuidAndExoMediaDrmProvider(
-                                C.CLEARKEY_UUID,
-                                androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER
-                            )
-                            .build(localMediaDrmCallback)
+                if (clearKeyParsed != null) {
+                    val drmSessionManager = ClearKeyHelper.createClearKeyDrmSessionManager(
+                        clearKeyParsed.jwkBytes,
+                        clearKeyParsed.kidBytesList
+                    )
                     mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+                    drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
+                    drmBuilder.setMultiSession(true)
+                } else if (finalDrm.licenseServer != null) {
+                    drmBuilder.setLicenseUri(finalDrm.licenseServer)
+                    drmBuilder.setLicenseRequestHeaders(
+                        finalHeaders.filterKeys { it.lowercase() != "user-agent" }
+                    )
+                    drmBuilder.setMultiSession(true)
                 }
+
+                if (clearKeyParsed != null || finalDrm.type.lowercase() == "clearkey") {
+                    drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
+                }
+                mediaItemBuilder.setDrmConfiguration(drmBuilder.build())
             }
 
             val mediaItem = mediaItemBuilder.build()
