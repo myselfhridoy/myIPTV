@@ -710,7 +710,7 @@ fun LivePlayerScreen(
                                 }
                             }
                             Text(
-                                text = if (isLive) "--:--" else formatTime(duration),
+                                text = if (isLive) "00:00" else formatTime(duration),
                                 color = Color.White,
                                 fontSize = 12.sp
                             )
