@@ -143,4 +143,27 @@ dependencies {
 
     // NewPipeExtractor for YouTube Live & Video stream extraction
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Conscrypt — Android's official TLS provider (Google BoringSSL).
+    //
+    // WHY THIS IS HERE
+    // ----------------
+    // Cloudflare's Bot Management evaluates the TLS handshake's JA3
+    // fingerprint. On high-risk ISP IPs (some WiFi networks flagged for
+    // bot traffic), Cloudflare only accepts requests whose JA3 matches a
+    // whitelisted client (curl, Chrome, Firefox). OkHttp's default
+    // BoringSSL variant on Android has a *different* JA3 — flagged as
+    // suspicious — so those requests get a 403 even with perfect headers.
+    //
+    // curl passes because it uses OpenSSL (whitelisted).
+    // Chrome passes because its JA3 is whitelisted.
+    // OkHttp fails because its BoringSSL variant is not on the list.
+    //
+    // Installing Conscrypt as the top-priority JSSE provider makes
+    // OkHttp use Google's BoringSSL — the SAME TLS stack Chrome uses —
+    // so the JA3 fingerprint Cloudflare sees matches a browser and the
+    // 403 disappears. Works on WiFi and mobile data identically.
+    // ─────────────────────────────────────────────────────────────────────
+    implementation("org.conscrypt:conscrypt-android:2.5.2")
 }
