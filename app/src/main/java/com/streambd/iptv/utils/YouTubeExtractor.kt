@@ -77,6 +77,7 @@ object YouTubeExtractor {
             val service = ServiceList.YouTube
             var targetUrl = url
 
+            // If it's a shortened or non-standard URL, resolve it first
             if (!targetUrl.contains("watch?v=") && !targetUrl.contains("youtu.be/")) {
                 try {
                     val req = okhttp3.Request.Builder()
@@ -104,15 +105,22 @@ object YouTubeExtractor {
 
             val streamInfo = StreamInfo.getInfo(service, targetUrl)
 
+            // CRITICAL FIX: YouTube blocks requests without Referer and Origin headers.
+            // This forces the server to return a valid stream manifest instead of an HTML error page.
+            val ytHeaders = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer" to "https://www.youtube.com/",
+                "Origin" to "https://www.youtube.com"
+            )
+
             // 1. HLS live stream URL
             val hlsUrl = streamInfo.hlsUrl
             if (!hlsUrl.isNullOrEmpty()) {
                 return@withContext ResolvedToken(
                     url = hlsUrl,
-                    headers = mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    mimeType = "application/x-mpegURL"
+                    headers = ytHeaders,
+                    // FIX: Set to null so ExoPlayer auto-detects, preventing #EXTM3U header crashes
+                    mimeType = null 
                 )
             }
 
@@ -121,10 +129,8 @@ object YouTubeExtractor {
             if (!dashUrl.isNullOrEmpty()) {
                 return@withContext ResolvedToken(
                     url = dashUrl,
-                    headers = mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    mimeType = "application/dash+xml"
+                    headers = ytHeaders,
+                    mimeType = null
                 )
             }
 
@@ -138,9 +144,8 @@ object YouTubeExtractor {
                 if (!streamUrl.isNullOrEmpty()) {
                     return@withContext ResolvedToken(
                         url = streamUrl,
-                        headers = mapOf(
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                        )
+                        headers = ytHeaders,
+                        mimeType = null
                     )
                 }
             }
