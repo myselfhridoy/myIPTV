@@ -83,7 +83,7 @@ android {
 
 dependencies {
     // Desugaring library
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
