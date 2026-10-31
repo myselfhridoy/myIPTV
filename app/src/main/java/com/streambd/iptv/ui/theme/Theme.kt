@@ -8,12 +8,13 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import com.streambd.iptv.utils.DeviceType
+import com.streambd.iptv.ui.adaptive.FormFactor
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
+import com.streambd.iptv.ui.adaptive.rememberDeviceProfile
 
 private val AppColorScheme = darkColorScheme(
     primary                = PrimeBlue,
@@ -61,8 +62,13 @@ fun StreamBDPlayerTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
 
-    // DeviceType caches its result, so this is cheap.
-    val dimens = remember { if (DeviceType.isTv(context)) TvDimens else MobileDimens }
+    // One DeviceProfile for the whole app; spacing tokens follow the form factor.
+    val profile = rememberDeviceProfile()
+    val dimens = when (profile.formFactor) {
+        FormFactor.Tv -> TvDimens
+        FormFactor.Tablet -> TabletDimens
+        FormFactor.Phone -> MobileDimens
+    }
 
     if (!view.isInEditMode) {
         SideEffect {
@@ -79,7 +85,10 @@ fun StreamBDPlayerTheme(content: @Composable () -> Unit) {
         }
     }
 
-    CompositionLocalProvider(LocalDimens provides dimens) {
+    CompositionLocalProvider(
+        LocalDeviceProfile provides profile,
+        LocalDimens provides dimens
+    ) {
         MaterialTheme(
             colorScheme = AppColorScheme,
             typography = Typography,
