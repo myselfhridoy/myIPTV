@@ -3,30 +3,58 @@ package com.streambd.iptv.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ─────────────────────────────────────────────────────────────
-// Premium Bioscope Theme Colors
+// Prime-Video-inspired palette (dark navy + electric blue)
 // ─────────────────────────────────────────────────────────────
-val DarkNavyBackground = Color(0xFF0A0E17)      // Deep Navy/Black
-val DarkNavySurface    = Color(0xFF111723)      // Card surface
-val BioCardLight       = Color(0xFF1C2436)      // Hover/Focus card bg
-val BioAccent          = Color(0xFF48E5E5)      // Cyan primary accent
-val BioBrand           = Color(0xFF4361EE)      // Deep blue brand
 
-val BioTextPrimary     = Color(0xFFFFFFFF)
-val BioTextSecondary   = Color(0xFFE5E7EB)
-val BioTextTertiary    = Color(0xFFD1D5DB)
+// ── Surfaces (darkest → lightest) ────────────────────────────
+val PrimeBackground      = Color(0xFF0F171E)   // app background
+val PrimeSurface         = Color(0xFF1A242F)   // cards, sheets
+val PrimeSurfaceHigh     = Color(0xFF243242)   // focused / elevated card
+val PrimeSurfaceHighest  = Color(0xFF2F4054)   // chips, pressed state
+val PrimeOutline         = Color(0xFF3A4A5C)   // dividers, borders
 
-// Aliases (backward compatibility)
-val PrimaryDark        = DarkNavyBackground
-val SurfaceDark        = DarkNavySurface
-val WhiteText          = BioTextPrimary
-val GrayText           = BioTextTertiary
-val TealAccent         = BioAccent                // same value as BioAccent
-val TealAccentDark     = Color(0xFF008D94)
+// ── Brand ────────────────────────────────────────────────────
+val PrimeBlue            = Color(0xFF1A98FF)   // primary accent
+val PrimeBlueDark        = Color(0xFF0B6BB5)   // pressed / container
+val PrimeCyan            = Color(0xFF00A8E1)   // secondary accent
+val PrimeGold            = Color(0xFFF5C518)   // ratings, "premium" badges
+val PrimeError           = Color(0xFFFF5A5F)
+val PrimeLive            = Color(0xFFE53935)   // LIVE badge
 
-val BottomNavBackground = Color(0xFF141920)
-val SelectedItemColor   = BioAccent
-val UnselectedItemColor = Color(0xFF555555)
+// ── Text ─────────────────────────────────────────────────────
+val PrimeTextPrimary     = Color(0xFFFFFFFF)
+val PrimeTextSecondary   = Color(0xFFB8C4D0)
+val PrimeTextTertiary    = Color(0xFF8A99A8)
 
-// TV-specific tones — softer than BioAccent so focus rings don't shout on TV
-val TvFocusedBorder  = Color(0xFF00ADB5)
-val TvFocusedSurface = Color(0xFF252D36)
+// ── TV focus ─────────────────────────────────────────────────
+val PrimeFocusRing       = Color(0xFFE6EEF5)   // near-white ring, like Prime TV
+
+// ─────────────────────────────────────────────────────────────
+// BACKWARD-COMPATIBLE ALIASES
+// Old screens still reference these names. They now point to the
+// new palette so every existing screen picks up the new theme
+// automatically. Removed in the final clean-up step.
+// ─────────────────────────────────────────────────────────────
+val DarkNavyBackground  = PrimeBackground
+val DarkNavySurface     = PrimeSurface
+val BioCardLight        = PrimeSurfaceHigh
+val BioAccent           = PrimeBlue
+val BioBrand            = PrimeCyan
+
+val BioTextPrimary      = PrimeTextPrimary
+val BioTextSecondary    = PrimeTextSecondary
+val BioTextTertiary     = PrimeTextTertiary
+
+val PrimaryDark         = PrimeBackground
+val SurfaceDark         = PrimeSurface
+val WhiteText           = PrimeTextPrimary
+val GrayText            = PrimeTextSecondary
+val TealAccent          = PrimeBlue
+val TealAccentDark      = PrimeBlueDark
+
+val BottomNavBackground = Color(0xFF121B24)
+val SelectedItemColor   = PrimeBlue
+val UnselectedItemColor = PrimeTextTertiary
+
+val TvFocusedBorder     = PrimeFocusRing
+val TvFocusedSurface    = PrimeSurfaceHigh
