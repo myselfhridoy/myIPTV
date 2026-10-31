@@ -61,6 +61,14 @@ val TvDimens = Dimens(
     focusScale = 1.06f
 )
 
+/** Tablets: same sizes as phone, a little more breathing room. */
+val TabletDimens = MobileDimens.copy(
+    screenPaddingH = 24.dp,
+    screenPaddingV = 16.dp,
+    channelCardWidth = 170.dp,
+    posterCardWidth = 150.dp
+)
+
 val LocalDimens = staticCompositionLocalOf { MobileDimens }
 
 object AppTheme {
