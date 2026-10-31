@@ -43,6 +43,10 @@ import com.streambd.iptv.ui.theme.PrimeFocusRing
  *                 the item is drawn above its neighbours (zIndex)
  *  • Semantics  → proper [role], so TalkBack can announce & activate it
  *
+ * [propagateMinConstraints] lets a child (e.g. a Row) stretch to the width/height
+ * the caller forced on this surface (fillMaxWidth / minimum size), instead of
+ * being centred at its own wrapped size.
+ *
  * [content] receives `focused` so children (text/icon colours) can react.
  * [onFocused] fires each time the item gains focus — use it to scroll,
  * update a hero banner, or remember the last focused item.
@@ -67,6 +71,7 @@ fun FocusSurface(
     focusRequester: FocusRequester? = null,
     onFocused: (() -> Unit)? = null,
     contentAlignment: Alignment = Alignment.Center,
+    propagateMinConstraints: Boolean = false,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -115,7 +120,8 @@ fun FocusSurface(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        contentAlignment = contentAlignment
+        contentAlignment = contentAlignment,
+        propagateMinConstraints = propagateMinConstraints
     ) {
         content(isFocused)
     }
