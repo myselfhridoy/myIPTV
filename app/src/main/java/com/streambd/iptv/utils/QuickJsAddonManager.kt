@@ -117,6 +117,12 @@ object QuickJsAddonManager {
         })
         .build()
 
+    // Honor fetch({ credentials: "omit" }) without touching the shared jar.
+    // This client inherits the same SSRF-guarded DNS and timeout settings.
+    private val safeFetchNoCookiesClient = safeFetchClient.newBuilder()
+        .cookieJar(okhttp3.CookieJar.NO_COOKIES)
+        .build()
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
@@ -332,31 +338,27 @@ object QuickJsAddonManager {
                     }
 
                     function("nativeBtoa") { args ->
-                        val str = args.getOrNull(0)?.toString() ?: ""
-                        if (str.isNotEmpty()) {
+                        val result: String = if (args.isNotEmpty()) {
                             Base64.encodeToString(
-                                str.toByteArray(Charsets.ISO_8859_1),
+                                (args[0] as String).toByteArray(Charsets.ISO_8859_1),
                                 Base64.NO_WRAP
                             )
                         } else {
                             ""
                         }
+                        result
                     }
 
                     function("nativeAtob") { args ->
-                        val str = args.getOrNull(0)?.toString() ?: ""
-                        if (str.isNotEmpty()) {
-                            try {
-                                String(
-                                    Base64.decode(str, Base64.DEFAULT),
-                                    Charsets.ISO_8859_1
-                                )
-                            } catch (_: Exception) {
-                                ""
-                            }
+                        val result: String = if (args.isNotEmpty()) {
+                            String(
+                                Base64.decode((args[0] as String), Base64.DEFAULT),
+                                Charsets.ISO_8859_1
+                            )
                         } else {
                             ""
                         }
+                        result
                     }
 
                     // ═══════════════════════════════════════════════════
@@ -384,19 +386,22 @@ object QuickJsAddonManager {
                     }
 
                     asyncFunction("nativeFetchStr") { args ->
-                        val url = args.getOrNull(0)?.toString() ?: return@asyncFunction "{}"
-                        val optionsJson = args.getOrNull(1)?.toString() ?: ""
+                        val url = args[0] as String
+                        val optionsJson = if (args.size > 1) args[1] as String else ""
 
                         val reqBuilder = Request.Builder().url(url)
                         var method = "GET"
                         var bodyString: String? = null
                         var contentType = "application/x-www-form-urlencoded"
+                        var omitCookies = false
 
                         if (optionsJson.isNotBlank() &&
                             optionsJson != "null" &&
                             optionsJson != "undefined"
                         ) {
                             val obj = JSONObject(optionsJson)
+                            // Standard Fetch option: omit request cookies and do not save response cookies.
+                            omitCookies = obj.optString("credentials", "") == "omit"
                             if (obj.has("method")) method = obj.getString("method").uppercase()
                             if (obj.has("body")) bodyString = obj.getString("body")
                             if (obj.has("headers")) {
@@ -418,7 +423,8 @@ object QuickJsAddonManager {
                             reqBuilder.method(method, null)
                         }
 
-                        safeFetchClient.newCall(reqBuilder.build()).await().use { response ->
+                        val fetchClient = if (omitCookies) safeFetchNoCookiesClient else safeFetchClient
+                        fetchClient.newCall(reqBuilder.build()).await().use { response ->
                             val resHeaders = JSONObject()
                             response.headers.names().forEach { name ->
                                 resHeaders.put(name, response.headers.values(name).joinToString(", "))
