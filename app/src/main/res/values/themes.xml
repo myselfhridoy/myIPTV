@@ -1,4 +1,10 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.StreamBDPlayer" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Dark base so there is no white flash before Compose draws. -->
+    <style name="Theme.StreamBDPlayer" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:colorBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@color/window_background</item>
+        <item name="android:navigationBarColor">@color/window_background</item>
+    </style>
 </resources>
