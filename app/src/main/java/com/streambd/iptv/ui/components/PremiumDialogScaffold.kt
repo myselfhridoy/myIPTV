@@ -180,8 +180,9 @@ private fun PremiumDialogCard(
         LaunchedEffect(Unit) {
             delay(300)
             if (!hasFocus) {
-                if (!focusManager.moveFocus(FocusDirection.Enter)) {
-                    focusManager.moveFocus(FocusDirection.Next)
+                // FocusDirection.Next is stable API (Enter is experimental).
+                if (!focusManager.moveFocus(FocusDirection.Next)) {
+                    focusManager.moveFocus(FocusDirection.Down)
                 }
             }
         }
