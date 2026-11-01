@@ -203,8 +203,8 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                                 horizontal = d.screenPaddingH,
                                 vertical = d.spaceMd
                             ),
-                            horizontalArrangement = Arrangement.spacedBy(d.spaceMd),
-                            verticalArrangement = Arrangement.spacedBy(d.spaceMd),
+                            horizontalArrangement = Arrangement.spacedBy(d.gridGap),
+                            verticalArrangement = Arrangement.spacedBy(d.gridGap),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             // Index-prefixed key so duplicate name+url pairs
@@ -243,7 +243,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                                             horizontal = d.screenPaddingH,
                                             vertical = 6.dp
                                         ),
-                                        horizontalArrangement = Arrangement.spacedBy(d.spaceMd)
+                                        horizontalArrangement = Arrangement.spacedBy(d.gridGap)
                                     ) {
                                         itemsIndexed(
                                             items = channels,
