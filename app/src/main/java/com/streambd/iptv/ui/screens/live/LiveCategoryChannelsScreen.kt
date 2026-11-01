@@ -2,24 +2,10 @@ package com.streambd.iptv.ui.screens.live
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,33 +15,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Channel
-import com.streambd.iptv.ui.components.CategoryChip
-import com.streambd.iptv.ui.components.ChannelCard
+import com.streambd.iptv.ui.components.ChannelBrowser
 import com.streambd.iptv.ui.components.ChannelGridSkeleton
 import com.streambd.iptv.ui.components.EmptyState
-import com.streambd.iptv.ui.components.PremiumDialogScaffold
-import com.streambd.iptv.ui.components.PremiumOptionRow
+import com.streambd.iptv.ui.components.GroupChipsRow
+import com.streambd.iptv.ui.components.GroupPickerDialog
 import com.streambd.iptv.ui.components.SearchableTopBar
-import com.streambd.iptv.ui.components.SectionHeader
-import com.streambd.iptv.ui.components.initialFocus
-import com.streambd.iptv.ui.components.restoreFocus
 import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 
 /**
- * Channels of one category: group chips on top, then a grid (single
- * group) or one horizontal row per group (All).
- *
- * Logic is unchanged (filtering, group list, playlist hand-off to the
- * player, duplicate-safe keys). UI is rebuilt on shared components.
- * TV: the first channel takes focus automatically.
+ * Channels of one category. Logic unchanged (group filter, search,
+ * playlist hand-off to the player); the list/grid, group chips and group
+ * dialog now come from shared components.
  */
 @Composable
 fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavController) {
@@ -74,7 +51,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     val focusManager = LocalFocusManager.current
 
     val d = AppTheme.dimens
-    val scheme = MaterialTheme.colorScheme
 
     val groups = remember(allChannels) {
         val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()
@@ -88,8 +64,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
         else groupFiltered?.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
 
-    // Keep the tap callback referencing the LATEST list even if Compose skips
-    // recomposing items whose Channel data hasn't changed.
+    // Tap callbacks must see the LATEST list even if items are not recomposed.
     val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
 
     val openChannel: (Channel) -> Unit = { channel ->
@@ -112,9 +87,8 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(scheme.background)
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Top bar: back (also while searching) · title · search ──
         SearchableTopBar(
             title = categoryName,
             searchActive = isSearchActive,
@@ -136,41 +110,13 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             onSearchFieldFocusChanged = { isSearchFocused = it }
         )
 
-        // ── Group chips ──
-        val validGroups = groups.filter { it.isNotBlank() }
-        if (validGroups.size > 1) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .restoreFocus(),
-                contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(d.spaceSm),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                item(key = "groups_button") {
-                    CategoryChip(
-                        label = "Groups",
-                        selected = false,
-                        icon = Icons.AutoMirrored.Filled.List,
-                        onClick = { isGroupsModalExpanded = true }
-                    )
-                }
-                itemsIndexed(
-                    items = validGroups.take(10),
-                    key = { index, group -> "chip_${index}_$group" }
-                ) { _, group ->
-                    val isSelected = selectedGroup == group
-                    CategoryChip(
-                        label = group,
-                        selected = isSelected,
-                        icon = if (isSelected) Icons.Default.Check else null,
-                        onClick = { selectedGroup = group }
-                    )
-                }
-            }
-        }
+        GroupChipsRow(
+            groups = groups,
+            selectedGroup = selectedGroup,
+            onSelect = { selectedGroup = it },
+            onShowAll = { isGroupsModalExpanded = true }
+        )
 
-        // ── Body ──
         when {
             allChannels == null -> ChannelGridSkeleton(minCellWidth = d.channelCardWidth)
 
@@ -179,137 +125,23 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 message = if (searchQuery.isNotBlank()) "Try a different search." else null
             )
 
-            else -> {
-                val groupedChannels = remember(filteredChannels) {
-                    if (selectedGroup != "All") mapOf(selectedGroup to filteredChannels)
-                    else filteredChannels.groupBy { it.group }
-                }
-                val useGridLayout = selectedGroup != "All" || groupedChannels.size <= 1
-
-                if (useGridLayout) {
-                    val channelsList = if (groupedChannels.size == 1)
-                        groupedChannels.values.first()
-                    else filteredChannels
-                    val groupName = if (groupedChannels.size == 1)
-                        groupedChannels.keys.first() else selectedGroup
-
-                    Column {
-                        if (!groupName.isNullOrBlank() && selectedGroup == "All") {
-                            SectionHeader(title = groupName)
-                        }
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = d.channelCardWidth),
-                            contentPadding = PaddingValues(
-                                horizontal = d.screenPaddingH,
-                                vertical = d.spaceMd
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(d.gridGap),
-                            verticalArrangement = Arrangement.spacedBy(d.gridGap),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            // Index-prefixed key so duplicate name+url pairs
-                            // (identical channels listed twice) don't crash.
-                            gridItemsIndexed(
-                                items = channelsList ?: emptyList(),
-                                key = { index, channel ->
-                                    "$index|${channel.name}|${channel.url}"
-                                }
-                            ) { index, channel ->
-                                ChannelCard(
-                                    name = channel.name,
-                                    logoUrl = channel.logo,
-                                    // TV: first channel takes focus automatically.
-                                    modifier = if (index == 0) Modifier.initialFocus() else Modifier,
-                                    onClick = { openChannel(channel) }
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(bottom = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(d.spaceLg),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        groupedChannels.entries.forEachIndexed { groupIndex, (group, channels) ->
-                            item(key = "grp_${groupIndex}_$group") {
-                                Column {
-                                    if (group.isNotBlank()) {
-                                        SectionHeader(title = group)
-                                    }
-                                    LazyRow(
-                                        modifier = Modifier.restoreFocus(),
-                                        contentPadding = PaddingValues(
-                                            horizontal = d.screenPaddingH,
-                                            vertical = 6.dp
-                                        ),
-                                        horizontalArrangement = Arrangement.spacedBy(d.gridGap)
-                                    ) {
-                                        itemsIndexed(
-                                            items = channels,
-                                            key = { index, channel ->
-                                                "$index|${channel.name}|${channel.url}"
-                                            }
-                                        ) { index, channel ->
-                                            ChannelCard(
-                                                name = channel.name,
-                                                logoUrl = channel.logo,
-                                                modifier = Modifier
-                                                    .width(d.channelCardWidth)
-                                                    .then(
-                                                        if (groupIndex == 0 && index == 0)
-                                                            Modifier.initialFocus()
-                                                        else Modifier
-                                                    ),
-                                                onClick = { openChannel(channel) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            else -> ChannelBrowser(
+                channels = filteredChannels,
+                selectedGroup = selectedGroup,
+                onChannelClick = openChannel
+            )
         }
     }
 
-    // ── Groups modal ──
     if (isGroupsModalExpanded) {
-        val selectedIndex = groups.indexOf(selectedGroup).coerceAtLeast(0)
-        // Start scrolled to the current group so it is composed and can take focus.
-        val modalListState = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
-
-        PremiumDialogScaffold(
-            title = "Select Group",
-            subtitle = "${groups.size} group${if (groups.size > 1) "s" else ""}",
-            onDismiss = { isGroupsModalExpanded = false },
-            scrollContent = false
-        ) {
-            LazyColumn(
-                state = modalListState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                itemsIndexed(
-                    items = groups,
-                    key = { index, group -> "modal_${index}_$group" }
-                ) { index, group ->
-                    PremiumOptionRow(
-                        title = group,
-                        selected = selectedGroup == group,
-                        // TV: focus lands on the current group.
-                        modifier = if (index == selectedIndex) Modifier.initialFocus() else Modifier,
-                        onClick = {
-                            selectedGroup = group
-                            isGroupsModalExpanded = false
-                        }
-                    )
-                }
-            }
-        }
+        GroupPickerDialog(
+            groups = groups,
+            selectedGroup = selectedGroup,
+            onSelect = {
+                selectedGroup = it
+                isGroupsModalExpanded = false
+            },
+            onDismiss = { isGroupsModalExpanded = false }
+        )
     }
 }
