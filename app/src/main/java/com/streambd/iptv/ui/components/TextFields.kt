@@ -31,7 +31,8 @@ fun AppTextField(
     singleLine: Boolean = true,
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Next,
-    onDone: (() -> Unit)? = null
+    onDone: (() -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
     val focusManager = LocalFocusManager.current
@@ -41,6 +42,7 @@ fun AppTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = singleLine,
+        trailingIcon = trailingIcon,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
         keyboardActions = KeyboardActions(
             onDone = {
