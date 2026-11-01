@@ -26,16 +26,16 @@ fun CategoryGridSkeleton(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minCellWidth),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = d.spaceXl, vertical = d.spaceLg),
-        horizontalArrangement = Arrangement.spacedBy(d.spaceMd),
-        verticalArrangement = Arrangement.spacedBy(d.spaceMd),
+        contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         userScrollEnabled = false
     ) {
         items(count) {
             ShimmerBox(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp),
+                    .height(60.dp),
                 shape = MaterialTheme.shapes.medium
             )
         }
