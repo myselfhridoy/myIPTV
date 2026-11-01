@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeFocusRing
@@ -67,6 +68,7 @@ fun FocusSurface(
     focusedContainerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     focusScale: Float = AppTheme.dimens.focusScale,
     showRing: Boolean = true,
+    restingBorderColor: Color = Color.Transparent,
     role: Role = Role.Button,
     focusRequester: FocusRequester? = null,
     onFocused: (() -> Unit)? = null,
@@ -93,11 +95,11 @@ fun FocusSurface(
         label = "focusContainer"
     )
     val ringColor by animateColorAsState(
-        targetValue = if (isFocused && showRing) PrimeFocusRing else Color.Transparent,
+        targetValue = if (isFocused && showRing) PrimeFocusRing else restingBorderColor,
         animationSpec = tween(160),
         label = "focusRing"
     )
-    val ringWidth = AppTheme.dimens.focusBorderWidth
+    val ringWidth = if (isFocused && showRing) AppTheme.dimens.focusBorderWidth else 1.dp
 
     Box(
         modifier = modifier
