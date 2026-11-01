@@ -41,7 +41,8 @@ import com.streambd.iptv.ui.theme.AppTheme
  *
  *  • Takes focus by itself when it appears (opens the keyboard on phones,
  *    gives the remote a target on TV) — [autoFocus].
- *  • The keyboard's Search / Done key hides the keyboard but keeps the
+ *  • The keyboard's Search key runs [onSearch] if given; otherwise it hides
+ *    the keyboard but keeps the
  *    results, so the next Back press closes the search (see the
  *    `isSearchFocused` pattern in the screens).
  *  • The close button is a real focusable button (D-pad reachable).
@@ -55,7 +56,8 @@ fun AppSearchField(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit = {},
-    autoFocus: Boolean = true
+    autoFocus: Boolean = true,
+    onSearch: (() -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
     val focusManager = LocalFocusManager.current
@@ -108,7 +110,11 @@ fun AppSearchField(
         shape = MaterialTheme.shapes.medium,
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                if (onSearch != null) onSearch() else focusManager.clearFocus()
+            }
+        ),
         modifier = modifier
             .focusRequester(requester)
             .onFocusChanged { onFocusChanged(it.hasFocus) }
