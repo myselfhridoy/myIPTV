@@ -1,37 +1,31 @@
 package com.streambd.iptv.ui.screens.stream
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.res.Configuration
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,230 +36,48 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.streambd.iptv.data.models.DrmConfig
 import com.streambd.iptv.data.models.StreamSource
+import com.streambd.iptv.ui.components.AppButton
+import com.streambd.iptv.ui.components.AppIconButton
+import com.streambd.iptv.ui.components.AppTextField
+import com.streambd.iptv.ui.components.AppTopBar
 import com.streambd.iptv.ui.components.PremiumButton
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.PremiumOptionRow
 import com.streambd.iptv.ui.components.TvFocusableItem
-import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.initialFocus
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
+import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.MainViewModel
+import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.M3UParser
 import org.json.JSONArray
-import org.json.JSONObject
 
-// ---------------------------------------------------------------------
-// Constants / helpers
-// ---------------------------------------------------------------------
-
-private val USER_AGENTS = listOf(
-    "Default", "Chrome(Android)", "Chrome(PC)", "IE(PC)", "Firefox(PC)",
-    "iPhone", "Nokia", "Custom"
-)
-private val DRM_SCHEMES = listOf("None", "clearkey", "widevine", "playready")
-
-private val UA_STRINGS = mapOf(
-    "Chrome(Android)" to "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-    "Chrome(PC)" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "IE(PC)" to "Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko",
-    "Firefox(PC)" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "iPhone" to "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-    "Nokia" to "Nokia6300/2.0 (05.20) Profile/MIDP-2.0 Configuration/CLDC-1.1"
-)
-
-private val CLEARKEY_PAIR = Regex("^[0-9a-fA-F]{32}:[0-9a-fA-F]{32}$")
-private val STD_HEADERS = setOf("user-agent", "referer", "origin", "cookie")
-private const val MAX_HISTORY = 50
-
-private fun resolveUserAgent(ua: String, custom: String): String? = when {
-    ua == "Custom" -> custom.trim().takeIf { it.isNotEmpty() }
-    ua.isBlank() || ua == "Default" -> null
-    else -> UA_STRINGS[ua] ?: ua
-}
-
-private fun normalizeDrmScheme(raw: String): String {
-    val t = raw.trim().lowercase()
-    return when {
-        t.contains("widevine") -> "widevine"
-        t.contains("playready") -> "playready"
-        t.contains("clearkey") -> "clearkey"
-        t == "none" || t.isEmpty() -> "None"
-        else -> t
-    }
-}
-
-private fun buildDrmConfig(scheme: String, license: String): DrmConfig? {
-    if (scheme.isBlank() || scheme.equals("None", ignoreCase = true)) return null
-    val lic = license.trim().takeIf { it.isNotEmpty() }
-    val type = scheme.lowercase()
-    return if (type == "clearkey" && lic != null && CLEARKEY_PAIR.matches(lic)) {
-        DrmConfig(type = "clearkey", rawKeyPair = lic)
-    } else {
-        DrmConfig(type = type, licenseServer = lic)
-    }
-}
-
-private fun JSONObject.optStrOrNull(key: String): String? {
-    if (!has(key) || isNull(key)) return null
-    val v = optString(key)
-    return if (v.isEmpty() || v == "null") null else v
-}
-
-private fun mapToJson(map: Map<String, String>): JSONObject {
-    val o = JSONObject()
-    map.forEach { (k, v) -> o.put(k, v) }
-    return o
-}
-
-private fun jsonToMap(obj: JSONObject?): Map<String, String> {
-    if (obj == null) return emptyMap()
-    val out = mutableMapOf<String, String>()
-    obj.keys().forEach { k -> obj.optStrOrNull(k)?.let { out[k] = it } }
-    return out
-}
-
-/** Read the current plain-text from the system clipboard, or null if empty. */
-private fun readClipboardText(context: Context): String? {
-    return try {
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        val clip = cm?.primaryClip
-        if (clip != null && clip.itemCount > 0) {
-            val text = clip.getItemAt(0).coerceToText(context).toString()
-            text.takeIf { it.isNotBlank() }
-        } else null
-    } catch (_: Exception) {
-        null
-    }
-}
-
-data class PipeExtras(
-    val url: String = "",
-    val headers: Map<String, String> = emptyMap(),
-    val tokenUrl: String? = null,
-    val tokenMatch: String? = null,
-    val tokenReplace: String? = null,
-    val tokenId: Int? = null
-) {
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("url", url)
-        put("headers", mapToJson(headers))
-        tokenUrl?.let { put("tokenUrl", it) }
-        tokenMatch?.let { put("tokenMatch", it) }
-        tokenReplace?.let { put("tokenReplace", it) }
-        tokenId?.let { put("tokenId", it) }
-    }
-
-    companion object {
-        fun fromJsonString(s: String?): PipeExtras {
-            if (s.isNullOrBlank()) return PipeExtras()
-            return try {
-                val o = JSONObject(s)
-                PipeExtras(
-                    url = o.optString("url", ""),
-                    headers = jsonToMap(o.optJSONObject("headers")),
-                    tokenUrl = o.optStrOrNull("tokenUrl"),
-                    tokenMatch = o.optStrOrNull("tokenMatch"),
-                    tokenReplace = o.optStrOrNull("tokenReplace"),
-                    tokenId = if (o.has("tokenId") && !o.isNull("tokenId")) o.optInt("tokenId") else null
-                )
-            } catch (e: Exception) {
-                PipeExtras()
-            }
-        }
-    }
-}
-
-data class StreamHistoryItem(
-    val url: String,
-    val cookie: String,
-    val referer: String,
-    val origin: String,
-    val drmLicense: String,
-    val userAgent: String,
-    val drmScheme: String,
-    val tokenUrl: String? = null,
-    val tokenMatch: String? = null,
-    val tokenReplace: String? = null,
-    val tokenId: Int? = null,
-    val customUa: String = "",
-    val extraHeaders: Map<String, String> = emptyMap()
-) {
-    fun toJson(): JSONObject {
-        val obj = JSONObject()
-        obj.put("url", url)
-        obj.put("cookie", cookie)
-        obj.put("referer", referer)
-        obj.put("origin", origin)
-        obj.put("drmLicense", drmLicense)
-        obj.put("userAgent", userAgent)
-        obj.put("drmScheme", drmScheme)
-        obj.put("customUa", customUa)
-        obj.put("extraHeaders", mapToJson(extraHeaders))
-        tokenUrl?.let { obj.put("tokenUrl", it) }
-        tokenMatch?.let { obj.put("tokenMatch", it) }
-        tokenReplace?.let { obj.put("tokenReplace", it) }
-        tokenId?.let { obj.put("tokenId", it) }
-        return obj
-    }
-
-    companion object {
-        fun fromJson(jsonStr: String): StreamHistoryItem? {
-            return try {
-                val obj = JSONObject(jsonStr)
-                StreamHistoryItem(
-                    url = obj.optString("url", ""),
-                    cookie = obj.optString("cookie", ""),
-                    referer = obj.optString("referer", ""),
-                    origin = obj.optString("origin", ""),
-                    drmLicense = obj.optString("drmLicense", ""),
-                    userAgent = obj.optString("userAgent", "Default"),
-                    drmScheme = obj.optString("drmScheme", "clearkey"),
-                    tokenUrl = obj.optStrOrNull("tokenUrl"),
-                    tokenMatch = obj.optStrOrNull("tokenMatch"),
-                    tokenReplace = obj.optStrOrNull("tokenReplace"),
-                    tokenId = if (obj.has("tokenId") && !obj.isNull("tokenId")) obj.optInt("tokenId") else null,
-                    customUa = obj.optString("customUa", ""),
-                    extraHeaders = jsonToMap(obj.optJSONObject("extraHeaders"))
-                )
-            } catch (e: Exception) {
-                null
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------
-// Screen
-// ---------------------------------------------------------------------
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * "Network Stream": play any URL with custom headers / User-Agent / DRM.
+ *
+ * ALL state, draft saving, history, URL-pipe parsing and the hand-off to
+ * the VOD player are copied unchanged from the old screen (see the block
+ * between "STATE & LOGIC" markers). Only the UI is new:
+ *   • URL field first; Cookie / Referer / Origin / User-Agent / DRM sit in a
+ *     collapsible "Headers & DRM" section (open automatically when the saved
+ *     draft already uses any of them)
+ *   • full-width Play button instead of a round one at the right edge
+ *   • themed fields, selectors, dialogs; TV: URL field auto-focused
+ */
 @Composable
 fun StreamScreen(
     mainViewModel: MainViewModel,
-    tmdbViewModel: com.streambd.iptv.ui.viewmodels.TmdbViewModel,
+    tmdbViewModel: TmdbViewModel,
     navController: NavController,
     onMenuClick: (() -> Unit)? = null
 ) {
+    // ======================= STATE & LOGIC (unchanged) =======================
     val context = LocalContext.current
     val sharedPreferences = context.getSharedPreferences(
         "stream_history_prefs",
@@ -467,6 +279,11 @@ fun StreamScreen(
         startPlayback(newItem)
     }
 
+    // ============================= END LOGIC =============================
+
+    val scheme = MaterialTheme.colorScheme
+    val d = AppTheme.dimens
+
     // ------------------------- Dialogs -------------------------
 
     if (showEmptyUrlErrorDialog) {
@@ -490,20 +307,19 @@ fun StreamScreen(
                 }, primary = true)
             }
         ) {
-            OutlinedTextField(
+            AppTextField(
                 value = customUserAgent,
                 onValueChange = { customUserAgent = it },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = BioAccent,
-                    unfocusedBorderColor = Color.DarkGray,
-                    cursorColor = BioAccent
-                ),
+                label = "User-Agent",
+                imeAction = ImeAction.Done,
+                onDone = {
+                    userAgent = "Custom"
+                    showCustomUaDialog = false
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                singleLine = true
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .initialFocus(tvOnly = false)
             )
         }
     }
@@ -528,6 +344,7 @@ fun StreamScreen(
                     PremiumOptionRow(
                         title = option,
                         selected = userAgent == option,
+                        modifier = if (userAgent == option) Modifier.initialFocus() else Modifier,
                         onClick = {
                             if (option == "Custom") {
                                 showCustomUaDialog = true
@@ -562,6 +379,7 @@ fun StreamScreen(
                     PremiumOptionRow(
                         title = option,
                         selected = drmScheme == option,
+                        modifier = if (drmScheme == option) Modifier.initialFocus() else Modifier,
                         onClick = {
                             drmScheme = option
                             showDrmSchemeDropdown = false
@@ -589,7 +407,11 @@ fun StreamScreen(
                         .padding(horizontal = 20.dp, vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Nothing here yet.", color = GrayText)
+                    Text(
+                        text = "Nothing here yet.",
+                        color = scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             } else {
                 LazyColumn(
@@ -607,37 +429,29 @@ fun StreamScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                TvFocusableItem(
-                                    onClick = { playFromHistory(item) },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = item.url,
-                                        color = WhiteText,
-                                        fontSize = 13.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                            TvFocusableItem(
+                                onClick = { playFromHistory(item) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = item.url,
+                                    color = scheme.onSurface,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            TvIconButton(
+                            AppIconButton(
+                                icon = Icons.Default.Delete,
+                                contentDescription = "Delete from history",
                                 onClick = {
                                     historyUrls.remove(item)
                                     persistHistory()
                                 },
+                                tint = scheme.error,
                                 modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = Color(0xFFFF6B6B),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            )
                         }
-                        HorizontalDivider(color = Color.DarkGray.copy(alpha = 0.4f))
                     }
                 }
             }
@@ -646,67 +460,65 @@ fun StreamScreen(
 
     // ------------------------- Main UI -------------------------
 
-    Box(
+    // Open "Headers & DRM" right away when the saved draft already uses it.
+    var advancedExpanded by remember {
+        mutableStateOf(
+            cookieValue.isNotBlank() || refererValue.isNotBlank() || originValue.isNotBlank() ||
+                drmLicenseUrl.isNotBlank() || userAgent != "Default" ||
+                pipeExtras.headers.isNotEmpty()
+        )
+    }
+    val advancedSummary = listOfNotNull(
+        "Cookie".takeIf { cookieValue.isNotBlank() },
+        "Referer".takeIf { refererValue.isNotBlank() },
+        "Origin".takeIf { originValue.isNotBlank() },
+        "UA: $userAgent".takeIf { userAgent != "Default" },
+        "DRM: $drmScheme".takeIf { !drmScheme.equals("None", ignoreCase = true) }
+    ).joinToString(" • ").ifEmpty { "Optional" }
+
+    val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null) {
+        { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
+    } else null
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkNavyBackground)
+            .background(scheme.background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Top bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (onMenuClick != null) {
-                    TvIconButton(
-                        onClick = onMenuClick,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Menu",
-                            tint = WhiteText,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                }
-                Text(
-                    text = "Network Stream",
-                    color = WhiteText,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
+        AppTopBar(
+            title = "Network Stream",
+            leading = menuLeading,
+            actions = {
+                AppIconButton(
+                    icon = Icons.Default.History,
+                    contentDescription = "History",
+                    onClick = { showHistoryDialog = true }
                 )
-                TvIconButton(
-                    onClick = { showHistoryDialog = true },
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = "History",
-                        tint = WhiteText,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
             }
+        )
+        HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
 
-            // Main content
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.TopCenter
+        ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 24.dp)
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .widthIn(max = 640.dp)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = d.screenPaddingH + 4.dp)
+                    .padding(top = d.spaceLg, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 StreamTextField(
                     label = "Media Stream URL",
                     value = mediaStreamUrl,
-                    onValueChange = { mediaStreamUrl = it }
+                    onValueChange = { mediaStreamUrl = it },
+                    // TV: land on the URL field.
+                    modifier = Modifier.initialFocus()
                 )
 
                 if (pipeExtras.url.isNotEmpty() && pipeExtras.url == mediaStreamUrl.trim()) {
@@ -718,348 +530,66 @@ fun StreamScreen(
                     if (notes.isNotEmpty()) {
                         Text(
                             text = "Extra: " + notes.joinToString(" • "),
-                            color = GrayText,
-                            fontSize = 12.sp
+                            color = scheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
 
-                StreamTextField(
-                    label = "Cookie Value",
-                    value = cookieValue,
-                    onValueChange = { cookieValue = it }
-                )
-                StreamTextField(
-                    label = "Referer Value",
-                    value = refererValue,
-                    onValueChange = { refererValue = it }
-                )
-                StreamTextField(
-                    label = "Origin Value",
-                    value = originValue,
-                    onValueChange = { originValue = it }
-                )
-                StreamTextField(
-                    label = "DRM License URL",
-                    value = drmLicenseUrl,
-                    onValueChange = { drmLicenseUrl = it }
-                )
-
-                // ── Dropdowns side-by-side (always) ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                CollapsibleSection(
+                    title = "Headers & DRM",
+                    summary = advancedSummary,
+                    expanded = advancedExpanded,
+                    onToggle = { advancedExpanded = !advancedExpanded }
                 ) {
-                    DropdownField(
-                        label = "UserAgent",
-                        value = userAgent,
-                        expanded = showUserAgentDropdown,
-                        onExpandedChange = { showUserAgentDropdown = it },
-                        modifier = Modifier.weight(1f)
+                    StreamTextField(
+                        label = "Cookie Value",
+                        value = cookieValue,
+                        onValueChange = { cookieValue = it }
                     )
-                    DropdownField(
-                        label = "DrmScheme",
-                        value = drmScheme,
-                        expanded = showDrmSchemeDropdown,
-                        onExpandedChange = { showDrmSchemeDropdown = it },
-                        modifier = Modifier.weight(1f)
+                    StreamTextField(
+                        label = "Referer Value",
+                        value = refererValue,
+                        onValueChange = { refererValue = it }
                     )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    StreamPlayButton(onClick = handlePlay)
-                }
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------
-// Custom Play button
-// ---------------------------------------------------------------------
-@Composable
-private fun StreamPlayButton(onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-    val bg by animateColorAsState(
-        targetValue = if (isFocused) Color(0xFF008D94) else BioAccent,
-        animationSpec = tween(180),
-        label = "playBg"
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.06f else 1f,
-        animationSpec = tween(180),
-        label = "playScale"
-    )
-
-    Box(
-        modifier = Modifier
-            .padding(bottom = 16.dp, top = 8.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .onFocusChanged { isFocused = it.hasFocus }
-            .clip(CircleShape)
-            .background(bg)
-            .tvTouchClick(onClick)
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            Icons.Default.PlayArrow,
-            contentDescription = "Play",
-            tint = Color.White,
-            modifier = Modifier.size(28.dp)
-        )
-    }
-}
-
-// ---------------------------------------------------------------------
-// Fields
-// ---------------------------------------------------------------------
-
-@Composable
-fun StreamTextField(label: String, value: String, onValueChange: (String) -> Unit) {
-    val configuration = LocalConfiguration.current
-    val context = LocalContext.current
-    val isTv = remember(configuration) { com.streambd.iptv.utils.DeviceType.isTv(context) }
-
-    if (isTv) {
-        // TV mode — non-inline edit; TV keyboards are awkward, so we render a
-        // display box that opens a real OutlinedTextField on click.
-        var isEditing by remember { mutableStateOf(false) }
-        val editFocusRequester = remember { FocusRequester() }
-
-        if (isEditing) {
-            var hadFocus by remember { mutableStateOf(false) }
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
-                label = { Text(label, color = GrayText) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(editFocusRequester)
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            hadFocus = true
-                        } else if (hadFocus) {
-                            hadFocus = false
-                            isEditing = false
-                        }
-                    },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { isEditing = false }),
-                trailingIcon = {
-                    FieldTrailingIcons(
-                        value = value,
-                        onValueChange = onValueChange,
-                        context = context
+                    StreamTextField(
+                        label = "Origin Value",
+                        value = originValue,
+                        onValueChange = { originValue = it }
                     )
-                },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = BioAccent,
-                    unfocusedBorderColor = Color.DarkGray,
-                    cursorColor = BioAccent
-                ),
-                shape = RoundedCornerShape(8.dp)
-            )
-            LaunchedEffect(Unit) {
-                try { editFocusRequester.requestFocus() } catch (_: Exception) {}
-            }
-        } else {
-            var isFocused by remember { mutableStateOf(false) }
-            val borderColor by animateColorAsState(
-                targetValue = if (isFocused) BioAccent else Color.DarkGray,
-                animationSpec = tween(180),
-                label = "fieldBorder"
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { isFocused = it.hasFocus }
-                    .tvTouchClick { isEditing = true }
-                    .border(
-                        width = if (isFocused) 2.dp else 1.dp,
-                        color = borderColor,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    if (value.isEmpty()) {
-                        Text(label, color = GrayText)
-                    } else {
-                        Column {
-                            Text(label, color = GrayText, fontSize = 12.sp)
-                            Text(
-                                value,
-                                color = WhiteText,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        SelectField(
+                            label = "UserAgent",
+                            value = userAgent,
+                            onClick = { showUserAgentDropdown = true },
+                            modifier = Modifier.weight(1f)
+                        )
+                        SelectField(
+                            label = "DrmScheme",
+                            value = drmScheme,
+                            onClick = { showDrmSchemeDropdown = true },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
+                    StreamTextField(
+                        label = "DRM License URL",
+                        value = drmLicenseUrl,
+                        onValueChange = { drmLicenseUrl = it }
+                    )
                 }
-                FieldTrailingIcons(
-                    value = value,
-                    onValueChange = onValueChange,
-                    context = context
+
+                Spacer(Modifier.height(4.dp))
+
+                AppButton(
+                    text = "Play stream",
+                    onClick = handlePlay,
+                    icon = Icons.Default.PlayArrow,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
-        }
-    } else {
-        // Mobile — standard OutlinedTextField with paste + clear trailing icons.
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = { Text(label, color = GrayText) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            trailingIcon = {
-                FieldTrailingIcons(
-                    value = value,
-                    onValueChange = onValueChange,
-                    context = context
-                )
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedBorderColor = BioAccent,
-                unfocusedBorderColor = Color.DarkGray,
-                cursorColor = BioAccent
-            ),
-            shape = RoundedCornerShape(8.dp)
-        )
-    }
-}
-
-/**
- * Trailing icons for a text field:
- *   • Paste button — always visible; reads clipboard text into the field.
- *   • Clear button — visible only when the field has a value; empties it.
- */
-@Composable
-private fun FieldTrailingIcons(
-    value: String,
-    onValueChange: (String) -> Unit,
-    context: Context
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        // Paste
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .tvTouchClick {
-                    val clip = readClipboardText(context)
-                    if (!clip.isNullOrBlank()) onValueChange(clip)
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.ContentPaste,
-                contentDescription = "Paste",
-                tint = BioAccent,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        // Clear — only when there is content
-        if (value.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .tvTouchClick { onValueChange("") },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Clear",
-                    tint = GrayText,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------
-// Dropdown — compact; two side-by-side fit on all phone widths.
-// Trimmed vertical padding + smaller fonts so the pill stays slim
-// next to the text fields above.
-// ---------------------------------------------------------------------
-@Composable
-fun DropdownField(
-    label: String,
-    value: String,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused || expanded) BioAccent else Color.DarkGray,
-        animationSpec = tween(180),
-        label = "ddBorder"
-    )
-
-    Box(
-        modifier = modifier
-            .onFocusChanged { isFocused = it.hasFocus }
-            .tvTouchClick { onExpandedChange(!expanded) }
-            .border(
-                width = if (isFocused || expanded) 2.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(6.dp)
-            )
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f, fill = false)
-            ) {
-                Text(
-                    text = label,
-                    color = GrayText,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = value,
-                    color = WhiteText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.width(2.dp))
-            Icon(
-                imageVector = if (expanded) Icons.Default.ArrowDropUp
-                else Icons.Default.ArrowDropDown,
-                tint = GrayText,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
         }
     }
 }
