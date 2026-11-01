@@ -25,8 +25,9 @@ data class Dimens(
     val spaceXxl: Dp = 32.dp,
 
     // layout
-    val screenPaddingH: Dp = 16.dp,
+    val screenPaddingH: Dp = 12.dp,
     val screenPaddingV: Dp = 12.dp,
+    val gridGap: Dp = 8.dp,
     val minTouchTarget: Dp = 48.dp,
 
     // cards (used by shared components in step 2)
@@ -51,6 +52,7 @@ val TvDimens = Dimens(
 
     screenPaddingH = 48.dp,
     screenPaddingV = 24.dp,
+    gridGap = 16.dp,
     minTouchTarget = 56.dp,
 
     channelCardWidth = 220.dp,
@@ -63,8 +65,9 @@ val TvDimens = Dimens(
 
 /** Tablets: same sizes as phone, a little more breathing room. */
 val TabletDimens = MobileDimens.copy(
-    screenPaddingH = 24.dp,
+    screenPaddingH = 20.dp,
     screenPaddingV = 16.dp,
+    gridGap = 10.dp,
     channelCardWidth = 170.dp,
     posterCardWidth = 150.dp
 )
