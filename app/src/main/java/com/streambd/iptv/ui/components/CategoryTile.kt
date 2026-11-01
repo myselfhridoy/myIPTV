@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.dp
 
 private val LogoShape = RoundedCornerShape(8.dp)
 
+/** Backdrop behind a logo. Subtle translucent white — logos still read, but
+ *  the tile no longer has a bright white patch. For dark-text logos that fade,
+ *  raise the alpha (or use Color(0xFFC7CFD8)). */
+private val LogoBackground = Color.White.copy(alpha = 0.16f)
+
 /**
  * Category / playlist tile: dark fill + hairline border, square-ish logo
  * with a thin outline (brand colour on focus), regular-weight name that
@@ -67,7 +72,7 @@ fun CategoryTile(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(LogoShape)
-                    .background(Color(0xFFF2F5F8))
+                    .background(LogoBackground)
                     .border(
                         width = 1.dp,
                         color = if (focused) scheme.primary else Color.Transparent,
