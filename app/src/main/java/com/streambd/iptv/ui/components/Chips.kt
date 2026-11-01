@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,7 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.theme.AppTheme
 
-/** Pill-shaped filter chip. Selected = filled with the brand colour. Optional leading [icon]. */
+/** Filter chip with small corners. Selected = filled with the brand colour. Optional leading [icon]. */
 @Composable
 fun CategoryChip(
     label: String,
@@ -47,7 +46,7 @@ fun CategoryChip(
         modifier = modifier
             .defaultMinSize(minHeight = d.minTouchTarget - 8.dp)
             .semantics { this.selected = selected },
-        shape = CircleShape,
+        shape = MaterialTheme.shapes.small,
         containerColor = if (selected) scheme.primary else scheme.secondaryContainer,
         focusedContainerColor = if (selected) scheme.primary else scheme.outline,
         role = Role.Tab,
