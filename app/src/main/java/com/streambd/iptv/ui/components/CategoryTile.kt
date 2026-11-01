@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
@@ -27,13 +27,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+private val LogoShape = RoundedCornerShape(8.dp)
+
 /**
- * Category / playlist tile.
- *
- *  • Dark, low-contrast fill + 1dp hairline border (no flat "slab" look)
- *  • Logo sits in a thin ring that lights up in the brand colour on focus
- *  • Name is regular-medium weight and may use TWO lines, so
- *    "StreamBD Live" is no longer cut to "Stream…"
+ * Category / playlist tile: dark fill + hairline border, square-ish logo
+ * with a thin outline (brand colour on focus), regular-weight name that
+ * may wrap to two lines.
  */
 @Composable
 fun CategoryTile(
@@ -50,7 +49,7 @@ fun CategoryTile(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 60.dp),
+            .heightIn(min = 56.dp),
         shape = MaterialTheme.shapes.medium,
         containerColor = scheme.surface.copy(alpha = 0.55f),
         focusedContainerColor = scheme.surfaceVariant,
@@ -61,20 +60,19 @@ fun CategoryTile(
         propagateMinConstraints = true
     ) { focused ->
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
+                    .clip(LogoShape)
+                    .background(Color(0xFFF2F5F8))
                     .border(
-                        width = 1.5.dp,
-                        color = if (focused) scheme.primary else scheme.outline,
-                        shape = CircleShape
-                    )
-                    .padding(3.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF2F5F8)),
+                        width = 1.dp,
+                        color = if (focused) scheme.primary else Color.Transparent,
+                        shape = LogoShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 if (!logoUrl.isNullOrBlank()) {
@@ -83,7 +81,7 @@ fun CategoryTile(
                         label = name,
                         contentScale = ContentScale.Fit,
                         describe = false,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(34.dp)
                     )
                 } else {
                     Icon(
