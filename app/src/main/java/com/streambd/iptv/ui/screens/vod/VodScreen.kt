@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.screens.vod
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,10 +21,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,21 +34,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
+import com.streambd.iptv.ui.components.AppButton
 import com.streambd.iptv.ui.components.AppIconButton
 import com.streambd.iptv.ui.components.AppSearchField
 import com.streambd.iptv.ui.components.AppTopBar
 import com.streambd.iptv.ui.components.EmptyState
 import com.streambd.iptv.ui.components.PosterCard
 import com.streambd.iptv.ui.components.PosterCardSkeleton
+import com.streambd.iptv.ui.components.RemoteImage
 import com.streambd.iptv.ui.components.SectionHeader
 import com.streambd.iptv.ui.components.ShimmerBox
 import com.streambd.iptv.ui.navigation.Routes
@@ -164,6 +178,7 @@ fun VodScreen(
             else -> BrowseMode(
                 mediaRows = mediaRows,
                 isMobilePortrait = isMobilePortrait,
+                isTv = isTV,
                 onMenuClick = onMenuClick,
                 onSearchClick = { isSearching = true },
                 firstCardRequester = firstCardRequester,
@@ -189,6 +204,7 @@ fun VodScreen(
 private fun BrowseMode(
     mediaRows: List<MediaRow>,
     isMobilePortrait: Boolean,
+    isTv: Boolean,
     onMenuClick: (() -> Unit)?,
     onSearchClick: () -> Unit,
     firstCardRequester: FocusRequester,
@@ -200,11 +216,16 @@ private fun BrowseMode(
         { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
     } else null
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
+    // Featured titles for the hero banner: first trending row, with a backdrop.
+    val heroItems = remember(mediaRows) {
+        mediaRows.firstOrNull()?.list
+            ?.filter { !it.backdrop_path.isNullOrBlank() }
+            ?.take(5)
+            ?: emptyList()
+    }
+
+    // Header stays pinned (same as the other tabs); only the content scrolls.
+    Column(modifier = Modifier.fillMaxSize()) {
         AppTopBar(
             title = "Media",
             modifier = Modifier.focusGroup(),
@@ -219,20 +240,160 @@ private fun BrowseMode(
         )
         HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
 
-        Spacer(modifier = Modifier.height(if (isMobilePortrait) 8.dp else 16.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            if (heroItems.isNotEmpty()) {
+                HeroBanner(
+                    items = heroItems,
+                    isCompact = isMobilePortrait,
+                    isTv = isTv,
+                    onOpen = onClickItem
+                )
+            }
 
-        mediaRows.forEachIndexed { index, row ->
-            MediaSection(
-                title = row.title,
-                mediaList = row.list,
-                firstCardRequester = if (index == 0) firstCardRequester else null,
-                isMobilePortrait = isMobilePortrait,
-                onClick = onClickItem
+            Spacer(modifier = Modifier.height(if (isMobilePortrait) 8.dp else 12.dp))
+
+            mediaRows.forEachIndexed { index, row ->
+                MediaSection(
+                    title = row.title,
+                    mediaList = row.list,
+                    firstCardRequester = if (index == 0) firstCardRequester else null,
+                    isMobilePortrait = isMobilePortrait,
+                    onClick = onClickItem
+                )
+                Spacer(modifier = Modifier.height(if (isMobilePortrait) 12.dp else 20.dp))
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+/**
+ * Featured banner (Prime / Netflix style): big backdrop, title, a short
+ * meta line and a "More info" button. Rotates through up to 5 titles every
+ * 7 s. Uses Crossfade (not a Pager) — see the no-Lazy note on VodScreen.
+ */
+@Composable
+private fun HeroBanner(
+    items: List<TmdbMedia>,
+    isCompact: Boolean,
+    isTv: Boolean,
+    onOpen: (TmdbMedia) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val d = AppTheme.dimens
+    var index by remember(items) { mutableStateOf(0) }
+
+    LaunchedEffect(items) {
+        if (items.size > 1) {
+            while (true) {
+                delay(7000)
+                index = (index + 1) % items.size
+            }
+        }
+    }
+
+    val current = items[index.coerceIn(0, items.lastIndex)]
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(if (isCompact) 16f / 11f else 21f / 9f)
+    ) {
+        Crossfade(
+            targetState = current,
+            animationSpec = androidx.compose.animation.core.tween(600),
+            label = "heroBackdrop"
+        ) { media ->
+            RemoteImage(
+                url = media.backdropUrl,
+                label = media.displayTitle,
+                contentScale = ContentScale.Crop,
+                describe = false,
+                modifier = Modifier.fillMaxSize()
             )
-            Spacer(modifier = Modifier.height(if (isMobilePortrait) 12.dp else 20.dp))
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        // Fade into the page background (bottom) and keep the text readable (left).
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            scheme.background.copy(alpha = 0.55f),
+                            scheme.background
+                        ),
+                        startY = 0f
+                    )
+                )
+        )
+        if (!isCompact) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.6f)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(scheme.background.copy(alpha = 0.85f), Color.Transparent)
+                        )
+                    )
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth(if (isCompact) 1f else 0.6f)
+                .padding(horizontal = d.screenPaddingH, vertical = 14.dp)
+        ) {
+            Text(
+                text = current.displayTitle,
+                color = scheme.onBackground,
+                style = if (isCompact) MaterialTheme.typography.headlineSmall
+                else MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() }
+            )
+            Spacer(Modifier.height(4.dp))
+
+            val meta = listOfNotNull(
+                current.displayDate.take(4).takeIf { it.length == 4 },
+                if (current.isMovie) "Movie" else "TV Series",
+                current.ratingText()?.let { "★ $it" }
+            ).joinToString("  •  ")
+            Text(
+                text = meta,
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge
+            )
+
+            if (!isCompact && !current.overview.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = current.overview,
+                    color = scheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (isTv) 3 else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            AppButton(
+                text = "More info",
+                onClick = { onOpen(current) },
+                icon = Icons.Default.Info
+            )
+        }
     }
 }
 
