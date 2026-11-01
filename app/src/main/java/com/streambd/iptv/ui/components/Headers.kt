@@ -61,7 +61,8 @@ fun SectionHeader(
 }
 
 /**
- * Top bar for inner screens. Pass [onBack] to show a back button
+ * Top bar for inner screens. Pass [onBack] to show a back button, or [leading]
+ * for any other leading control (e.g. a menu button) —
  * (give it [backFocusRequester] if the screen wants to drive focus).
  * Insets are not handled yet — that arrives with the edge-to-edge step.
  */
@@ -72,6 +73,7 @@ fun AppTopBar(
     onBack: (() -> Unit)? = null,
     backFocusRequester: FocusRequester? = null,
     containerColor: Color = MaterialTheme.colorScheme.background,
+    leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val d = AppTheme.dimens
@@ -83,7 +85,9 @@ fun AppTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(d.spaceXs)
     ) {
-        if (onBack != null) {
+        if (leading != null) {
+            leading()
+        } else if (onBack != null) {
             AppIconButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Back",
