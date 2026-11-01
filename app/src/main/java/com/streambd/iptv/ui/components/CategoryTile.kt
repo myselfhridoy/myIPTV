@@ -1,15 +1,12 @@
-@file:OptIn(ExperimentalFoundationApi::class)
-
 package com.streambd.iptv.ui.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,14 +26,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.streambd.iptv.ui.theme.AppTheme
 
 /**
- * Wide tile for a category / playlist / group: round logo + name.
+ * Category / playlist tile.
  *
- * Long names scroll (marquee) ONLY while the tile is focused — the old
- * code kept every tile's marquee running all the time, which wastes
- * frames on a grid of 30+ tiles.
+ *  • Dark, low-contrast fill + 1dp hairline border (no flat "slab" look)
+ *  • Logo sits in a thin ring that lights up in the brand colour on focus
+ *  • Name is regular-medium weight and may use TWO lines, so
+ *    "StreamBD Live" is no longer cut to "Stream…"
  */
 @Composable
 fun CategoryTile(
@@ -48,28 +45,34 @@ fun CategoryTile(
     onFocused: (() -> Unit)? = null
 ) {
     val scheme = MaterialTheme.colorScheme
-    val d = AppTheme.dimens
 
     FocusSurface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp),
+            .heightIn(min = 60.dp),
         shape = MaterialTheme.shapes.medium,
-        containerColor = scheme.surface,
+        containerColor = scheme.surface.copy(alpha = 0.55f),
         focusedContainerColor = scheme.surfaceVariant,
+        restingBorderColor = scheme.outline.copy(alpha = 0.55f),
         focusRequester = focusRequester,
         onFocused = onFocused,
         contentAlignment = Alignment.CenterStart,
         propagateMinConstraints = true
     ) { focused ->
         Row(
-            modifier = Modifier.padding(horizontal = d.spaceMd),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
+                    .border(
+                        width = 1.5.dp,
+                        color = if (focused) scheme.primary else scheme.outline,
+                        shape = CircleShape
+                    )
+                    .padding(3.dp)
                     .clip(CircleShape)
                     .background(Color(0xFFF2F5F8)),
                 contentAlignment = Alignment.Center
@@ -80,33 +83,26 @@ fun CategoryTile(
                         label = name,
                         contentScale = ContentScale.Fit,
                         describe = false,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.size(32.dp)
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Tv,
                         contentDescription = null,
                         tint = scheme.primary,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-            Spacer(Modifier.width(d.spaceMd))
+            Spacer(Modifier.width(10.dp))
             Text(
                 text = name,
                 color = scheme.onSurface,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .then(
-                        if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE)
-                        else Modifier
-                    )
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
         }
     }
