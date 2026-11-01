@@ -34,7 +34,7 @@ import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
 
 /** Channel logos are usually designed for light backgrounds. */
-private val LogoTileColor = Color(0xFFF2F5F8)
+private val LogoTileColor = Color(0xFFEDF1F5)
 
 /**
  * Channel tile: 16:9 logo + name underneath.
@@ -68,6 +68,7 @@ fun ChannelCard(
                 .aspectRatio(16f / 9f),
             containerColor = LogoTileColor,
             focusedContainerColor = Color.White,
+            restingBorderColor = Color.Black.copy(alpha = 0.08f),
             focusRequester = focusRequester,
             onFocused = onFocused
         ) { _ ->
