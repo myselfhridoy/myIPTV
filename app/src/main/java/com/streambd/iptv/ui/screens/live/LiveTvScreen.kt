@@ -114,7 +114,13 @@ fun LiveTvScreen(
     }
 
     // Categories are wide tiles; channels reuse the same grid.
-    val cellMinWidth = if (isTv) 220.dp else 160.dp
+    // 140dp guarantees TWO columns on every phone (a 360dp screen has 336dp
+    // of usable width); tablets and TVs get more, wider columns.
+    val cellMinWidth = when {
+        isTv -> 220.dp
+        device.isTablet -> 180.dp
+        else -> 140.dp
+    }
 
     Column(
         modifier = Modifier
@@ -175,8 +181,8 @@ fun LiveTvScreen(
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = cellMinWidth),
                 contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(d.gridGap),
+                verticalArrangement = Arrangement.spacedBy(d.gridGap),
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (debouncedQuery.isNotBlank() && displayedCategories.isNotEmpty()) {
