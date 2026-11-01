@@ -5,14 +5,13 @@ import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
 /**
- * Prime-style: small, crisp corners on cards; larger on sheets/dialogs.
- * Material3 components (Card, Dialog, Chip, Button …) pick these up
- * automatically through MaterialTheme.shapes.
+ * Crisp, restrained corners (Prime / Netflix style): cards 8dp, buttons
+ * and chips 6dp, sheets/dialogs 12dp. Nothing pill-shaped except icons.
  */
 val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small      = RoundedCornerShape(8.dp),
-    medium     = RoundedCornerShape(12.dp),
-    large      = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(24.dp)
+    extraSmall = RoundedCornerShape(3.dp),
+    small      = RoundedCornerShape(6.dp),
+    medium     = RoundedCornerShape(8.dp),
+    large      = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(16.dp)
 )
