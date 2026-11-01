@@ -65,7 +65,7 @@ import org.json.JSONArray
  * the VOD player are copied unchanged from the old screen (see the block
  * between "STATE & LOGIC" markers). Only the UI is new:
  *   • URL field first; Cookie / Referer / Origin / User-Agent / DRM sit in a
- *     collapsible "Headers & DRM" section (open automatically when the saved
+ *     collapsible "Advanced settings" section (open automatically when the saved
  *     draft already uses any of them)
  *   • full-width Play button instead of a round one at the right edge
  *   • themed fields, selectors, dialogs; TV: URL field auto-focused
@@ -474,7 +474,7 @@ fun StreamScreen(
         "Origin".takeIf { originValue.isNotBlank() },
         "UA: $userAgent".takeIf { userAgent != "Default" },
         "DRM: $drmScheme".takeIf { !drmScheme.equals("None", ignoreCase = true) }
-    ).joinToString(" • ").ifEmpty { "Optional" }
+    ).joinToString(" • ").ifEmpty { "Headers, User-Agent & DRM" }
 
     val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null) {
         { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
@@ -537,7 +537,7 @@ fun StreamScreen(
                 }
 
                 CollapsibleSection(
-                    title = "Headers & DRM",
+                    title = "Advanced settings",
                     summary = advancedSummary,
                     expanded = advancedExpanded,
                     onToggle = { advancedExpanded = !advancedExpanded }
