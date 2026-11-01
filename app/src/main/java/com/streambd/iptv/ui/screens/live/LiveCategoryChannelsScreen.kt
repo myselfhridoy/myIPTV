@@ -1,33 +1,26 @@
 package com.streambd.iptv.ui.screens.live
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,35 +31,32 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.streambd.iptv.data.models.Channel
+import com.streambd.iptv.ui.components.CategoryChip
+import com.streambd.iptv.ui.components.ChannelCard
+import com.streambd.iptv.ui.components.ChannelGridSkeleton
+import com.streambd.iptv.ui.components.EmptyState
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.PremiumOptionRow
-import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.SearchableTopBar
+import com.streambd.iptv.ui.components.SectionHeader
+import com.streambd.iptv.ui.components.initialFocus
+import com.streambd.iptv.ui.components.restoreFocus
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
+import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.MainViewModel
-import androidx.compose.material.icons.filled.Close
-import com.streambd.iptv.ui.theme.SurfaceDark
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Channels of one category: group chips on top, then a grid (single
+ * group) or one horizontal row per group (All).
+ *
+ * Logic is unchanged (filtering, group list, playlist hand-off to the
+ * player, duplicate-safe keys). UI is rebuilt on shared components.
+ * TV: the first channel takes focus automatically.
+ */
 @Composable
 fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavController) {
     val selectedCategory by viewModel.selectedCategory.collectAsState()
@@ -82,6 +72,9 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+
+    val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
 
     val groups = remember(allChannels) {
         val uniqueGroups = allChannels?.map { it.group }?.distinct()?.sorted() ?: emptyList()
@@ -99,6 +92,14 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     // recomposing items whose Channel data hasn't changed.
     val currentPlaylist by rememberUpdatedState(filteredChannels ?: emptyList())
 
+    val openChannel: (Channel) -> Unit = { channel ->
+        viewModel.setCurrentPlaylist(currentPlaylist)
+        viewModel.selectChannel(channel)
+        navController.navigate(Routes.LIVE_PLAYER) {
+            launchSingleTop = true
+        }
+    }
+
     BackHandler(enabled = isSearchActive) {
         if (isSearchFocused) {
             focusManager.clearFocus()
@@ -111,124 +112,46 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkNavyBackground)
+            .background(scheme.background)
     ) {
-        // ── Top bar ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TvIconButton(
-                onClick = {
-                    if (isSearchActive) {
-                        isSearchActive = false
-                        searchQuery = ""
-                    } else {
-                        navController.popBackStack()
-                    }
-                },
-                modifier = Modifier.size(44.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = WhiteText,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-
-            if (isSearchActive) {
-    OutlinedTextField(
-        value = searchQuery,
-        onValueChange = { searchQuery = it },
-        placeholder = {
-            Text(
-                "Search channels…",
-                color = GrayText,
-                fontSize = 14.sp
-            )
-        },
-        leadingIcon = {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = BioAccent
-            )
-        },
-        trailingIcon = {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .tvTouchClick {
-                        searchQuery = ""
-                        isSearchActive = false
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close search",
-                    tint = GrayText
-                )
-            }
-        },
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = BioAccent,
-            unfocusedBorderColor = Color(0xFF2B3648),
-            focusedTextColor = WhiteText,
-            unfocusedTextColor = WhiteText,
-            cursorColor = BioAccent,
-            focusedContainerColor = SurfaceDark,
-            unfocusedContainerColor = SurfaceDark
-        ),
-        shape = RoundedCornerShape(14.dp),
-        singleLine = true,
-        modifier = Modifier
-            .weight(1f)
-            .height(50.dp)
-            .onFocusChanged { isSearchFocused = it.hasFocus }
-    )
-} else {
-                Text(
-                    text = categoryName,
-                    color = WhiteText,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                TvIconButton(
-                    onClick = { isSearchActive = true },
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = WhiteText,
-                        modifier = Modifier.size(22.dp)
-                    )
+        // ── Top bar: back (also while searching) · title · search ──
+        SearchableTopBar(
+            title = categoryName,
+            searchActive = isSearchActive,
+            onSearchActiveChange = { isSearchActive = it },
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            searchPlaceholder = "Search channels…",
+            navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+            navigationDescription = "Back",
+            onNavigationClick = {
+                if (isSearchActive) {
+                    isSearchActive = false
+                    searchQuery = ""
+                } else {
+                    navController.popBackStack()
                 }
-            }
-        }
+            },
+            keepNavigationWhileSearching = true,
+            onSearchFieldFocusChanged = { isSearchFocused = it }
+        )
 
-        // ── Chips row ──
+        // ── Group chips ──
         val validGroups = groups.filter { it.isNotBlank() }
         if (validGroups.size > 1) {
             LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .restoreFocus(),
+                contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(d.spaceSm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 item(key = "groups_button") {
-                    FilterChipItem(
-                        text = "Groups",
+                    CategoryChip(
+                        label = "Groups",
+                        selected = false,
                         icon = Icons.AutoMirrored.Filled.List,
-                        isSelected = false,
                         onClick = { isGroupsModalExpanded = true }
                     )
                 }
@@ -236,22 +159,26 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                     items = validGroups.take(10),
                     key = { index, group -> "chip_${index}_$group" }
                 ) { _, group ->
-                    FilterChipItem(
-                        text = group,
-                        icon = if (selectedGroup == group) Icons.Default.Check else null,
-                        isSelected = selectedGroup == group,
+                    val isSelected = selectedGroup == group
+                    CategoryChip(
+                        label = group,
+                        selected = isSelected,
+                        icon = if (isSelected) Icons.Default.Check else null,
                         onClick = { selectedGroup = group }
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
         // ── Body ──
         when {
-            allChannels == null -> LoadingState()
-            filteredChannels.isNullOrEmpty() -> EmptyState()
+            allChannels == null -> ChannelGridSkeleton(minCellWidth = d.channelCardWidth)
+
+            filteredChannels.isNullOrEmpty() -> EmptyState(
+                title = "No channels available",
+                message = if (searchQuery.isNotBlank()) "Try a different search." else null
+            )
+
             else -> {
                 val groupedChannels = remember(filteredChannels) {
                     if (selectedGroup != "All") mapOf(selectedGroup to filteredChannels)
@@ -268,79 +195,74 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 
                     Column {
                         if (!groupName.isNullOrBlank() && selectedGroup == "All") {
-                            Text(
-                                text = groupName.uppercase(),
-                                color = GrayText,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(
-                                    start = 16.dp, end = 16.dp, bottom = 8.dp
-                                )
-                            )
+                            SectionHeader(title = groupName)
                         }
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 140.dp),
-                            contentPadding = PaddingValues(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            columns = GridCells.Adaptive(minSize = d.channelCardWidth),
+                            contentPadding = PaddingValues(
+                                horizontal = d.screenPaddingH,
+                                vertical = d.spaceMd
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(d.spaceMd),
+                            verticalArrangement = Arrangement.spacedBy(d.spaceMd),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            // ── FIX: index-prefixed key so duplicate name+url pairs
-                            //    (identical PTV Sports listed twice, etc.) don't crash.
+                            // Index-prefixed key so duplicate name+url pairs
+                            // (identical channels listed twice) don't crash.
                             gridItemsIndexed(
                                 items = channelsList ?: emptyList(),
                                 key = { index, channel ->
                                     "$index|${channel.name}|${channel.url}"
                                 }
-                            ) { _, channel ->
-                                ChannelCard(channel = channel) {
-                                    viewModel.setCurrentPlaylist(currentPlaylist)
-                                    viewModel.selectChannel(channel)
-                                    navController.navigate(Routes.LIVE_PLAYER) {
-                                        launchSingleTop = true
-                                    }
-                                }
+                            ) { index, channel ->
+                                ChannelCard(
+                                    name = channel.name,
+                                    logoUrl = channel.logo,
+                                    // TV: first channel takes focus automatically.
+                                    modifier = if (index == 0) Modifier.initialFocus() else Modifier,
+                                    onClick = { openChannel(channel) }
+                                )
                             }
                         }
                     }
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                        verticalArrangement = Arrangement.spacedBy(d.spaceLg),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        var groupCounter = 0
-                        groupedChannels.forEach { (group, channels) ->
-                            val groupKey = "grp_${groupCounter++}_$group"
-                            item(key = groupKey) {
-                                if (group.isNotBlank()) {
-                                    Text(
-                                        text = group.uppercase(),
-                                        color = GrayText,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(
-                                            start = 16.dp, end = 16.dp, bottom = 8.dp
-                                        )
-                                    )
-                                }
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    itemsIndexed(
-                                        items = channels,
-                                        key = { index, channel ->
-                                            "$index|${channel.name}|${channel.url}"
-                                        }
-                                    ) { _, channel ->
-                                        Box(modifier = Modifier.width(140.dp)) {
-                                            ChannelCard(channel = channel) {
-                                                viewModel.setCurrentPlaylist(currentPlaylist)
-                                                viewModel.selectChannel(channel)
-                                                navController.navigate(Routes.LIVE_PLAYER) {
-                                                    launchSingleTop = true
-                                                }
+                        groupedChannels.entries.forEachIndexed { groupIndex, (group, channels) ->
+                            item(key = "grp_${groupIndex}_$group") {
+                                Column {
+                                    if (group.isNotBlank()) {
+                                        SectionHeader(title = group)
+                                    }
+                                    LazyRow(
+                                        modifier = Modifier.restoreFocus(),
+                                        contentPadding = PaddingValues(
+                                            horizontal = d.screenPaddingH,
+                                            vertical = 6.dp
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(d.spaceMd)
+                                    ) {
+                                        itemsIndexed(
+                                            items = channels,
+                                            key = { index, channel ->
+                                                "$index|${channel.name}|${channel.url}"
                                             }
+                                        ) { index, channel ->
+                                            ChannelCard(
+                                                name = channel.name,
+                                                logoUrl = channel.logo,
+                                                modifier = Modifier
+                                                    .width(d.channelCardWidth)
+                                                    .then(
+                                                        if (groupIndex == 0 && index == 0)
+                                                            Modifier.initialFocus()
+                                                        else Modifier
+                                                    ),
+                                                onClick = { openChannel(channel) }
+                                            )
                                         }
                                     }
                                 }
@@ -354,6 +276,10 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
 
     // ── Groups modal ──
     if (isGroupsModalExpanded) {
+        val selectedIndex = groups.indexOf(selectedGroup).coerceAtLeast(0)
+        // Start scrolled to the current group so it is composed and can take focus.
+        val modalListState = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
+
         PremiumDialogScaffold(
             title = "Select Group",
             subtitle = "${groups.size} group${if (groups.size > 1) "s" else ""}",
@@ -361,6 +287,7 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
             scrollContent = false
         ) {
             LazyColumn(
+                state = modalListState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 400.dp),
@@ -370,10 +297,12 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                 itemsIndexed(
                     items = groups,
                     key = { index, group -> "modal_${index}_$group" }
-                ) { _, group ->
+                ) { index, group ->
                     PremiumOptionRow(
                         title = group,
                         selected = selectedGroup == group,
+                        // TV: focus lands on the current group.
+                        modifier = if (index == selectedIndex) Modifier.initialFocus() else Modifier,
                         onClick = {
                             selectedGroup = group
                             isGroupsModalExpanded = false
@@ -381,156 +310,6 @@ fun LiveCategoryChannelsScreen(viewModel: MainViewModel, navController: NavContr
                     )
                 }
             }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Body states
-// ─────────────────────────────────────────────────────────────
-@Composable
-private fun LoadingState() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(
-                color = BioAccent,
-                modifier = Modifier.size(40.dp),
-                strokeWidth = 3.dp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "Loading channels…",
-                color = GrayText,
-                fontSize = 14.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("No channels available.", color = WhiteText)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Filter chip
-// ─────────────────────────────────────────────────────────────
-@Composable
-fun FilterChipItem(
-    text: String,
-    icon: ImageVector?,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isFocused -> BioAccent
-            isSelected -> WhiteText
-            else -> GrayText.copy(alpha = 0.5f)
-        },
-        animationSpec = tween(180),
-        label = "chipBorder"
-    )
-    val bgColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF353C4B) else Color.Transparent,
-        animationSpec = tween(180),
-        label = "chipBg"
-    )
-
-    Row(
-        modifier = Modifier
-            .height(36.dp)
-            .onFocusChanged { isFocused = it.hasFocus }
-            .clip(RoundedCornerShape(18.dp))
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(18.dp)
-            )
-            .background(bgColor, RoundedCornerShape(18.dp))
-            .tvTouchClick(onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = WhiteText,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-        }
-        Text(
-            text = text,
-            color = WhiteText,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Channel card
-// ─────────────────────────────────────────────────────────────
-@Composable
-fun ChannelCard(channel: Channel, onClick: () -> Unit) {
-    var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1f,
-        animationSpec = tween(200),
-        label = "channelScale"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) BioAccent else Color.Transparent,
-        animationSpec = tween(200),
-        label = "channelBorder"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1.77f)
-            .onFocusChanged { isFocused = it.hasFocus }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White)
-            .border(3.dp, borderColor, RoundedCornerShape(8.dp))
-            .tvTouchClick(onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        if (channel.logo.isNotEmpty()) {
-            AsyncImage(
-                model = channel.logo,
-                contentDescription = channel.name,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp)
-            )
-        } else {
-            Text(
-                text = channel.name,
-                color = Color.Black,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(8.dp)
-            )
         }
     }
 }
