@@ -1,5 +1,6 @@
 package com.streambd.iptv.ui.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -140,8 +142,9 @@ fun SearchableTopBar(
     onSearchFieldFocusChanged: (Boolean) -> Unit = {}
 ) {
     val d = AppTheme.dimens
+    Column(modifier = modifier.fillMaxWidth()) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = d.spaceSm, vertical = d.spaceXs),
         verticalAlignment = Alignment.CenterVertically
@@ -190,5 +193,7 @@ fun SearchableTopBar(
             )
             Spacer(Modifier.width(d.spaceSm))
         }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
     }
 }
