@@ -114,7 +114,7 @@ fun LiveTvScreen(
     }
 
     // Categories are wide tiles; channels reuse the same grid.
-    val cellMinWidth = if (isTv) 200.dp else 150.dp
+    val cellMinWidth = if (isTv) 220.dp else 160.dp
 
     Column(
         modifier = Modifier
@@ -174,9 +174,9 @@ fun LiveTvScreen(
 
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = cellMinWidth),
-                contentPadding = PaddingValues(horizontal = d.spaceXl, vertical = d.spaceLg),
-                horizontalArrangement = Arrangement.spacedBy(d.spaceMd),
-                verticalArrangement = Arrangement.spacedBy(d.spaceMd),
+                contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (debouncedQuery.isNotBlank() && displayedCategories.isNotEmpty()) {
