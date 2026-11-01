@@ -1,25 +1,29 @@
 package com.streambd.iptv.ui.screens.playlists
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlaylistPlay
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -30,27 +34,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Playlist
+import com.streambd.iptv.ui.components.AppIconButton
+import com.streambd.iptv.ui.components.AppTextField
+import com.streambd.iptv.ui.components.AppTopBar
+import com.streambd.iptv.ui.components.EmptyState
+import com.streambd.iptv.ui.components.FocusSurface
 import com.streambd.iptv.ui.components.PremiumButton
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
-import com.streambd.iptv.ui.components.TvFocusableItem
-import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.components.tvTouchClick
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
+import com.streambd.iptv.ui.components.initialFocus
+import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.PlaylistViewModel
 import java.net.URLEncoder
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * User playlists. Behaviour is unchanged (open / add / edit / delete);
+ * UI is rebuilt on shared components.
+ *
+ * Changes you will notice:
+ *  • Back button in the top bar, and "Add" is a top-bar button instead of a
+ *    floating button — reachable with a TV remote too.
+ *  • Delete asks for confirmation (one wrong OK press used to wipe a playlist).
+ *  • Empty state has an "Add playlist" button (auto-focused on TV).
+ *  • Wide screens show the playlists in two or more columns.
+ */
 @Composable
 fun PlaylistsScreen(
     playlistViewModel: PlaylistViewModel,
@@ -59,80 +72,70 @@ fun PlaylistsScreen(
     val playlists by playlistViewModel.playlists.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
     var playlistToEdit by remember { mutableStateOf<Playlist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
 
-    Scaffold(
-        containerColor = DarkNavyBackground,
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    playlistToEdit = null
-                    showDialog = true
-                },
-                containerColor = BioAccent
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = "Add Playlist",
-                    tint = DarkNavyBackground
-                )
-            }
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+    val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
+
+    val openAddDialog = {
+        playlistToEdit = null
+        showDialog = true
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(scheme.background)
+    ) {
+        AppTopBar(
+            title = "Playlists",
+            onBack = { navController.popBackStack() }
         ) {
-            // ── Top bar ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Playlists",
-                    color = WhiteText,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            AppIconButton(
+                icon = Icons.Filled.Add,
+                contentDescription = "Add playlist",
+                onClick = openAddDialog
+            )
+        }
+        HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
+        if (playlists.isEmpty()) {
+            EmptyState(
+                title = "No playlists added yet",
+                message = "Add an M3U playlist (URL or local path) to get started.",
+                icon = Icons.Filled.PlaylistPlay,
+                actionLabel = "Add playlist",
+                onAction = openAddDialog
+            )
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 340.dp),
+                contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
+                horizontalArrangement = Arrangement.spacedBy(d.gridGap),
+                verticalArrangement = Arrangement.spacedBy(d.gridGap),
+                modifier = Modifier.fillMaxSize()
             ) {
-                if (playlists.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No playlists added yet.", color = GrayText)
-                    }
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        itemsIndexed(
-                            items = playlists,
-                            key = { index, playlist -> "pl_${index}_${playlist.id}" }
-                        ) { _, playlist ->
-                            PlaylistCard(
-                                playlist = playlist,
-                                onClick = {
-                                    val encodedUrl = URLEncoder.encode(playlist.url, "UTF-8")
-                                    navController.navigate(
-                                        "playlist_channels/${playlist.title}/$encodedUrl"
-                                    )
-                                },
-                                onEdit = {
-                                    playlistToEdit = playlist
-                                    showDialog = true
-                                },
-                                onDelete = { playlistViewModel.deletePlaylist(playlist) }
+                itemsIndexed(
+                    items = playlists,
+                    key = { index, playlist -> "pl_${index}_${playlist.id}" }
+                ) { index, playlist ->
+                    PlaylistCard(
+                        playlist = playlist,
+                        modifier = if (index == 0) Modifier.initialFocus() else Modifier,
+                        onClick = {
+                            // url may be null for file-based playlists → fall back to filePath
+                            val target = playlist.url ?: playlist.filePath ?: ""
+                            val encodedUrl = URLEncoder.encode(target, "UTF-8")
+                            navController.navigate(
+                                "playlist_channels/${playlist.title}/$encodedUrl"
                             )
-                        }
-                    }
+                        },
+                        onEdit = {
+                            playlistToEdit = playlist
+                            showDialog = true
+                        },
+                        onDelete = { playlistToDelete = playlist }
+                    )
                 }
             }
         }
@@ -143,8 +146,9 @@ fun PlaylistsScreen(
             playlist = playlistToEdit,
             onDismiss = { showDialog = false },
             onSave = { title, url ->
-                if (playlistToEdit != null) {
-                    playlistViewModel.updatePlaylist(playlistToEdit!!.copy(title = title, url = url))
+                val editing = playlistToEdit
+                if (editing != null) {
+                    playlistViewModel.updatePlaylist(editing.copy(title = title, url = url))
                 } else {
                     playlistViewModel.addPlaylist(title, url)
                 }
@@ -152,87 +156,106 @@ fun PlaylistsScreen(
             }
         )
     }
+
+    playlistToDelete?.let { target ->
+        PremiumDialogScaffold(
+            title = "Delete playlist",
+            subtitle = "“${target.title}” will be removed from this device.",
+            onDismiss = { playlistToDelete = null },
+            actions = {
+                PremiumButton("Cancel", { playlistToDelete = null })
+                PremiumButton(
+                    text = "Delete",
+                    onClick = {
+                        playlistViewModel.deletePlaylist(target)
+                        playlistToDelete = null
+                    },
+                    primary = true
+                )
+            }
+        ) {}
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Playlist card — custom, predictable on TV + mobile
+// Playlist row — whole row opens the playlist; edit / delete are
+// separate focusable buttons (D-pad: Right moves onto them).
 // ─────────────────────────────────────────────────────────────
 @Composable
 fun PlaylistCard(
     playlist: Playlist,
     onClick: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    TvFocusableItem(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        restBackground = Color(0xFF151A25),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-    ) {
-        // Leading icon
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(BioAccent.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Filled.PlaylistPlay,
-                contentDescription = null,
-                tint = BioAccent,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(14.dp))
+    val scheme = MaterialTheme.colorScheme
+    val subtitle = playlist.url?.takeIf { it.isNotBlank() }
+        ?: playlist.filePath?.takeIf { it.isNotBlank() }
 
-        // Title + URL
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = playlist.title,
-                color = WhiteText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (!playlist.url.isNullOrEmpty()) {
+    FocusSurface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        containerColor = scheme.surface.copy(alpha = 0.55f),
+        focusedContainerColor = scheme.surfaceVariant,
+        restingBorderColor = scheme.outline.copy(alpha = 0.55f),
+        focusScale = 1f, // wide row: ring only, no scaling
+        contentAlignment = Alignment.CenterStart,
+        propagateMinConstraints = true
+    ) { _ ->
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(scheme.primary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlaylistPlay,
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = playlist.url,
-                    color = GrayText,
-                    fontSize = 12.sp,
+                    text = playlist.title,
+                    color = scheme.onSurface,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        color = scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-        }
 
-        // Trailing buttons
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TvIconButton(
+            AppIconButton(
+                icon = Icons.Filled.Edit,
+                contentDescription = "Edit ${playlist.title}",
                 onClick = onEdit,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Edit,
-                    contentDescription = "Edit",
-                    tint = WhiteText,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            TvIconButton(
+                tint = scheme.onSurfaceVariant
+            )
+            AppIconButton(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Delete ${playlist.title}",
                 onClick = onDelete,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Delete",
-                    tint = Color(0xFFFF6B6B),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+                tint = scheme.error
+            )
         }
     }
 }
@@ -240,7 +263,6 @@ fun PlaylistCard(
 // ─────────────────────────────────────────────────────────────
 // Add / Edit dialog
 // ─────────────────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistDialog(
     playlist: Playlist? = null,
@@ -251,6 +273,7 @@ fun PlaylistDialog(
     var url by remember { mutableStateOf(playlist?.url ?: "") }
 
     val canSave = title.isNotBlank() && url.isNotBlank()
+    val save = { if (canSave) onSave(title.trim(), url.trim()) }
 
     PremiumDialogScaffold(
         title = if (playlist == null) "Add New Playlist" else "Edit Playlist",
@@ -259,13 +282,7 @@ fun PlaylistDialog(
         scrollContent = false,
         actions = {
             PremiumButton("Cancel", onDismiss)
-            PremiumButton(
-                text = "Save",
-                onClick = {
-                    if (canSave) onSave(title.trim(), url.trim())
-                },
-                primary = true
-            )
+            PremiumButton(text = "Save", onClick = { save() }, primary = true)
         }
     ) {
         Column(
@@ -274,33 +291,27 @@ fun PlaylistDialog(
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            OutlinedTextField(
+            AppTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Playlist Title", color = GrayText) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = WhiteText,
-                    unfocusedTextColor = WhiteText,
-                    focusedBorderColor = BioAccent,
-                    unfocusedBorderColor = Color.Gray,
-                    cursorColor = BioAccent
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                label = "Playlist Title",
+                imeAction = ImeAction.Next,
+                // New playlist: open the keyboard straight away (phones).
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (playlist == null) Modifier.initialFocus(tvOnly = false)
+                        else Modifier
+                    )
             )
-            OutlinedTextField(
+            AppTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = { Text("Playlist URL (M3U)", color = GrayText) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = WhiteText,
-                    unfocusedTextColor = WhiteText,
-                    focusedBorderColor = BioAccent,
-                    unfocusedBorderColor = Color.Gray,
-                    cursorColor = BioAccent
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                label = "Playlist URL (M3U)",
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Done,
+                onDone = { save() },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
