@@ -126,15 +126,33 @@ private fun streamUrlWithDrm(stream: SportzfyStream): String {
     return url
 }
 
-/** Every source of the event, keyed by a unique display name. */
-private fun buildSources(streams: List<SportzfyStream>): MutableMap<String, String> {
+/**
+ * Every source of the event, keyed by a unique display name.
+ *
+ * ORDER MATTERS: the live player starts with the FIRST entry of this map
+ * (`Channel.primarySourceUrl()` = `sources.values.first()`), not with
+ * `Channel.url`. So the stream the user picked is placed first; the other
+ * sources follow in their original order and stay available in the
+ * player's source switcher.
+ */
+private fun buildSources(
+    streams: List<SportzfyStream>,
+    selectedIndex: Int
+): MutableMap<String, String> {
     val sourcesMap = mutableMapOf<String, String>()
+    var selectedName: String? = null
     streams.forEachIndexed { idx, s ->
         var name = s.label.takeIf { !it.isNullOrBlank() } ?: "Source ${idx + 1}"
         if (sourcesMap.containsKey(name)) name = "$name (${idx + 1})"
         sourcesMap[name] = streamUrlWithDrm(s)
+        if (idx == selectedIndex) selectedName = name
     }
-    return sourcesMap
+
+    val chosen = selectedName ?: return sourcesMap
+    val ordered = mutableMapOf<String, String>()
+    ordered[chosen] = sourcesMap.getValue(chosen)
+    sourcesMap.forEach { (name, url) -> if (name != chosen) ordered[name] = url }
+    return ordered
 }
 
 /** The Channel handed to the live player for [stream] of [event]. */
@@ -151,5 +169,5 @@ internal fun buildEventChannel(
         type = "clearkey",
         rawKeyPair = "${stream.drm_kid}:${stream.drm_key}"
     ) else null,
-    sources = buildSources(allStreams)
+    sources = buildSources(allStreams, allStreams.indexOf(stream).coerceAtLeast(0))
 )
