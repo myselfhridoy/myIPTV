@@ -27,15 +27,15 @@ fun CategoryGridSkeleton(
         columns = GridCells.Adaptive(minCellWidth),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(d.gridGap),
+        verticalArrangement = Arrangement.spacedBy(d.gridGap),
         userScrollEnabled = false
     ) {
         items(count) {
             ShimmerBox(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
+                    .height(56.dp),
                 shape = MaterialTheme.shapes.medium
             )
         }
@@ -53,9 +53,9 @@ fun ChannelGridSkeleton(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minCellWidth),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceLg),
-        horizontalArrangement = Arrangement.spacedBy(d.spaceMd),
-        verticalArrangement = Arrangement.spacedBy(d.spaceMd),
+        contentPadding = PaddingValues(horizontal = d.screenPaddingH, vertical = d.spaceMd),
+        horizontalArrangement = Arrangement.spacedBy(d.gridGap),
+        verticalArrangement = Arrangement.spacedBy(d.gridGap),
         userScrollEnabled = false
     ) {
         items(count) {
