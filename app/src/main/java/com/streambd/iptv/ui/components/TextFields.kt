@@ -8,6 +8,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,8 +59,11 @@ fun AppTextField(
             focusedLabelColor = scheme.primary,
             unfocusedLabelColor = scheme.onSurfaceVariant,
             cursorColor = scheme.primary,
-            focusedContainerColor = scheme.surface,
-            unfocusedContainerColor = scheme.surface
+            // Transparent on purpose: a filled container ends at the border, but the
+            // floating label pokes out above it — that showed up as a two-tone box
+            // behind the label. Transparent keeps the label cut-out seamless.
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent
         ),
         modifier = modifier
     )
