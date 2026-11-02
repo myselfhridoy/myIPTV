@@ -5,12 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.LocalContext
 import com.streambd.iptv.utils.DeviceType
 
@@ -57,15 +55,12 @@ fun Modifier.initialFocus(
 }
 
 /**
- * FOCUS RESTORE
- * -------------
- * Apply to a row/column/grid that holds many focusable items.
- * When the user leaves the list and comes back (D-pad up/down),
- * focus returns to the item they were on — not the first item.
+ * Marks a row / column / grid as one focus group.
  *
- *     LazyRow(modifier = Modifier.restoreFocus()) { ... }
+ * (It used to also call `focusRestorer()`. On Compose 1.6 that modifier loses
+ * focus on Android TV when the remembered item has left a lazy list — the
+ * focus ring "disappeared" until OK was pressed. Plain directional search
+ * works reliably, so restoring is no longer attempted. The function name is
+ * kept so existing call sites need no change.)
  */
-@OptIn(ExperimentalComposeUiApi::class)
-fun Modifier.restoreFocus(): Modifier = this
-    .focusRestorer()
-    .focusGroup()
+fun Modifier.restoreFocus(): Modifier = this.focusGroup()
