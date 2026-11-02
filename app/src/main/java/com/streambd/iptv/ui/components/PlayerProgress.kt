@@ -17,8 +17,8 @@ import kotlinx.coroutines.isActive
  *
  * WHY a holder: the screen passes this object down and only the composable
  * that actually READS `position` (the seek bar) recomposes every tick. When
- * the three values were plain `var`s inside the screen function, the whole
- * player screen recomposed twice a second.
+ * the values were plain `var`s inside the screen function, the whole player
+ * screen recomposed twice a second.
  */
 @Stable
 class PlayerProgress {
@@ -30,10 +30,22 @@ class PlayerProgress {
     var duration by mutableLongStateOf(0L)
         private set
 
+    /**
+     * While true the polled position is NOT applied (the user is dragging the
+     * seek bar and we show the finger position instead). Buffer and duration
+     * keep updating.
+     */
+    var holdPosition: Boolean = false
+
     val isLive: Boolean get() = duration <= 0L
 
+    /** Show [ms] right now (after a seek) instead of waiting for the next poll. */
+    fun overridePosition(ms: Long) {
+        position = ms
+    }
+
     internal fun update(player: Player) {
-        position = player.currentPosition
+        if (!holdPosition) position = player.currentPosition
         buffered = player.bufferedPosition
         duration = player.duration.coerceAtLeast(0L)
     }
