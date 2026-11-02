@@ -69,6 +69,7 @@ fun FocusSurface(
     focusScale: Float = AppTheme.dimens.focusScale,
     showRing: Boolean = true,
     restingBorderColor: Color = Color.Transparent,
+    ringColor: Color = PrimeFocusRing,
     role: Role = Role.Button,
     focusRequester: FocusRequester? = null,
     onFocused: (() -> Unit)? = null,
@@ -94,8 +95,8 @@ fun FocusSurface(
         animationSpec = tween(160),
         label = "focusContainer"
     )
-    val ringColor by animateColorAsState(
-        targetValue = if (isFocused && showRing) PrimeFocusRing else restingBorderColor,
+    val ringTint by animateColorAsState(
+        targetValue = if (isFocused && showRing) ringColor else restingBorderColor,
         animationSpec = tween(160),
         label = "focusRing"
     )
@@ -113,7 +114,7 @@ fun FocusSurface(
             }
             .clip(shape)
             .background(background)
-            .border(ringWidth, ringColor, shape)
+            .border(ringWidth, ringTint, shape)
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
