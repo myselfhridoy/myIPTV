@@ -28,10 +28,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.heading
@@ -39,6 +42,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -64,6 +72,7 @@ import com.streambd.iptv.ui.navigation.Routes
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 private data class MediaRow(
@@ -119,6 +128,12 @@ fun VodScreen(
     val device = LocalDeviceProfile.current
     val isTV = device.isTv
     val isMobilePortrait = !isTV && !device.isLandscape
+    // A 24" TV is only ~540dp tall: smaller posters let a whole row fit under the hero.
+    val cardWidth = when {
+        isMobilePortrait -> 115.dp
+        isTV && device.screenHeightDp < 600 -> 150.dp
+        else -> 180.dp
+    }
 
     val mediaRows = remember(
         trendingMovies, trendingTv,
@@ -151,13 +166,31 @@ fun VodScreen(
         viewModel.search("", context)
     }
 
+    // Opening a title from the search results must NOT reset the screen first:
+    // that made the browse rows flash during the transition to the details page.
+    // Instead the search is closed once this screen has really been covered
+    // (ON_STOP), so coming back lands on the normal browse view as before.
+    var closeSearchAfterNavigation by remember { mutableStateOf(false) }
+    val currentCloseSearch by rememberUpdatedState(closeSearch)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && closeSearchAfterNavigation) {
+                closeSearchAfterNavigation = false
+                currentCloseSearch()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
         when {
-            showInitialSkeleton -> VodSkeleton(isMobilePortrait = isMobilePortrait)
+            showInitialSkeleton -> VodSkeleton(isMobilePortrait = isMobilePortrait, cardWidth = cardWidth)
 
             isSearching -> SearchMode(
                 query = searchQuery,
@@ -170,7 +203,7 @@ fun VodScreen(
                 isMobilePortrait = isMobilePortrait,
                 onClose = closeSearch,
                 onClickItem = { media ->
-                    closeSearch()
+                    closeSearchAfterNavigation = true
                     handleItemClick(media)
                 }
             )
@@ -179,6 +212,8 @@ fun VodScreen(
                 mediaRows = mediaRows,
                 isMobilePortrait = isMobilePortrait,
                 isTv = isTV,
+                cardWidth = cardWidth,
+                screenHeightDp = device.screenHeightDp,
                 onMenuClick = onMenuClick,
                 onSearchClick = { isSearching = true },
                 firstCardRequester = firstCardRequester,
@@ -205,12 +240,16 @@ private fun BrowseMode(
     mediaRows: List<MediaRow>,
     isMobilePortrait: Boolean,
     isTv: Boolean,
+    cardWidth: Dp,
+    screenHeightDp: Int,
     onMenuClick: (() -> Unit)?,
     onSearchClick: () -> Unit,
     firstCardRequester: FocusRequester,
     onClickItem: (TmdbMedia) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
 
     val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null) {
         { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
@@ -244,13 +283,17 @@ private fun BrowseMode(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
         ) {
             if (heroItems.isNotEmpty()) {
                 HeroBanner(
                     items = heroItems,
                     isCompact = isMobilePortrait,
                     isTv = isTv,
+                    screenHeightDp = screenHeightDp,
+                    // D-pad Up onto the banner: scroll to the very top so the whole
+                    // banner is visible (otherwise only its bottom edge showed).
+                    onFocusedScrollToTop = { scope.launch { scrollState.animateScrollTo(0) } },
                     onOpen = onClickItem
                 )
             }
@@ -263,6 +306,7 @@ private fun BrowseMode(
                     mediaList = row.list,
                     firstCardRequester = if (index == 0) firstCardRequester else null,
                     isMobilePortrait = isMobilePortrait,
+                    cardWidth = cardWidth,
                     onClick = onClickItem
                 )
                 Spacer(modifier = Modifier.height(if (isMobilePortrait) 12.dp else 20.dp))
@@ -283,6 +327,8 @@ private fun HeroBanner(
     items: List<TmdbMedia>,
     isCompact: Boolean,
     isTv: Boolean,
+    screenHeightDp: Int,
+    onFocusedScrollToTop: () -> Unit,
     onOpen: (TmdbMedia) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -303,7 +349,12 @@ private fun HeroBanner(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(if (isCompact) 16f / 11f else 21f / 9f)
+            .then(
+                // TV: height from the SCREEN height (a 21:9 banner on a 540dp-tall
+                // TV is ~410dp and pushes every row off-screen).
+                if (isTv) Modifier.height((screenHeightDp * 0.42f).dp)
+                else Modifier.aspectRatio(if (isCompact) 16f / 11f else 21f / 9f)
+            )
     ) {
         Crossfade(
             targetState = current,
@@ -356,7 +407,7 @@ private fun HeroBanner(
             Text(
                 text = current.displayTitle,
                 color = scheme.onBackground,
-                style = if (isCompact) MaterialTheme.typography.headlineSmall
+                style = if (isCompact || isTv) MaterialTheme.typography.headlineSmall
                 else MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
@@ -382,7 +433,7 @@ private fun HeroBanner(
                     text = current.overview,
                     color = scheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = if (isTv) 3 else 2,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -391,7 +442,8 @@ private fun HeroBanner(
             AppButton(
                 text = "More info",
                 onClick = { onOpen(current) },
-                icon = Icons.Default.Info
+                icon = Icons.Default.Info,
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onFocusedScrollToTop() }
             )
         }
     }
@@ -522,12 +574,12 @@ private fun MediaSection(
     mediaList: List<TmdbMedia>,
     firstCardRequester: FocusRequester?,
     isMobilePortrait: Boolean,
+    cardWidth: Dp,
     onClick: (TmdbMedia) -> Unit
 ) {
     val d = AppTheme.dimens
     val spacing = if (isMobilePortrait) 10.dp else 16.dp
     val verticalPadding = if (isMobilePortrait) 6.dp else 12.dp
-    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
 
     Column {
         SectionHeader(title = title)
@@ -557,23 +609,22 @@ private fun MediaSection(
 }
 
 @Composable
-private fun VodSkeleton(isMobilePortrait: Boolean) {
+private fun VodSkeleton(isMobilePortrait: Boolean, cardWidth: Dp) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(top = if (isMobilePortrait) 60.dp else 120.dp)
     ) {
         repeat(3) {
-            SkeletonRow(isMobilePortrait = isMobilePortrait)
+            SkeletonRow(isMobilePortrait = isMobilePortrait, cardWidth = cardWidth)
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-private fun SkeletonRow(isMobilePortrait: Boolean) {
+private fun SkeletonRow(isMobilePortrait: Boolean, cardWidth: Dp) {
     val d = AppTheme.dimens
-    val cardWidth = if (isMobilePortrait) 115.dp else 180.dp
     val spacing = if (isMobilePortrait) 10.dp else 16.dp
 
     Column {
