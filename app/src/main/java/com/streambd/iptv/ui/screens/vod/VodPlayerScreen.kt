@@ -48,6 +48,8 @@ import androidx.navigation.NavController
 import com.streambd.iptv.R
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
+import com.streambd.iptv.ui.components.PlaybackErrorPanel
+import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
@@ -97,16 +99,13 @@ fun VodPlayerScreen(
     var exitRequested by remember { mutableStateOf(false) }
 
     // ── Playback state ──
-    var currentPosition by remember { mutableStateOf(0L) }
-    var bufferedPosition by remember { mutableStateOf(0L) }
-    var duration by remember { mutableStateOf(0L) }
+    // Position / buffer / duration: observable holder, polled only while the
+    // controls are visible; only the timeline reads it.
+    val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
     var resolveFailed by remember { mutableStateOf(false) }
     var retryToken by remember { mutableStateOf(0) }
-
-    var isDragging by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableStateOf(0f) }
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
@@ -547,17 +546,6 @@ val loadErrorPolicy = object :
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ── Position polling — gated on overlay visibility. ──
-    LaunchedEffect(exoPlayer, showOverlay) {
-        if (!showOverlay) return@LaunchedEffect
-        while (currentCoroutineContext().isActive) {
-            if (!isDragging) currentPosition = exoPlayer.currentPosition
-            bufferedPosition = exoPlayer.bufferedPosition
-            duration = exoPlayer.duration.coerceAtLeast(0L)
-            delay(500)
-        }
-    }
-
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
@@ -617,12 +605,12 @@ val loadErrorPolicy = object :
                         when (event.nativeKeyEvent.keyCode) {
                             android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (!showOverlay) {
-                                    currentPosition = seekBy(exoPlayer, -seekAmount); true
+                                    progress.overridePosition(seekBy(exoPlayer, -seekAmount)); true
                                 } else false
                             }
                             android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                 if (!showOverlay) {
-                                    currentPosition = seekBy(exoPlayer, seekAmount); true
+                                    progress.overridePosition(seekBy(exoPlayer, seekAmount)); true
                                 } else false
                             }
                             android.view.KeyEvent.KEYCODE_DPAD_CENTER,
@@ -676,230 +664,70 @@ val loadErrorPolicy = object :
             }
 
             if (showOverlay && !isInPiP) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
-                    if (isLocked) {
-                        TvIconButton(
-                            onClick = { isLocked = false },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(16.dp)
-                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                .focusRequester(unlockFocusRequester)
-                        ) {
-                            Icon(Icons.Default.Lock, "Unlock", tint = Color.White)
+                VodPlayerOverlay(
+                    modifier = Modifier.fillMaxSize(),
+                    title = videoTitle,
+                    isLocked = isLocked,
+                    isPlaying = isPlaying,
+                    isMuted = isMuted,
+                    progress = progress,
+                    playPauseFocusRequester = playPauseFocusRequester,
+                    unlockFocusRequester = unlockFocusRequester,
+                    onBack = { requestExit() },
+                    onUnlock = { isLocked = false },
+                    onLock = { isLocked = true },
+                    onCycleAspect = {
+                        val modes = VideoScaleMode.entries.toTypedArray()
+                        val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
+                        scaleMode = modes[nextIndex]
+                        android.widget.Toast.makeText(
+                            context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onEnterPiP = {
+                        val activity = context as? ComponentActivity
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            val params = android.app.PictureInPictureParams.Builder().build()
+                            activity?.enterPictureInPictureMode(params)
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TvIconButton(
-                                onClick = { requestExit() },
-                                modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            if (videoTitle != null) {
-                                Box(
-                                    modifier = Modifier.weight(1f).padding(end = 16.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = videoTitle, color = Color.White,
-                                            fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            } else Spacer(modifier = Modifier.weight(1f))
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TvIconButton(onClick = { isLocked = true }) {
-                                    Icon(Icons.Default.Lock, "Lock", tint = Color.White)
-                                }
-                                TvIconButton(onClick = {
-                                    val modes = VideoScaleMode.entries.toTypedArray()
-                                    val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
-                                    scaleMode = modes[nextIndex]
-                                    android.widget.Toast.makeText(
-                                        context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }) {
-                                    Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
-                                }
-                                TvIconButton(onClick = {
-                                    val activity = context as? ComponentActivity
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        val params = android.app.PictureInPictureParams.Builder().build()
-                                        activity?.enterPictureInPictureMode(params)
-                                    }
-                                }) {
-                                    Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
-                                }
-                                TvIconButton(onClick = { showTrackSelector = true }) {
-                                    Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(24.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TvIconButton(
-                                onClick = { currentPosition = seekBy(exoPlayer, -seekAmount) },
-                                modifier = Modifier.size(48.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.Replay10, "Seek Back 10s",
-                                    tint = Color.White, modifier = Modifier.size(28.dp))
-                            }
-                            TvIconButton(
-                                onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                modifier = Modifier.size(64.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                    .focusRequester(playPauseFocusRequester)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = Color.White, modifier = Modifier.size(36.dp)
-                                )
-                            }
-                            TvIconButton(
-                                onClick = { currentPosition = seekBy(exoPlayer, seekAmount) },
-                                modifier = Modifier.size(48.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.Forward10, "Seek Forward 10s",
-                                    tint = Color.White, modifier = Modifier.size(28.dp))
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .padding(horizontal = 24.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val shownPosition = if (isDragging)
-                                (dragFraction * duration).toLong() else currentPosition
-                            Text(formatVodTime(shownPosition), color = Color.White, fontSize = 12.sp)
-                            Box(
-                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val bufferFraction = if (duration > 0)
-                                    (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                                val playbackFraction = if (duration > 0)
-                                    (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                                LinearProgressIndicator(
-                                    progress = { bufferFraction },
-                                    modifier = Modifier.fillMaxWidth()
-                                        .padding(horizontal = 8.dp)
-                                        .height(4.dp)
-                                        .clip(CircleShape),
-                                    color = Color.White.copy(alpha = 0.4f),
-                                    trackColor = Color.Gray.copy(alpha = 0.3f)
-                                )
-                                Slider(
-                                    value = if (isDragging) dragFraction else playbackFraction,
-                                    onValueChange = { value ->
-                                        isDragging = true; dragFraction = value
-                                    },
-                                    onValueChangeFinished = {
-                                        if (duration > 0) {
-                                            val pos = (dragFraction * duration).toLong()
-                                            exoPlayer.seekTo(pos); currentPosition = pos
-                                        }
-                                        isDragging = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = Color.White,
-                                        activeTrackColor = Color.Red,
-                                        inactiveTrackColor = Color.Transparent
-                                    )
-                                )
-                            }
-                            Text(formatVodTime(duration), color = Color.White, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            TvIconButton(onClick = {
-                                isMuted = !isMuted
-                                exoPlayer.volume = if (isMuted) 0f else 1f
-                            }) {
-                                Icon(
-                                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                                    else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = "Volume", tint = Color.White
-                                )
-                            }
-                        }
+                    },
+                    onOpenTracks = { showTrackSelector = true },
+                    onSeekBack = { progress.overridePosition(seekBy(exoPlayer, -seekAmount)) },
+                    onSeekForward = { progress.overridePosition(seekBy(exoPlayer, seekAmount)) },
+                    onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                    onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
+                    onToggleMute = {
+                        isMuted = !isMuted
+                        exoPlayer.volume = if (isMuted) 0f else 1f
                     }
-                }
+                )
             }
 
             if (isLoading && !isLocked) {
                 CircularProgressIndicator(
-                    color = Color.Red,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.align(Alignment.Center)
                 )
             } else if (playerError != null || resolveFailed) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val primaryText = when {
-                        playerError != null -> playerError?.message ?: "Unknown error"
-                        resolveFailed ->
-                            "The stream could not be resolved or the URL is unreachable."
-                        else -> "Unknown error"
-                    }
-                    Text(primaryText, color = Color.White, fontSize = 12.sp)
-
-                    val causeText = playerError?.cause?.message
-                    if (!causeText.isNullOrBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(causeText, color = Color.LightGray, fontSize = 10.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            playerError = null
-                            resolveFailed = false
-                            isLoading = true
-                            exoPlayer.stop()
-                            exoPlayer.clearMediaItems()
-                            retryToken++
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
-                    ) {
-                        Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Retry", color = Color.White)
-                    }
+                val primaryText = when {
+                    playerError != null -> playerError?.message ?: "Unknown error"
+                    resolveFailed ->
+                        "The stream could not be resolved or the URL is unreachable."
+                    else -> "Unknown error"
                 }
+                PlaybackErrorPanel(
+                    modifier = Modifier.align(Alignment.Center),
+                    message = primaryText,
+                    cause = playerError?.cause?.message,
+                    onRetry = {
+                        playerError = null
+                        resolveFailed = false
+                        isLoading = true
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        retryToken++
+                    }
+                )
             }
 
             if (showTrackSelector) {
@@ -930,3 +758,4 @@ private fun formatVodTime(ms: Long): String {
     return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
            else String.format("%02d:%02d", minutes, seconds)
 }
+
