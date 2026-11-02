@@ -44,10 +44,8 @@ import com.streambd.iptv.ui.components.rememberIsTv
 /**
  * Text field with Paste / Clear buttons.
  *
- *  • Phone: a normal text field.
- *  • TV: remote keyboards are awkward, so the field shows as a button; OK
- *    opens the real editor, and leaving it (or pressing Done) closes it.
- *    Same behaviour as the old StreamTextField.
+ * The TV behaviour (button first, OK opens the editor) now lives in
+ * [AppTextField], so every text field in the app behaves the same.
  */
 @Composable
 fun StreamTextField(
@@ -58,113 +56,36 @@ fun StreamTextField(
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
-    val isTv = rememberIsTv()
 
-    val trailing: @Composable () -> Unit = {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AppIconButton(
-                icon = Icons.Default.ContentPaste,
-                contentDescription = "Paste $label",
-                onClick = {
-                    val clip = readClipboardText(context)
-                    if (!clip.isNullOrBlank()) onValueChange(clip)
-                },
-                tint = scheme.primary,
-                modifier = Modifier.size(40.dp)
-            )
-            if (value.isNotEmpty()) {
+    AppTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = label,
+        modifier = modifier.fillMaxWidth(),
+        trailingIcon = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 AppIconButton(
-                    icon = Icons.Default.Clear,
-                    contentDescription = "Clear $label",
-                    onClick = { onValueChange("") },
-                    tint = scheme.onSurfaceVariant,
+                    icon = Icons.Default.ContentPaste,
+                    contentDescription = "Paste $label",
+                    onClick = {
+                        val clip = readClipboardText(context)
+                        if (!clip.isNullOrBlank()) onValueChange(clip)
+                    },
+                    tint = scheme.primary,
                     modifier = Modifier.size(40.dp)
                 )
+                if (value.isNotEmpty()) {
+                    AppIconButton(
+                        icon = Icons.Default.Clear,
+                        contentDescription = "Clear $label",
+                        onClick = { onValueChange("") },
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
             }
         }
-    }
-
-    if (!isTv) {
-        AppTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = label,
-            modifier = modifier.fillMaxWidth(),
-            trailingIcon = trailing
-        )
-        return
-    }
-
-    // ── TV ──
-    var isEditing by remember { mutableStateOf(false) }
-    val editFocusRequester = remember { FocusRequester() }
-
-    if (isEditing) {
-        var hadFocus by remember { mutableStateOf(false) }
-        AppTextField(
-            value = value,
-            onValueChange = onValueChange,
-            label = label,
-            imeAction = ImeAction.Done,
-            onDone = { isEditing = false },
-            trailingIcon = trailing,
-            modifier = modifier
-                .fillMaxWidth()
-                .focusRequester(editFocusRequester)
-                .onFocusChanged { state ->
-                    if (state.isFocused) {
-                        hadFocus = true
-                    } else if (hadFocus) {
-                        hadFocus = false
-                        isEditing = false
-                    }
-                }
-        )
-        LaunchedEffect(Unit) {
-            try { editFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
-    } else {
-        FocusSurface(
-            onClick = { isEditing = true },
-            modifier = modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            containerColor = scheme.surface.copy(alpha = 0.55f),
-            focusedContainerColor = scheme.surfaceVariant,
-            restingBorderColor = scheme.outline,
-            focusScale = 1f,
-            contentAlignment = Alignment.CenterStart,
-            propagateMinConstraints = true
-        ) { _ ->
-            Row(
-                modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = label,
-                            color = scheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    } else {
-                        Text(
-                            text = label,
-                            color = scheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = value,
-                            color = scheme.onSurface,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                trailing()
-            }
-        }
-    }
+    )
 }
 
 /**
