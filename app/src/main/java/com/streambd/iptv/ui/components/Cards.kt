@@ -69,6 +69,8 @@ fun ChannelCard(
             containerColor = LogoTileColor,
             focusedContainerColor = Color.White,
             restingBorderColor = Color.Black.copy(alpha = 0.08f),
+            // Light tile → a near-white ring would vanish; use the brand colour.
+            ringColor = MaterialTheme.colorScheme.primary,
             focusRequester = focusRequester,
             onFocused = onFocused
         ) { _ ->
