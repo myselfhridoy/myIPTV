@@ -1,27 +1,30 @@
 package com.streambd.iptv.ui.screens.vod
 
-import android.content.res.Configuration
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,62 +34,55 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
+import com.streambd.iptv.data.models.TmdbGenre
+import com.streambd.iptv.data.models.TmdbMedia
+import com.streambd.iptv.data.models.TmdbSeason
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
+import com.streambd.iptv.ui.components.AppButton
+import com.streambd.iptv.ui.components.AppIconButton
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.PremiumOptionRow
-import com.streambd.iptv.ui.components.TvFocusableItem
-import com.streambd.iptv.ui.components.TvIconButton
-import com.streambd.iptv.ui.components.tvTouchClick
+import com.streambd.iptv.ui.components.RemoteImage
+import com.streambd.iptv.ui.components.SelectField
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
+import com.streambd.iptv.ui.theme.AppTheme
+import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-private val SurfaceChip = Color(0xFF1E2633)
-private val BioAccentDim = Color(0xFF008D94)
-private val StarGold = Color(0xFFFFC43D)
-
 /**
- * TmdbDetailsScreen
+ * Movie / series details.
  *
- * NOTE: This screen uses no Lazy containers.
+ * NOTE: this screen uses no Lazy containers (same Compose 1.6.x TV focus
+ * crash as VodScreen — see the explanation there). Season / episode lists
+ * are small, so plain Column + verticalScroll is fine.
  *
- * Compose 1.6.x has a bug in LazyLayoutBeyondBoundsModifierLocal that
- * crashes the focus system on Android TV when D-pad navigation triggers
- * a beyond-bounds focus search:
- *   IllegalStateException: LayoutCoordinate operations are only valid
- *   when isAttached is true
- *
- * The fix requires Compose Foundation 1.7.0+, which needs Kotlin 1.9.23+
- * and Compose Compiler 1.5.11+. To keep the current toolchain we replaced
- * every LazyColumn in this screen with a plain Column + verticalScroll.
- * Season/episode lists are small enough that eager composition is cheap.
+ * ALL logic is unchanged: details fetching, restoring & saving the last
+ * season/episode per title, Play-button focus retries, season / episode
+ * dialogs. Only the layout is new:
+ *   • phone / portrait: wide backdrop on top, left-aligned title, genres,
+ *     full-width Play button, Season / Episode selectors, overview
+ *   • landscape / TV / tablet: poster + info side by side over the backdrop
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun TmdbDetailsScreen(
     mainViewModel: MainViewModel,
@@ -97,11 +93,10 @@ fun TmdbDetailsScreen(
     val tvDetails by tmdbViewModel.selectedTvDetails.collectAsState()
     val movieDetails by tmdbViewModel.selectedMovieDetails.collectAsState()
 
-    val configuration = LocalConfiguration.current
-    val context = LocalContext.current
-    val isTv = remember(context) { com.streambd.iptv.utils.DeviceType.isTv(context) }
-    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-    val isCompact = configuration.screenWidthDp < 600 && !isTv
+    val device = LocalDeviceProfile.current
+    val isTv = device.isTv
+    val isPortrait = !device.isLandscape
+    val isCompact = device.screenWidthDp < 600 && !isTv
 
     val backButtonFocusRequester = remember { FocusRequester() }
     val watchButtonFocusRequester = remember { FocusRequester() }
@@ -168,7 +163,6 @@ fun TmdbDetailsScreen(
 
     // ── Season dialog focus ──
     val seasonItemFocusRequester = remember { FocusRequester() }
-
     LaunchedEffect(expandedSeason) {
         if (expandedSeason && validSeasons.isNotEmpty()) {
             delay(80)
@@ -178,7 +172,6 @@ fun TmdbDetailsScreen(
 
     // ── Episode dialog focus ──
     val episodeItemFocusRequester = remember { FocusRequester() }
-
     LaunchedEffect(expandedEpisode, selectedSeasonObj?.season_number) {
         if (expandedEpisode && selectedSeasonObj != null) {
             delay(80)
@@ -186,46 +179,85 @@ fun TmdbDetailsScreen(
         }
     }
 
+    val scheme = MaterialTheme.colorScheme
+    val bg = scheme.background
+    val backdropAspect = 16f / 10f
+
+    val onPlay: () -> Unit = {
+        if (!m.isMovie && effectiveSeason != null) {
+            mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
+        }
+        navController.navigate(Routes.SOURCE_SELECTION)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkNavyBackground)
+            .background(bg)
     ) {
-        AsyncImage(
-            model = m.backdropUrl.ifEmpty { m.posterUrl },
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.8f)
-                .align(Alignment.TopCenter)
-        )
+        val backdropModel = m.backdropUrl.ifEmpty { m.posterUrl }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            DarkNavyBackground.copy(alpha = 0.15f),
-                            DarkNavyBackground.copy(alpha = 0.6f),
-                            DarkNavyBackground.copy(alpha = 0.95f),
-                            DarkNavyBackground
-                        ),
-                        startY = 0f
+        if (isPortrait) {
+            // ── Phone / portrait: backdrop on top ──
+            RemoteImage(
+                url = backdropModel,
+                label = m.displayTitle,
+                contentScale = ContentScale.Crop,
+                describe = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(backdropAspect)
+                    .align(Alignment.TopCenter)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(backdropAspect)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                bg.copy(alpha = 0.55f),
+                                bg
+                            )
+                        )
                     )
-                )
-        )
-
-        if (!isPortrait) {
+            )
+        } else {
+            // ── Landscape / TV: big backdrop with side fade ──
+            RemoteImage(
+                url = backdropModel,
+                label = m.displayTitle,
+                contentScale = ContentScale.Crop,
+                describe = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.8f)
+                    .align(Alignment.TopCenter)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                bg.copy(alpha = 0.15f),
+                                bg.copy(alpha = 0.6f),
+                                bg.copy(alpha = 0.95f),
+                                bg
+                            )
+                        )
+                    )
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.horizontalGradient(
                             colorStops = arrayOf(
-                                0f to DarkNavyBackground.copy(alpha = 0.9f),
-                                0.5f to DarkNavyBackground.copy(alpha = 0.4f),
+                                0f to bg.copy(alpha = 0.9f),
+                                0.5f to bg.copy(alpha = 0.4f),
                                 1f to Color.Transparent
                             )
                         )
@@ -233,110 +265,101 @@ fun TmdbDetailsScreen(
             )
         }
 
-        // ── Main content (Column + verticalScroll, no Lazy) ──
+        // ── Scrolling content (Column + verticalScroll, no Lazy) ──
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(
-                modifier = Modifier.height(
-                    when {
-                        isCompact -> 60.dp
-                        isPortrait -> 100.dp
-                        else -> 180.dp
-                    }
-                )
-            )
-
-            val posterContent: @Composable () -> Unit = {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 20.dp),
+            if (isPortrait) {
+                // Leaves ~45dp of the backdrop's fade behind the title.
+                Spacer(
                     modifier = Modifier
-                        .width(if (isPortrait || isCompact) 160.dp else 180.dp)
-                        .height(if (isPortrait || isCompact) 240.dp else 270.dp)
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-                ) {
-                    AsyncImage(
-                        model = m.posterUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-
-            val infoContent: @Composable (Modifier) -> Unit = { modifier ->
-                DetailsInfoContent(
-                    modifier = modifier,
+                        .fillMaxWidth()
+                        .aspectRatio(backdropAspect * 1.25f)
+                )
+                DetailsInfo(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     media = m,
                     genres = genres,
                     tagline = tagline,
                     runtime = runtime,
                     totalSeasons = totalSeasons,
-                    isPortrait = isPortrait,
+                    wide = false,
                     isCompact = isCompact,
                     validSeasons = validSeasons,
                     effectiveSeason = effectiveSeason,
                     effectiveEpisode = effectiveEpisode,
                     watchButtonFocusRequester = watchButtonFocusRequester,
                     backButtonFocusRequester = backButtonFocusRequester,
-                    onPlay = {
-                        if (!m.isMovie && effectiveSeason != null) {
-                            mainViewModel.setVodSelection(m.id, effectiveSeason, effectiveEpisode)
-                        }
-                        navController.navigate(Routes.SOURCE_SELECTION)
-                    },
+                    onPlay = onPlay,
                     onOpenSeason = { expandedSeason = true },
                     onOpenEpisode = { expandedEpisode = true }
                 )
-            }
-
-            if (isPortrait) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    posterContent()
-                    Spacer(modifier = Modifier.height(20.dp))
-                    infoContent(Modifier.fillMaxWidth())
-                }
             } else {
+                Spacer(modifier = Modifier.height(if (isTv) 96.dp else 84.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp)
+                        .padding(horizontal = if (isTv) 48.dp else 32.dp)
                 ) {
-                    posterContent()
+                    Box(
+                        modifier = Modifier
+                            .width(180.dp)
+                            .height(270.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), MaterialTheme.shapes.medium)
+                    ) {
+                        RemoteImage(
+                            url = m.posterUrl,
+                            label = m.displayTitle,
+                            contentScale = ContentScale.Crop,
+                            describe = false,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                     Spacer(modifier = Modifier.width(32.dp))
-                    infoContent(Modifier.weight(1f))
+                    DetailsInfo(
+                        modifier = Modifier.weight(1f),
+                        media = m,
+                        genres = genres,
+                        tagline = tagline,
+                        runtime = runtime,
+                        totalSeasons = totalSeasons,
+                        wide = true,
+                        isCompact = false,
+                        validSeasons = validSeasons,
+                        effectiveSeason = effectiveSeason,
+                        effectiveEpisode = effectiveEpisode,
+                        watchButtonFocusRequester = watchButtonFocusRequester,
+                        backButtonFocusRequester = backButtonFocusRequester,
+                        onPlay = onPlay,
+                        onOpenSeason = { expandedSeason = true },
+                        onOpenEpisode = { expandedEpisode = true }
+                    )
                 }
             }
         }
 
-        TvIconButton(
+        // ── Back button (floats over the backdrop) ──
+        AppIconButton(
+            icon = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = "Back",
             onClick = { navController.popBackStack() },
+            tint = Color.White,
             modifier = Modifier
-                .padding(if (isPortrait) 16.dp else 28.dp)
-                .size(if (isPortrait) 44.dp else 48.dp)
                 .align(Alignment.TopStart)
-                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                .focusRequester(backButtonFocusRequester)
+                .padding(if (isPortrait) 12.dp else 24.dp)
+                .size(44.dp)
+                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                 .focusProperties {
                     down = watchButtonFocusRequester
                     right = watchButtonFocusRequester
-                }
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = WhiteText,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+                },
+            focusRequester = backButtonFocusRequester
+        )
     }
 
     // ── Season dialog (non-lazy) ──
@@ -416,20 +439,20 @@ fun TmdbDetailsScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Info body
+// Info block (title · meta · genres · actions · overview)
 // ─────────────────────────────────────────────────────────────
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun DetailsInfoContent(
+private fun DetailsInfo(
     modifier: Modifier,
-    media: com.streambd.iptv.data.models.TmdbMedia,
-    genres: List<com.streambd.iptv.data.models.TmdbGenre>?,
+    media: TmdbMedia,
+    genres: List<TmdbGenre>?,
     tagline: String?,
     runtime: Int?,
     totalSeasons: Int?,
-    isPortrait: Boolean,
+    wide: Boolean,
     isCompact: Boolean,
-    validSeasons: List<com.streambd.iptv.data.models.TmdbSeason>,
+    validSeasons: List<TmdbSeason>,
     effectiveSeason: Int?,
     effectiveEpisode: Int,
     watchButtonFocusRequester: FocusRequester,
@@ -438,282 +461,190 @@ private fun DetailsInfoContent(
     onOpenSeason: () -> Unit,
     onOpenEpisode: () -> Unit
 ) {
-    Column(
-        modifier = modifier.padding(top = if (isPortrait) 0.dp else 16.dp),
-        horizontalAlignment = if (isPortrait) Alignment.CenterHorizontally else Alignment.Start
-    ) {
+    val scheme = MaterialTheme.colorScheme
+    val showSelectors = !media.isMovie && validSeasons.isNotEmpty()
+
+    Column(modifier = modifier) {
         Text(
             text = media.displayTitle,
-            color = WhiteText,
-            fontSize = when {
-                isCompact -> 24.sp
-                isPortrait -> 30.sp
-                else -> 36.sp
+            color = scheme.onBackground,
+            style = when {
+                isCompact -> MaterialTheme.typography.headlineSmall
+                wide -> MaterialTheme.typography.headlineLarge
+                else -> MaterialTheme.typography.headlineMedium
             },
-            fontWeight = FontWeight.ExtraBold,
-            textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
+            fontWeight = FontWeight.Bold,
             maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.semantics { heading() }
         )
 
         if (!tagline.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "\"$tagline\"",
-                color = BioAccent.copy(alpha = 0.85f),
-                fontSize = 15.sp,
-                fontStyle = FontStyle.Italic,
-                fontWeight = FontWeight.Medium,
-                textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start
+                text = "“$tagline”",
+                color = scheme.primary.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodyMedium,
+                fontStyle = FontStyle.Italic
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        FlowRow(
-            horizontalArrangement = if (isPortrait)
-                Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
-            else Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (media.vote_average != null && media.vote_average > 0) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, null, tint = StarGold, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = String.format(Locale.US, "%.1f", media.vote_average),
-                        color = StarGold,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            if (media.displayDate.isNotEmpty()) {
-                Text(
-                    text = media.displayDate.take(4),
-                    color = WhiteText.copy(alpha = 0.75f),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            if (media.isMovie && runtime != null && runtime > 0) {
-                Text(
-                    text = "${runtime / 60}h ${runtime % 60}m",
-                    color = WhiteText.copy(alpha = 0.75f),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            } else if (!media.isMovie && totalSeasons != null && totalSeasons > 0) {
-                Text(
-                    text = "$totalSeasons Seasons",
-                    color = WhiteText.copy(alpha = 0.75f),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.White.copy(alpha = 0.12f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (media.isMovie) Icons.Default.Movie else Icons.Default.Tv,
-                    contentDescription = null,
-                    tint = WhiteText.copy(alpha = 0.9f),
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (media.isMovie) "Movie" else "TV Show",
-                    color = WhiteText.copy(alpha = 0.9f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
+        MetaRow(media = media, runtime = runtime, totalSeasons = totalSeasons)
 
         if (!genres.isNullOrEmpty()) {
+            Spacer(Modifier.height(12.dp))
             FlowRow(
-                horizontalArrangement = if (isPortrait)
-                    Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                else Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 genres.forEach { genre ->
-                    Box(
+                    Text(
+                        text = genre.name,
+                        color = scheme.onSurface.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50.dp))
-                            .background(SurfaceChip.copy(alpha = 0.85f))
-                            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = genre.name,
-                            color = WhiteText.copy(alpha = 0.92f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+                            .border(1.dp, scheme.outline, MaterialTheme.shapes.small)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
-        FlowRow(
-            horizontalArrangement = if (isPortrait)
-                Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally)
-            else Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            PlayButton(
-                isCompact = isCompact,
+        // ── Actions ──
+        if (wide) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AppButton(
+                    text = "Play",
+                    onClick = onPlay,
+                    icon = Icons.Default.PlayArrow,
+                    focusRequester = watchButtonFocusRequester,
+                    modifier = Modifier.focusProperties { up = backButtonFocusRequester }
+                )
+                if (showSelectors) {
+                    SelectField(
+                        label = "Season",
+                        value = "Season ${effectiveSeason ?: 1}",
+                        onClick = onOpenSeason,
+                        modifier = Modifier.width(170.dp)
+                    )
+                    SelectField(
+                        label = "Episode",
+                        value = "Episode $effectiveEpisode",
+                        onClick = onOpenEpisode,
+                        modifier = Modifier.width(170.dp)
+                    )
+                }
+            }
+        } else {
+            AppButton(
+                text = "Play",
                 onClick = onPlay,
+                icon = Icons.Default.PlayArrow,
                 focusRequester = watchButtonFocusRequester,
-                modifier = Modifier.focusProperties {
-                    up = backButtonFocusRequester
-                }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusProperties { up = backButtonFocusRequester }
             )
-
-            if (!media.isMovie && validSeasons.isNotEmpty()) {
-                Pill(label = "Season ${effectiveSeason ?: 1}", isCompact = isCompact, onClick = onOpenSeason)
-                Pill(label = "Ep $effectiveEpisode", isCompact = isCompact, onClick = onOpenEpisode)
+            if (showSelectors) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SelectField(
+                        label = "Season",
+                        value = "Season ${effectiveSeason ?: 1}",
+                        onClick = onOpenSeason,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SelectField(
+                        label = "Episode",
+                        value = "Episode $effectiveEpisode",
+                        onClick = onOpenEpisode,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
-
+        // ── Overview ──
         if (!media.overview.isNullOrEmpty()) {
+            Spacer(Modifier.height(22.dp))
             Text(
                 text = "Overview",
-                color = WhiteText,
-                fontSize = 20.sp,
+                color = scheme.onBackground,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.semantics { heading() }
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = media.overview.orEmpty(),
-                color = WhiteText.copy(alpha = 0.7f),
-                fontSize = 15.sp,
-                lineHeight = 23.sp,
-                textAlign = if (isPortrait) TextAlign.Center else TextAlign.Start,
-                modifier = if (isPortrait) Modifier.fillMaxWidth()
-                else Modifier.padding(end = 32.dp)
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = if (wide) Modifier.padding(end = 32.dp) else Modifier
             )
         }
 
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(Modifier.height(48.dp))
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// REDESIGNED PLAY BUTTON
-// ═══════════════════════════════════════════════════════════════
+/** ★ 7.8  ·  2024  ·  2h 5m / 3 Seasons  ·  [Movie] */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PlayButton(
-    isCompact: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
-) {
-    var isFocused by remember { mutableStateOf(false) }
+private fun MetaRow(media: TmdbMedia, runtime: Int?, totalSeasons: Int?) {
+    val scheme = MaterialTheme.colorScheme
+    val muted = scheme.onSurfaceVariant
+    val rating = media.vote_average?.takeIf { it > 0 }
 
-    val bgColor by animateColorAsState(
-        targetValue = if (isFocused) BioAccentDim else BioAccent,
-        animationSpec = tween(180),
-        label = "playBg"
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1f,
-        animationSpec = tween(180),
-        label = "playScale"
-    )
-    val borderAlpha by animateFloatAsState(
-        targetValue = if (isFocused) 1f else 0f,
-        animationSpec = tween(180),
-        label = "playBorder"
-    )
-
-    val buttonHeight = if (isCompact) 46.dp else 52.dp
-    val iconCircleSize = if (isCompact) 30.dp else 34.dp
-    val iconSize = if (isCompact) 18.dp else 20.dp
-
-    Row(
-        modifier = modifier
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .height(buttonHeight)
-            .onFocusChanged { isFocused = it.hasFocus }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(50))
-            .background(bgColor)
-            .border(
-                width = 2.dp,
-                color = Color.White.copy(alpha = borderAlpha * 0.85f),
-                shape = RoundedCornerShape(50)
-            )
-            .tvTouchClick(onClick)
-            .padding(
-                start = if (isCompact) 8.dp else 10.dp,
-                end = if (isCompact) 22.dp else 26.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(iconCircleSize)
-                .background(Color.Black.copy(alpha = 0.15f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = Color.Black,
-                modifier = Modifier.size(iconSize)
+        if (rating != null) {
+            Text(
+                text = "★ " + String.format(Locale.US, "%.1f", rating),
+                color = PrimeGold,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
             )
         }
-        Spacer(Modifier.width(if (isCompact) 8.dp else 10.dp))
+        if (media.displayDate.length >= 4) {
+            Text(
+                text = media.displayDate.take(4),
+                color = muted,
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
+        if (media.isMovie && runtime != null && runtime > 0) {
+            Text(
+                text = "${runtime / 60}h ${runtime % 60}m",
+                color = muted,
+                style = MaterialTheme.typography.labelLarge
+            )
+        } else if (!media.isMovie && totalSeasons != null && totalSeasons > 0) {
+            Text(
+                text = "$totalSeasons Season${if (totalSeasons > 1) "s" else ""}",
+                color = muted,
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
         Text(
-            text = "Play",
-            color = Color.Black,
-            fontSize = if (isCompact) 15.sp else 16.sp,
+            text = if (media.isMovie) "Movie" else "TV Show",
+            color = scheme.onSurface.copy(alpha = 0.9f),
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.4.sp
-        )
-    }
-}
-
-@Composable
-private fun Pill(label: String, isCompact: Boolean, onClick: () -> Unit) {
-    TvFocusableItem(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        restBackground = Color.White.copy(alpha = 0.08f),
-        contentPadding = PaddingValues(
-            horizontal = if (isCompact) 16.dp else 20.dp,
-            vertical = if (isCompact) 10.dp else 14.dp
-        )
-    ) {
-        Text(label, color = WhiteText, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.width(6.dp))
-        Icon(
-            Icons.Default.ArrowDropDown,
-            contentDescription = null,
-            tint = WhiteText.copy(alpha = 0.8f),
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier
+                .background(Color.White.copy(alpha = 0.12f), MaterialTheme.shapes.extraSmall)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }
 }
