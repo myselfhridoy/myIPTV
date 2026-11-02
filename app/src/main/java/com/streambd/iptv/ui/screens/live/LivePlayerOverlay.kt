@@ -92,131 +92,131 @@ internal fun LivePlayerOverlay(
                     .padding(16.dp),
                 focusRequester = unlockFocusRequester
             )
-            return@Box
-        }
+        } else {
 
-        // ── Top bar ──
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PlayerIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                onClick = onBack
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = channelName,
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // ── Top bar ──
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 12.dp)
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (isTvModeEnabled) {
-                    PlayerIconButton(
-                        icon = Icons.Default.PowerSettingsNew,
-                        contentDescription = "Turn Off TV Mode",
-                        onClick = onTurnOffTvMode,
-                        tint = scheme.primary
-                    )
-                }
-                if (hasSources) {
-                    PlayerIconButton(Icons.Default.Dns, "Sources", onOpenSources)
-                }
-                PlayerIconButton(Icons.Default.Lock, "Lock", onLock)
-                PlayerIconButton(Icons.Default.AspectRatio, "Aspect Ratio", onCycleAspect)
-                PlayerIconButton(Icons.Default.PictureInPicture, "PiP", onEnterPiP)
-                PlayerIconButton(Icons.Default.Settings, "Tracks", onOpenTracks)
-            }
-        }
-
-        // ── Centre: prev · play/pause · next ──
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PlayerIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "Prev Channel",
-                onClick = onPrev,
-                size = 48.dp,
-                iconSize = 28.dp
-            )
-            PlayerIconButton(
-                icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = "Play/Pause",
-                onClick = onTogglePlay,
-                size = 68.dp,
-                iconSize = 38.dp,
-                focusRequester = playPauseFocusRequester
-            )
-            PlayerIconButton(
-                icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Next Channel",
-                onClick = onNext,
-                size = 48.dp,
-                iconSize = 28.dp
-            )
-        }
-
-        // ── Bottom bar ──
-        // `progress` is read HERE (not in the screen), so only this block
-        // recomposes while the position ticks.
-        val isLiveStream = progress.isLive
-        val seekable = !isLiveStream && isMediaSeekable()
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (isLiveStream) {
-                LiveLabel()
-            } else {
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PlayerIconButton(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    onClick = onBack
+                )
+                Spacer(Modifier.width(12.dp))
                 Text(
-                    text = formatPlayerTime(progress.position),
+                    text = channelName,
                     color = Color.White,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isTvModeEnabled) {
+                        PlayerIconButton(
+                            icon = Icons.Default.PowerSettingsNew,
+                            contentDescription = "Turn Off TV Mode",
+                            onClick = onTurnOffTvMode,
+                            tint = scheme.primary
+                        )
+                    }
+                    if (hasSources) {
+                        PlayerIconButton(Icons.Default.Dns, "Sources", onOpenSources)
+                    }
+                    PlayerIconButton(Icons.Default.Lock, "Lock", onLock)
+                    PlayerIconButton(Icons.Default.AspectRatio, "Aspect Ratio", onCycleAspect)
+                    PlayerIconButton(Icons.Default.PictureInPicture, "PiP", onEnterPiP)
+                    PlayerIconButton(Icons.Default.Settings, "Tracks", onOpenTracks)
+                }
+            }
+
+            // ── Centre: prev · play/pause · next ──
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PlayerIconButton(
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Prev Channel",
+                    onClick = onPrev,
+                    size = 48.dp,
+                    iconSize = 28.dp
+                )
+                PlayerIconButton(
+                    icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = "Play/Pause",
+                    onClick = onTogglePlay,
+                    size = 68.dp,
+                    iconSize = 38.dp,
+                    focusRequester = playPauseFocusRequester
+                )
+                PlayerIconButton(
+                    icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Next Channel",
+                    onClick = onNext,
+                    size = 48.dp,
+                    iconSize = 28.dp
                 )
             }
 
-            PlayerSeekBar(
-                positionMs = progress.position,
-                bufferedMs = progress.buffered,
-                durationMs = progress.duration,
-                seekable = seekable,
-                onSeekTo = onSeekTo,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-            )
+            // ── Bottom bar ──
+            // `progress` is read HERE (not in the screen), so only this block
+            // recomposes while the position ticks.
+            val isLiveStream = progress.isLive
+            val seekable = !isLiveStream && isMediaSeekable()
 
-            Text(
-                text = if (isLiveStream) "00:00" else formatPlayerTime(progress.duration),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium
-            )
-            Spacer(Modifier.width(12.dp))
-            PlayerIconButton(
-                icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                else Icons.AutoMirrored.Filled.VolumeUp,
-                contentDescription = "Volume",
-                onClick = onToggleMute
-            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isLiveStream) {
+                    LiveLabel()
+                } else {
+                    Text(
+                        text = formatPlayerTime(progress.position),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+
+                PlayerSeekBar(
+                    positionMs = progress.position,
+                    bufferedMs = progress.buffered,
+                    durationMs = progress.duration,
+                    seekable = seekable,
+                    onSeekTo = onSeekTo,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 16.dp)
+                )
+
+                Text(
+                    text = if (isLiveStream) "00:00" else formatPlayerTime(progress.duration),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Spacer(Modifier.width(12.dp))
+                PlayerIconButton(
+                    icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
+                    else Icons.AutoMirrored.Filled.VolumeUp,
+                    contentDescription = "Volume",
+                    onClick = onToggleMute
+                )
+            }
         }
     }
 }
