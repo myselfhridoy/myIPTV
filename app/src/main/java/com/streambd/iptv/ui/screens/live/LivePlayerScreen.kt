@@ -54,6 +54,10 @@ import com.streambd.iptv.R
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
+import com.streambd.iptv.ui.components.ChannelInfoCard
+import com.streambd.iptv.ui.components.ChannelNumberBadge
+import com.streambd.iptv.ui.components.PlaybackErrorPanel
+import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.components.TvIconButton
@@ -166,9 +170,10 @@ fun LivePlayerScreen(
     }
     var failedSourceUrls by remember(channelKey) { mutableStateOf(setOf<String>()) }
 
-    var currentPosition by remember { mutableStateOf(0L) }
-    var bufferedPosition by remember { mutableStateOf(0L) }
-    var duration by remember { mutableStateOf(0L) }
+    // Position / buffer / duration: observable holder, polled only while the
+    // controls are visible. Only the seek bar reads it, so the screen itself
+    // no longer recomposes every 500 ms.
+    val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
     var playerError by remember { mutableStateOf<UiPlaybackError?>(null) }
     var lastHlsError by remember { mutableStateOf(false) }
 
@@ -363,20 +368,6 @@ fun LivePlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // ── Position polling — only while the overlay is visible. ────────────
-    // Previously this ran every 500 ms unconditionally, forcing the whole
-    // screen to recompose even when the user wasn't looking at the seek
-    // bar. Gating on showOverlay cuts recomposition on live playback.
-    LaunchedEffect(exoPlayer, showOverlay) {
-        if (!showOverlay) return@LaunchedEffect
-        while (currentCoroutineContext().isActive) {
-            currentPosition = exoPlayer.currentPosition
-            bufferedPosition = exoPlayer.bufferedPosition
-            duration = exoPlayer.duration.coerceAtLeast(0L)
-            delay(500)
-        }
-    }
-
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
@@ -511,224 +502,60 @@ fun LivePlayerScreen(
             }
 
             if (showOverlay && !isInPiP) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))) {
-                    if (isLocked) {
-                        TvIconButton(
-                            onClick = { isLocked = false },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(16.dp)
-                                .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                                .focusRequester(unlockFocusRequester)
-                        ) {
-                            Icon(Icons.Default.Lock, "Unlock", tint = Color.White)
+                LivePlayerOverlay(
+                    modifier = Modifier.fillMaxSize(),
+                    channelName = channel.name,
+                    isLocked = isLocked,
+                    isTvModeEnabled = isTvModeEnabled,
+                    hasSources = channel.sources.isNotEmpty(),
+                    isPlaying = isPlaying,
+                    isMuted = isMuted,
+                    progress = progress,
+                    isMediaSeekable = { exoPlayer.isCurrentMediaItemSeekable },
+                    playPauseFocusRequester = playPauseFocusRequester,
+                    unlockFocusRequester = unlockFocusRequester,
+                    onBack = { requestExit() },
+                    onUnlock = { isLocked = false },
+                    onTurnOffTvMode = {
+                        viewModel.toggleTvMode(false)
+                        val intent = context.packageManager
+                            .getLaunchIntentForPackage(context.packageName)
+                        intent?.addFlags(
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        )
+                        if (intent != null) context.startActivity(intent)
+                        (context as? ComponentActivity)?.finishAndRemoveTask()
+                    },
+                    onOpenSources = { showSourceSelector = true },
+                    onLock = { isLocked = true },
+                    onCycleAspect = {
+                        val modes = VideoScaleMode.entries.toTypedArray()
+                        scaleMode = modes[(modes.indexOf(scaleMode) + 1) % modes.size]
+                        android.widget.Toast.makeText(
+                            context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onEnterPiP = {
+                        val activity = context as? ComponentActivity
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            val params = android.app.PictureInPictureParams.Builder().build()
+                            activity?.enterPictureInPictureMode(params)
+                        } else {
+                            onEnterPiP()
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TvIconButton(
-                                onClick = { requestExit() },
-                                modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-                            }
-                            Spacer(Modifier.width(12.dp))
-
-                            Box(
-                                modifier = Modifier.weight(1f).padding(end = 16.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = channel.name,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (isTvModeEnabled) {
-                                    TvIconButton(onClick = {
-                                        viewModel.toggleTvMode(false)
-                                        val intent = context.packageManager
-                                            .getLaunchIntentForPackage(context.packageName)
-                                        intent?.addFlags(
-                                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                                Intent.FLAG_ACTIVITY_NEW_TASK or
-                                                Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                        )
-                                        if (intent != null) context.startActivity(intent)
-                                        (context as? ComponentActivity)?.finishAndRemoveTask()
-                                    }) {
-                                        Icon(Icons.Default.PowerSettingsNew, "Turn Off TV Mode", tint = BioAccent)
-                                    }
-                                }
-                                if (channel.sources.isNotEmpty()) {
-                                    TvIconButton(onClick = { showSourceSelector = true }) {
-                                        Icon(Icons.Default.Dns, "Sources", tint = Color.White)
-                                    }
-                                }
-                                TvIconButton(onClick = { isLocked = true }) {
-                                    Icon(Icons.Default.Lock, "Lock", tint = Color.White)
-                                }
-                                TvIconButton(onClick = {
-                                    val modes = VideoScaleMode.entries.toTypedArray()
-                                    scaleMode = modes[(modes.indexOf(scaleMode) + 1) % modes.size]
-                                    android.widget.Toast.makeText(
-                                        context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }) {
-                                    Icon(Icons.Default.AspectRatio, "Aspect Ratio", tint = Color.White)
-                                }
-                                TvIconButton(onClick = {
-                                    val activity = context as? ComponentActivity
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        val params = android.app.PictureInPictureParams.Builder().build()
-                                        activity?.enterPictureInPictureMode(params)
-                                    } else {
-                                        onEnterPiP()
-                                    }
-                                }) {
-                                    Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
-                                }
-                                TvIconButton(onClick = { showTrackSelector = true }) {
-                                    Icon(Icons.Default.Settings, "Tracks", tint = Color.White)
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(24.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TvIconButton(
-                                onClick = { viewModel.tuneToPrevChannel() },
-                                modifier = Modifier.size(48.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Prev Channel",
-                                    tint = Color.White, modifier = Modifier.size(28.dp))
-                            }
-                            TvIconButton(
-                                onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                                modifier = Modifier.size(64.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                    .focusRequester(playPauseFocusRequester)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-                            TvIconButton(
-                                onClick = { viewModel.tuneToNextChannel() },
-                                modifier = Modifier.size(48.dp)
-                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next Channel",
-                                    tint = Color.White, modifier = Modifier.size(28.dp))
-                            }
-                        }
-
-                        // ── Bottom bar: seek slider ONLY for seekable streams ─
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .windowInsetsPadding(WindowInsets.displayCutout)
-                                .padding(horizontal = 24.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val isLive = duration == C.TIME_UNSET || duration <= 0L
-                            val seekable = !isLive && exoPlayer.isCurrentMediaItemSeekable
-
-                            Text(
-                                text = if (isLive) "LIVE" else formatTime(currentPosition),
-                                color = if (isLive) Color.Red else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = if (isLive) FontWeight.Bold else FontWeight.Normal
-                            )
-                            Box(
-                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (seekable) {
-                                    val bufferFraction =
-                                        (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f)
-                                    LinearProgressIndicator(
-                                        progress = { bufferFraction },
-                                        modifier = Modifier.fillMaxWidth()
-                                            .padding(horizontal = 8.dp)
-                                            .height(4.dp)
-                                            .clip(CircleShape),
-                                        color = Color.White.copy(alpha = 0.4f),
-                                        trackColor = Color.Gray.copy(alpha = 0.3f)
-                                    )
-                                    Slider(
-                                        value = (currentPosition.toFloat() / duration).coerceIn(0f, 1f),
-                                        onValueChange = { value ->
-                                            exoPlayer.seekTo((value * duration).toLong())
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = Color.White,
-                                            activeTrackColor = Color.Red,
-                                            inactiveTrackColor = Color.Transparent
-                                        )
-                                    )
-                                } else {
-                                    // Pure live: passive buffer indicator only.
-                                    // Slider is hidden because seeking on a live
-                                    // window would jump to the DVR start (i.e.
-                                    // rewind the user away from the live edge).
-                                    val bufferFraction = if (duration > 0)
-                                        (bufferedPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                                    LinearProgressIndicator(
-                                        progress = { bufferFraction },
-                                        modifier = Modifier.fillMaxWidth()
-                                            .padding(horizontal = 8.dp)
-                                            .height(4.dp)
-                                            .clip(CircleShape),
-                                        color = Color.White.copy(alpha = 0.4f),
-                                        trackColor = Color.Gray.copy(alpha = 0.3f)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = if (isLive) "00:00" else formatTime(duration),
-                                color = Color.White,
-                                fontSize = 12.sp
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            TvIconButton(onClick = {
-                                val newMuted = !isMuted
-                                exoPlayer.volume = if (newMuted) 0f else 1f
-                            }) {
-                                Icon(
-                                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                                    else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = "Volume",
-                                    tint = Color.White
-                                )
-                            }
-                        }
+                    },
+                    onOpenTracks = { showTrackSelector = true },
+                    onPrev = { viewModel.tuneToPrevChannel() },
+                    onNext = { viewModel.tuneToNextChannel() },
+                    onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                    onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
+                    onToggleMute = {
+                        val newMuted = !isMuted
+                        exoPlayer.volume = if (newMuted) 0f else 1f
                     }
-                }
+                )
             }
 
             val showError = playerError != null || isResolutionFailed
@@ -736,66 +563,37 @@ fun LivePlayerScreen(
             if (!showError && (isResolving || isBuffering) && !isLocked) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
-                    color = Color.Red
+                    color = MaterialTheme.colorScheme.primary
                 )
             } else if (showError) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(12.dp))
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Default.Error, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(12.dp))
-                    Text("Playback Error", color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-
-                    val primaryText = when {
-                        playerError != null -> playerError?.message ?: "Unknown error"
-                        isResolutionFailed ->
-                            "Stream resolver could not extract a playable URL.\n" +
-                                "The provider page may be unreachable, blocked, or behind a captcha."
-                        else -> "Unknown error"
-                    }
-                    Text(primaryText, color = Color.White, fontSize = 12.sp)
-
-                    if (lastHlsError || isResolutionFailed) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Hint: The resolver could not extract a valid HLS/DASH manifest.",
-                            color = Color(0xFFFFC107),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    val causeText = playerError?.causeMessage
-                    if (!causeText.isNullOrBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(causeText, color = Color.LightGray, fontSize = 10.sp)
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            playerError = null
-                            lastHlsError = false
-                            isBuffering = true
-                            failedSourceUrls = emptySet()
-                            // Always reset to the primary source AND bust the
-                            // cache. Setting currentSourceUrl to the same
-                            // value won't trigger the LaunchedEffect, so we
-                            // also call retryResolution to force a re-resolve.
-                            val retryUrl = channel.primarySourceUrl()
-                            currentSourceUrl = retryUrl
-                            playerViewModel.retryResolution(channel, retryUrl)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = BioAccent)
-                    ) {
-                        Icon(Icons.Default.Refresh, "Retry", tint = Color.White)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Retry", color = Color.White)
-                    }
+                val primaryText = when {
+                    playerError != null -> playerError?.message ?: "Unknown error"
+                    isResolutionFailed ->
+                        "Stream resolver could not extract a playable URL.\n" +
+                            "The provider page may be unreachable, blocked, or behind a captcha."
+                    else -> "Unknown error"
                 }
+                PlaybackErrorPanel(
+                    modifier = Modifier.align(Alignment.Center),
+                    message = primaryText,
+                    hint = if (lastHlsError || isResolutionFailed)
+                        "Hint: The resolver could not extract a valid HLS/DASH manifest."
+                    else null,
+                    cause = playerError?.causeMessage,
+                    onRetry = {
+                        playerError = null
+                        lastHlsError = false
+                        isBuffering = true
+                        failedSourceUrls = emptySet()
+                        // Always reset to the primary source AND bust the
+                        // cache. Setting currentSourceUrl to the same
+                        // value won't trigger the LaunchedEffect, so we
+                        // also call retryResolution to force a re-resolve.
+                        val retryUrl = channel.primarySourceUrl()
+                        currentSourceUrl = retryUrl
+                        playerViewModel.retryResolution(channel, retryUrl)
+                    }
+                )
             }
 
             androidx.compose.animation.AnimatedVisibility(
@@ -806,29 +604,11 @@ fun LivePlayerScreen(
                     androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
                 modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (channel.logo.isNotEmpty()) {
-                        coil.compose.AsyncImage(
-                            model = channel.logo,
-                            contentDescription = null,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
-                        )
-                        Spacer(Modifier.width(16.dp))
-                    }
-                    Column {
-                        Text(channel.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                        if (channel.group.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(channel.group, color = Color.LightGray, fontSize = 16.sp)
-                        }
-                    }
-                }
+                ChannelInfoCard(
+                    name = channel.name,
+                    group = channel.group,
+                    logoUrl = channel.logo
+                )
             }
 
             androidx.compose.animation.AnimatedVisibility(
@@ -837,18 +617,7 @@ fun LivePlayerScreen(
                 exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
                 modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .background(BioAccent.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 24.dp, vertical = 12.dp)
-                ) {
-                    Text(
-                        text = channelNumberInput,
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                ChannelNumberBadge(text = channelNumberInput)
             }
 
             if (showTrackSelector) {
@@ -910,3 +679,4 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
         )
     }
 }
+
