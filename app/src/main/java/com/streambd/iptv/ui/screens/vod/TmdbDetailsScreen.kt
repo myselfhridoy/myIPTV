@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -56,6 +59,7 @@ import com.streambd.iptv.data.models.TmdbSeason
 import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.components.AppButton
 import com.streambd.iptv.ui.components.AppIconButton
+import com.streambd.iptv.ui.components.CategoryChip
 import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.PremiumOptionRow
 import com.streambd.iptv.ui.components.RemoteImage
@@ -124,14 +128,19 @@ fun TmdbDetailsScreen(
 
     val m = media ?: return
 
-    // ── Focus Play button (retry because it may not be attached on first frame) ──
+    // ── Focus the Play button, and keep trying until it REALLY has focus ──
+    // (requestFocus() can succeed on a node that is attached but not yet
+    // laid out, or be overridden while the screen transition is still running;
+    // so we watch the button's own focus state instead of trusting the call.)
+    var playHasFocus by remember(mediaId) { mutableStateOf(false) }
     LaunchedEffect(mediaId, m) {
-        repeat(6) { attempt ->
-            delay(120L + attempt * 80L)
-            val ok = runCatching { watchButtonFocusRequester.requestFocus() }.isSuccess
-            if (ok) return@LaunchedEffect
+        repeat(10) { attempt ->
+            delay(150L + attempt * 100L)
+            if (playHasFocus) return@LaunchedEffect
+            runCatching { watchButtonFocusRequester.requestFocus() }
         }
     }
+    val playButtonModifier = Modifier.onFocusChanged { if (it.isFocused) playHasFocus = true }
 
     // ── Only trust details that match the current media ──
     val currentTvDetails = tvDetails?.takeIf { it.id == m.id && !m.isMovie }
@@ -293,6 +302,7 @@ fun TmdbDetailsScreen(
                     effectiveSeason = effectiveSeason,
                     effectiveEpisode = effectiveEpisode,
                     watchButtonFocusRequester = watchButtonFocusRequester,
+                    playButtonModifier = playButtonModifier,
                     backButtonFocusRequester = backButtonFocusRequester,
                     onPlay = onPlay,
                     onOpenSeason = { expandedSeason = true },
@@ -334,6 +344,7 @@ fun TmdbDetailsScreen(
                         effectiveSeason = effectiveSeason,
                         effectiveEpisode = effectiveEpisode,
                         watchButtonFocusRequester = watchButtonFocusRequester,
+                        playButtonModifier = playButtonModifier,
                         backButtonFocusRequester = backButtonFocusRequester,
                         onPlay = onPlay,
                         onOpenSeason = { expandedSeason = true },
@@ -399,24 +410,58 @@ fun TmdbDetailsScreen(
         }
     }
 
-    // ── Episode dialog (non-lazy) ──
+    // ── Episode dialog (non-lazy, PAGED) ──
+    // Long series have hundreds of episodes. Composing a row for each one
+    // made the dialog very slow, and Lazy lists are off-limits on TV (see the
+    // note at the top). So episodes are shown 50 at a time, with page chips
+    // ("1–50", "51–100" …) above — at most 50 rows exist at once.
     if (expandedEpisode && selectedSeasonObj != null) {
+        val totalEpisodes = selectedSeasonObj.episode_count
+        val pageSize = 50
+        val pageCount = (totalEpisodes + pageSize - 1) / pageSize
+        // Open on the page that contains the current episode.
+        var page by remember(selectedSeasonObj.season_number) {
+            mutableStateOf(((effectiveEpisode - 1) / pageSize).coerceIn(0, (pageCount - 1).coerceAtLeast(0)))
+        }
+        val firstEp = page * pageSize + 1
+        val lastEp = minOf(totalEpisodes, firstEp + pageSize - 1)
+        // Fresh scroll position whenever the page changes.
+        val listScroll = remember(page) { ScrollState(0) }
+
         PremiumDialogScaffold(
             title = "Select Episode",
-            subtitle = "Season ${selectedSeasonObj.season_number}",
+            subtitle = "Season ${selectedSeasonObj.season_number} • $totalEpisodes episodes",
             onDismiss = { expandedEpisode = false },
             scrollContent = false
         ) {
+            if (pageCount > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (p in 0 until pageCount) {
+                        val from = p * pageSize + 1
+                        val to = minOf(totalEpisodes, from + pageSize - 1)
+                        CategoryChip(
+                            label = "$from–$to",
+                            selected = p == page,
+                            onClick = { page = p }
+                        )
+                    }
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 340.dp)
-                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(listScroll)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                repeat(selectedSeasonObj.episode_count) { index ->
-                    val ep = index + 1
+                for (ep in firstEp..lastEp) {
                     val isSelected = effectiveEpisode == ep
                     PremiumOptionRow(
                         title = "Episode $ep",
@@ -456,6 +501,7 @@ private fun DetailsInfo(
     effectiveSeason: Int?,
     effectiveEpisode: Int,
     watchButtonFocusRequester: FocusRequester,
+    playButtonModifier: Modifier,
     backButtonFocusRequester: FocusRequester,
     onPlay: () -> Unit,
     onOpenSeason: () -> Unit,
@@ -525,7 +571,7 @@ private fun DetailsInfo(
                     onClick = onPlay,
                     icon = Icons.Default.PlayArrow,
                     focusRequester = watchButtonFocusRequester,
-                    modifier = Modifier.focusProperties { up = backButtonFocusRequester }
+                    modifier = playButtonModifier.focusProperties { up = backButtonFocusRequester }
                 )
                 if (showSelectors) {
                     SelectField(
@@ -548,7 +594,7 @@ private fun DetailsInfo(
                 onClick = onPlay,
                 icon = Icons.Default.PlayArrow,
                 focusRequester = watchButtonFocusRequester,
-                modifier = Modifier
+                modifier = playButtonModifier
                     .fillMaxWidth()
                     .focusProperties { up = backButtonFocusRequester }
             )
