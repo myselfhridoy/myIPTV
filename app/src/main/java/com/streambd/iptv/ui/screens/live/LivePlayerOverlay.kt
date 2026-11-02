@@ -40,8 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.components.PlayerIconButton
 import com.streambd.iptv.ui.components.PlayerProgress
-import com.streambd.iptv.ui.components.PlayerSeekBar
-import com.streambd.iptv.ui.components.formatPlayerTime
+import com.streambd.iptv.ui.components.PlayerTimeline
 import com.streambd.iptv.ui.components.PlayerScrim
 import com.streambd.iptv.ui.theme.PrimeLive
 
@@ -170,11 +169,8 @@ internal fun LivePlayerOverlay(
             }
 
             // ── Bottom bar ──
-            // `progress` is read HERE (not in the screen), so only this block
+            // `progress` is read inside PlayerTimeline, so only the timeline
             // recomposes while the position ticks.
-            val isLiveStream = progress.isLive
-            val seekable = !isLiveStream && isMediaSeekable()
-
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -183,31 +179,12 @@ internal fun LivePlayerOverlay(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isLiveStream) {
-                    LiveLabel()
-                } else {
-                    Text(
-                        text = formatPlayerTime(progress.position),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-
-                PlayerSeekBar(
-                    positionMs = progress.position,
-                    bufferedMs = progress.buffered,
-                    durationMs = progress.duration,
-                    seekable = seekable,
+                PlayerTimeline(
+                    progress = progress,
+                    seekable = !progress.isLive && isMediaSeekable(),
                     onSeekTo = onSeekTo,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 16.dp)
-                )
-
-                Text(
-                    text = if (isLiveStream) "00:00" else formatPlayerTime(progress.duration),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium
+                    showLiveLabel = true,
+                    modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(12.dp))
                 PlayerIconButton(
@@ -218,24 +195,5 @@ internal fun LivePlayerOverlay(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LiveLabel() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(PrimeLive)
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = "LIVE",
-            color = PrimeLive,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold
-        )
     }
 }
