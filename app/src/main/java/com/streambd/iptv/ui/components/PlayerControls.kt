@@ -24,6 +24,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
+import com.streambd.iptv.ui.theme.PrimeLive
 
 // ─────────────────────────────────────────────────────────────
 // Building blocks shared by the live and VOD players.
@@ -228,31 +233,29 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Timeline = [position]  ━━━ seek bar ━━━  [duration]
+// Used by BOTH players. The component never touches the player: the
+// screen passes a PlayerProgress to read and an `onSeekTo` callback.
+// ─────────────────────────────────────────────────────────────
+
 /**
- * Seek bar: a buffer track, plus a draggable slider ONLY when [seekable].
- *
- * Pure live streams pass `seekable = false` — dragging on a live window
- * would jump to the DVR start (rewinding the viewer away from the live
- * edge), so only the passive buffer indicator is drawn.
- *
- * The component never touches the player: dragging calls
- * [onSeekTo] with a position in milliseconds and the screen decides what
- * to do (usually `player.seekTo(ms)`).
+ * Low-level bar: a buffer track plus a draggable slider ONLY when
+ * [seekable]. Pure live streams pass `seekable = false` — dragging on a
+ * live window would jump to the DVR start (rewinding the viewer away from
+ * the live edge), so only the passive buffer indicator is drawn.
  */
 @Composable
 fun PlayerSeekBar(
-    positionMs: Long,
-    bufferedMs: Long,
-    durationMs: Long,
+    fraction: Float,
+    bufferFraction: Float,
     seekable: Boolean,
-    onSeekTo: (Long) -> Unit,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        val bufferFraction = if (durationMs > 0)
-            (bufferedMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-
         LinearProgressIndicator(
             progress = { bufferFraction },
             modifier = Modifier
@@ -263,11 +266,11 @@ fun PlayerSeekBar(
             color = Color.White.copy(alpha = 0.4f),
             trackColor = Color.Gray.copy(alpha = 0.3f)
         )
-
-        if (seekable && durationMs > 0) {
+        if (seekable) {
             Slider(
-                value = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
-                onValueChange = { fraction -> onSeekTo((fraction * durationMs).toLong()) },
+                value = fraction,
+                onValueChange = onValueChange,
+                onValueChangeFinished = onValueChangeFinished,
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
                     thumbColor = Color.White,
@@ -279,11 +282,113 @@ fun PlayerSeekBar(
     }
 }
 
-/** 83_000 ms → "01:23". Non-positive → "00:00". */
+/**
+ * Time labels + seek bar.
+ *
+ * [commitOnRelease]
+ *  • false (live) — every slider move calls [onSeekTo] straight away
+ *  • true  (VOD)  — dragging only previews the time; [onSeekTo] is called
+ *    ONCE when the finger lifts, and the polled position is held
+ *    ([PlayerProgress.holdPosition]) so the thumb doesn't jump while dragging
+ *
+ * [showLiveLabel] — show "LIVE" instead of the position when the duration
+ * is unknown (live channels).
+ */
+@Composable
+fun PlayerTimeline(
+    progress: PlayerProgress,
+    seekable: Boolean,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    commitOnRelease: Boolean = false,
+    showLiveLabel: Boolean = false
+) {
+    val duration = progress.duration
+    val isLive = showLiveLabel && progress.isLive
+
+    var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf(0f) }
+
+    val playbackFraction =
+        if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val bufferFraction =
+        if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
+
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        if (isLive) {
+            LiveLabel()
+        } else {
+            Text(
+                text = formatPlayerTime(shownPosition),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+
+        PlayerSeekBar(
+            fraction = if (dragging) dragFraction else playbackFraction,
+            bufferFraction = bufferFraction,
+            seekable = seekable && duration > 0,
+            onValueChange = { value ->
+                if (commitOnRelease) {
+                    dragging = true
+                    progress.holdPosition = true
+                    dragFraction = value
+                } else {
+                    onSeekTo((value * duration).toLong())
+                }
+            },
+            onValueChangeFinished = {
+                if (commitOnRelease && dragging) {
+                    if (duration > 0) {
+                        val target = (dragFraction * duration).toLong()
+                        onSeekTo(target)
+                        progress.overridePosition(target)
+                    }
+                    dragging = false
+                    progress.holdPosition = false
+                }
+            },
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp)
+        )
+
+        Text(
+            text = if (isLive) "00:00" else formatPlayerTime(duration),
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+@Composable
+private fun LiveLabel() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(PrimeLive)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "LIVE",
+            color = PrimeLive,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/** 83_000 ms → "01:23"; 3_725_000 ms → "1:02:05". Non-positive → "00:00". */
 fun formatPlayerTime(ms: Long): String {
     if (ms <= 0) return "00:00"
     val totalSeconds = ms / 1000
-    val minutes = totalSeconds / 60
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
+    else String.format("%02d:%02d", minutes, seconds)
 }
