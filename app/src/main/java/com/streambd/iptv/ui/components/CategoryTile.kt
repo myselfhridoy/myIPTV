@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
@@ -26,8 +26,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-
-private val LogoShape = RoundedCornerShape(8.dp)
 
 /** Backdrop behind a logo. Subtle translucent white — logos still read, but
  *  the tile no longer has a bright white patch. For dark-text logos that fade,
@@ -70,14 +68,15 @@ fun CategoryTile(
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(LogoShape)
-                    .background(LogoBackground)
+                    .size(44.dp)
                     .border(
-                        width = 1.dp,
-                        color = if (focused) scheme.primary else Color.Transparent,
-                        shape = LogoShape
-                    ),
+                        width = 1.5.dp,
+                        color = if (focused) scheme.primary else scheme.outline,
+                        shape = CircleShape
+                    )
+                    .padding(3.dp)
+                    .clip(CircleShape)
+                    .background(LogoBackground),
                 contentAlignment = Alignment.Center
             ) {
                 if (!logoUrl.isNullOrBlank()) {
@@ -86,7 +85,7 @@ fun CategoryTile(
                         label = name,
                         contentScale = ContentScale.Fit,
                         describe = false,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                 } else {
                     Icon(
