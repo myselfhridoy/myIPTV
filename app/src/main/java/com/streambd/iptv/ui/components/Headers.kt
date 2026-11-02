@@ -2,6 +2,7 @@ package com.streambd.iptv.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -73,6 +74,7 @@ fun AppTopBar(
     onBack: (() -> Unit)? = null,
     backFocusRequester: FocusRequester? = null,
     containerColor: Color = MaterialTheme.colorScheme.background,
+    subtitle: String? = null,
     leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
@@ -97,17 +99,26 @@ fun AppTopBar(
         } else {
             Spacer(Modifier.width(d.spaceSm))
         }
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onBackground,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() }
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() }
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         actions()
     }
 }
