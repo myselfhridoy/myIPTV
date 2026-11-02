@@ -1,16 +1,10 @@
 package com.streambd.iptv.ui.screens.vod
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,19 +13,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,44 +36,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.StreamSource
-import com.streambd.iptv.ui.components.TvFocusableItem
-import com.streambd.iptv.ui.components.TvIconButton
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
+import com.streambd.iptv.ui.components.AppIconButton
+import com.streambd.iptv.ui.components.AppTopBar
+import com.streambd.iptv.ui.components.EmptyState
+import com.streambd.iptv.ui.components.FocusSurface
+import com.streambd.iptv.ui.components.ShimmerBox
 import com.streambd.iptv.ui.navigation.Routes
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.DarkNavyBackground
-import com.streambd.iptv.ui.theme.GrayText
-import com.streambd.iptv.ui.theme.WhiteText
+import com.streambd.iptv.ui.theme.AppTheme
+import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import kotlinx.coroutines.delay
 
-// ─────────────────────────────────────────────────────────────
-// Local palette
-// ─────────────────────────────────────────────────────────────
-private val SurfaceElevated = Color(0xFF151A25)
-private val SurfaceFocused = Color(0xFF1E2638)
-private val SurfaceBorder = Color(0xFF2B3648)
-private val IconMuted = Color(0xFF555555)
-private val BioAccentDim = Color(0xFF008D94)
-private val Quality4k = Color(0xFFFFC43D)
+// Semantic quality colours (not theme colours on purpose).
+private val Quality4k = PrimeGold
 private val QualityFhd = Color(0xFF4CAF50)
 private val QualityCam = Color(0xFFFF5722)
 
-/**
- * Quality rank — used for sorting streams (higher = better).
- */
+/** Quality rank — used for sorting streams (higher = better). */
 private fun qualityRank(q: String?): Int {
     val s = q?.lowercase() ?: return 0
     return when {
@@ -94,18 +76,16 @@ private fun qualityRank(q: String?): Int {
 }
 
 /**
- * SourceSelectionScreen
+ * Choose which addon source to play.
  *
- * NOTE: No Lazy containers — same reasoning as VodScreen / TmdbDetailsScreen.
+ * NOTE: No Lazy containers — same Compose 1.6.x TV focus crash as VodScreen
+ * and TmdbDetailsScreen (see the explanation in VodScreen). The list is
+ * short (2–10 items), so a Column + verticalScroll is cheap and safe.
  *
- * Compose 1.6.x has a bug in LazyLayoutBeyondBoundsModifierLocal that
- * crashes the focus system on Android TV when D-pad navigation triggers
- * a beyond-bounds focus search:
- *   IllegalStateException: LayoutCoordinate operations are only valid
- *   when isAttached is true
- *
- * The list here is typically short (2–10 items), so eager composition in
- * a Column + verticalScroll is both cheap and crash-free.
+ * ALL logic is unchanged: safe pop-back when media disappears, fetching
+ * streams for the title / season / episode, de-duplicating and sorting by
+ * quality, force refresh, focusing the first source once, hand-off to the
+ * VOD player. Only the UI is new.
  */
 @Composable
 fun SourceSelectionScreen(
@@ -114,6 +94,7 @@ fun SourceSelectionScreen(
     navController: NavController
 ) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     val media by tmdbViewModel.selectedMedia.collectAsState()
     val isResolving by mainViewModel.isResolvingStreams.collectAsState()
     val streamsRaw by mainViewModel.availableStreams.collectAsState()
@@ -159,95 +140,48 @@ fun SourceSelectionScreen(
             )
     }
 
+    val refresh: () -> Unit = {
+        val type = if (m.isMovie) "movie" else "tv"
+        mainViewModel.fetchVodStreams(
+            context = context,
+            type = type,
+            tmdbId = m.id,
+            season = selectedSeason,
+            episode = selectedEpisode,
+            forceRefresh = true
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkNavyBackground)
+            .background(scheme.background)
     ) {
-        // ── Top bar ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TvIconButton(
-                onClick = { navController.popBackStack() },
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(SurfaceFocused, CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = WhiteText,
-                    modifier = Modifier.size(22.dp)
+        AppTopBar(
+            title = "Select Source",
+            subtitle = m.displayTitle,
+            onBack = { navController.popBackStack() },
+            actions = {
+                AppIconButton(
+                    icon = Icons.Default.Refresh,
+                    contentDescription = "Refresh sources",
+                    onClick = refresh
                 )
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Select Source",
-                    color = WhiteText,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = m.displayTitle,
-                    color = WhiteText.copy(alpha = 0.6f),
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            TvIconButton(
-                onClick = {
-                    val type = if (m.isMovie) "movie" else "tv"
-                    mainViewModel.fetchVodStreams(
-                        context = context,
-                        type = type,
-                        tmdbId = m.id,
-                        season = selectedSeason,
-                        episode = selectedEpisode,
-                        forceRefresh = true
-                    )
-                },
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(SurfaceFocused, CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Refresh Sources",
-                    tint = WhiteText,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        }
-
-        // ── Divider ──
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            BioAccent.copy(alpha = 0.3f),
-                            Color.Transparent
-                        )
-                    )
-                )
         )
+        HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
 
-        // ── Content ──
         when {
-            isResolving && streams.isEmpty() -> LoadingState()
-            streams.isEmpty() && !isResolving -> EmptyState()
+            isResolving && streams.isEmpty() -> SourcesSkeleton()
+
+            streams.isEmpty() && !isResolving -> EmptyState(
+                title = "No streams found",
+                message = "Try a different title or check addons",
+                icon = Icons.Default.Source,
+                actionLabel = "Refresh",
+                onAction = refresh
+            )
+
             else -> StreamList(
                 streams = streams,
                 isResolving = isResolving,
@@ -261,83 +195,41 @@ fun SourceSelectionScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Loading / Empty
+// Loading — shimmer rows shaped like the final list
 // ─────────────────────────────────────────────────────────────
 @Composable
-private fun LoadingState() {
+private fun SourcesSkeleton() {
+    val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
     Box(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val infiniteTransition = rememberInfiniteTransition(label = "searchAnim")
-            val pulseScale by infiniteTransition.animateFloat(
-                initialValue = 0.9f,
-                targetValue = 1.1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(800, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "pulse"
-            )
-
-            Icon(
-                Icons.Default.CloudDownload,
-                contentDescription = null,
-                tint = BioAccent,
-                modifier = Modifier
-                    .size(56.dp)
-                    .scale(pulseScale)
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            CircularProgressIndicator(
-                color = BioAccent,
-                strokeWidth = 3.dp,
-                modifier = Modifier.size(36.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+        Column(
+            modifier = Modifier
+                .widthIn(max = 720.dp)
+                .padding(horizontal = d.screenPaddingH + 4.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Text(
                 text = "Searching addons for streams…",
-                color = WhiteText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                color = scheme.onSurface,
+                style = MaterialTheme.typography.titleSmall
             )
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "This may take a moment",
-                color = WhiteText.copy(alpha = 0.6f),
-                fontSize = 13.sp
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
             )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Default.Source,
-                contentDescription = null,
-                tint = IconMuted,
-                modifier = Modifier.size(64.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "No streams found",
-                color = WhiteText,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Try a different title or check addons",
-                color = WhiteText.copy(alpha = 0.6f),
-                fontSize = 14.sp
-            )
+            Spacer(Modifier.height(2.dp))
+            repeat(5) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp),
+                    shape = MaterialTheme.shapes.medium
+                )
+            }
         }
     }
 }
@@ -351,6 +243,8 @@ private fun StreamList(
     isResolving: Boolean,
     onClick: (StreamSource) -> Unit
 ) {
+    val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
     val firstFocusRequester = remember { FocusRequester() }
 
     // ── Focus first card, with retry ──
@@ -368,161 +262,169 @@ private fun StreamList(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Text(
-            text = if (isResolving)
-                "Found ${streams.size} source(s) so far…"
-            else
-                "${streams.size} source${if (streams.size > 1) "s" else ""} available",
-            color = WhiteText.copy(alpha = 0.6f),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-
-        streams.forEachIndexed { index, stream ->
-            StreamSourceCard(
-                stream = stream,
-                modifier = if (index == 0) Modifier.focusRequester(firstFocusRequester)
-                else Modifier,
-                onClick = { onClick(stream) }
+        Column(
+            modifier = Modifier
+                .widthIn(max = 720.dp)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = d.screenPaddingH + 4.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = if (isResolving)
+                    "Found ${streams.size} source(s) so far…"
+                else
+                    "${streams.size} source${if (streams.size > 1) "s" else ""} available",
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 2.dp)
             )
-        }
 
-        if (isResolving) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(
-                    color = BioAccent,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(24.dp)
+            streams.forEachIndexed { index, stream ->
+                StreamSourceCard(
+                    stream = stream,
+                    focusRequester = if (index == 0) firstFocusRequester else null,
+                    onClick = { onClick(stream) }
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            if (isResolving) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = scheme.primary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Stream card — uses TvFocusableItem so focus + touch + D-pad work
+// One source row — touch, D-pad and TalkBack via FocusSurface
 // ─────────────────────────────────────────────────────────────
 @Composable
 private fun StreamSourceCard(
     stream: StreamSource,
-    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester?,
     onClick: () -> Unit
 ) {
-    val qualityColor = remember(stream.quality) {
+    val scheme = MaterialTheme.colorScheme
+    val isTv = LocalDeviceProfile.current.isTv
+
+    val qualityColor = remember(stream.quality, scheme.primary) {
         when {
             stream.quality.contains("4K", ignoreCase = true) ||
                 stream.quality.contains("2160", ignoreCase = true) -> Quality4k
             stream.quality.contains("1080", ignoreCase = true) ||
                 stream.quality.contains("FHD", ignoreCase = true) -> QualityFhd
             stream.quality.contains("720", ignoreCase = true) ||
-                stream.quality.contains("HD", ignoreCase = true) -> BioAccent
+                stream.quality.contains("HD", ignoreCase = true) -> scheme.primary
             stream.quality.contains("CAM", ignoreCase = true) -> QualityCam
-            else -> BioAccent
+            else -> scheme.primary
         }
     }
 
-    TvFocusableItem(
+    FocusSurface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        restBackground = SurfaceElevated,
-        contentPadding = PaddingValues(16.dp)
-    ) {
-        // ── Provider icon ──
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            BioAccent.copy(alpha = 0.2f),
-                            BioAccentDim.copy(alpha = 0.1f)
-                        )
-                    )
-                ),
-            contentAlignment = Alignment.Center
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        containerColor = scheme.surface.copy(alpha = 0.55f),
+        focusedContainerColor = scheme.surfaceVariant,
+        restingBorderColor = scheme.outline.copy(alpha = 0.55f),
+        focusScale = if (isTv) 1.02f else 1f,
+        focusRequester = focusRequester,
+        contentAlignment = Alignment.CenterStart,
+        propagateMinConstraints = true
+    ) { _ ->
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Source,
-                contentDescription = null,
-                tint = BioAccent,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        // ── Provider info ──
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stream.provider.ifBlank { "Unknown Provider" },
-                color = WhiteText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // ── Provider icon ──
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(scheme.primary.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
             ) {
-                // Quality badge
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(qualityColor.copy(alpha = 0.15f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.HighQuality,
-                        contentDescription = null,
-                        tint = qualityColor,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = stream.quality,
-                        color = qualityColor,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Source,
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
 
-                // Type badge
-                if (!stream.type.isNullOrEmpty()) {
-                    Text(
-                        text = stream.type.uppercase(),
-                        color = WhiteText.copy(alpha = 0.55f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // ── Provider info ──
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stream.provider.ifBlank { "Unknown Provider" },
+                    color = scheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Quality badge
+                    Row(
+                        modifier = Modifier
+                            .border(1.dp, qualityColor.copy(alpha = 0.6f), MaterialTheme.shapes.extraSmall)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HighQuality,
+                            contentDescription = null,
+                            tint = qualityColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = stream.quality,
+                            color = qualityColor,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Type badge
+                    if (!stream.type.isNullOrEmpty()) {
+                        Text(
+                            text = stream.type.uppercase(),
+                            color = scheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
-        }
 
-        // ── Play icon (visual cue) ──
-        Icon(
-            Icons.Default.PlayArrow,
-            contentDescription = null,
-            tint = BioAccent,
-            modifier = Modifier.size(32.dp)
-        )
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play",
+                tint = scheme.primary,
+                modifier = Modifier.size(30.dp)
+            )
+        }
     }
 }
