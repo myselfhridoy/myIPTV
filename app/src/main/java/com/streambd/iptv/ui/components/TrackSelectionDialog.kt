@@ -98,36 +98,18 @@ fun TrackSelectionDialog(
             return@PremiumDialogScaffold
         }
 
-        // ── Tabs ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            availableTabs.forEach { type ->
-                TvFocusableItem(
-                    onClick = { selectedTab = type },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    restBackground = if (type == activeTab)
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
-                    contentPadding = PaddingValues(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = when (type) {
-                            C.TRACK_TYPE_VIDEO -> "Video"
-                            C.TRACK_TYPE_AUDIO -> "Audio"
-                            else -> "Subtitles"
-                        },
-                        color = if (type == activeTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+        // ── Tabs (Material style: label + underline on the selected one) ──
+        DialogTabRow(
+            labels = availableTabs.map { type ->
+                when (type) {
+                    C.TRACK_TYPE_VIDEO -> "Video"
+                    C.TRACK_TYPE_AUDIO -> "Audio"
+                    else -> "Subtitles"
                 }
-            }
-        }
+            },
+            selectedIndex = availableTabs.indexOf(activeTab).coerceAtLeast(0),
+            onSelect = { selectedTab = availableTabs[it] }
+        )
 
         val isText = activeTab == C.TRACK_TYPE_TEXT
         val defaultSelected = if (isText) options.none { it.selected }
