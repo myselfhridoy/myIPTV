@@ -31,8 +31,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
-import com.streambd.iptv.ui.theme.BioAccent
-import com.streambd.iptv.ui.theme.GrayText
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -93,7 +91,7 @@ fun TrackSelectionDialog(
         if (activeTab == null) {
             Text(
                 text = "No tracks available yet. Try again once playback starts.",
-                color = GrayText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
             )
@@ -113,7 +111,7 @@ fun TrackSelectionDialog(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
                     restBackground = if (type == activeTab)
-                        BioAccent.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
                     contentPadding = PaddingValues(vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -123,7 +121,7 @@ fun TrackSelectionDialog(
                             C.TRACK_TYPE_AUDIO -> "Audio"
                             else -> "Subtitles"
                         },
-                        color = if (type == activeTab) BioAccent else GrayText,
+                        color = if (type == activeTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -330,3 +328,4 @@ private fun codecName(mime: String?): String? = when (mime) {
     MimeTypes.AUDIO_OPUS -> "Opus"
     else -> null
 }
+
