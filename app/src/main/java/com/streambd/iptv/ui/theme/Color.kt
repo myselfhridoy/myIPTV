@@ -28,33 +28,3 @@ val PrimeTextTertiary    = Color(0xFF8A99A8)
 
 // ── TV focus ─────────────────────────────────────────────────
 val PrimeFocusRing       = Color(0xFFE6EEF5)   // near-white ring, like Prime TV
-
-// ─────────────────────────────────────────────────────────────
-// BACKWARD-COMPATIBLE ALIASES
-// Old screens still reference these names. They now point to the
-// new palette so every existing screen picks up the new theme
-// automatically. Removed in the final clean-up step.
-// ─────────────────────────────────────────────────────────────
-val DarkNavyBackground  = PrimeBackground
-val DarkNavySurface     = PrimeSurface
-val BioCardLight        = PrimeSurfaceHigh
-val BioAccent           = PrimeBlue
-val BioBrand            = PrimeCyan
-
-val BioTextPrimary      = PrimeTextPrimary
-val BioTextSecondary    = PrimeTextSecondary
-val BioTextTertiary     = PrimeTextTertiary
-
-val PrimaryDark         = PrimeBackground
-val SurfaceDark         = PrimeSurface
-val WhiteText           = PrimeTextPrimary
-val GrayText            = PrimeTextSecondary
-val TealAccent          = PrimeBlue
-val TealAccentDark      = PrimeBlueDark
-
-val BottomNavBackground = Color(0xFF121B24)
-val SelectedItemColor   = PrimeBlue
-val UnselectedItemColor = PrimeTextTertiary
-
-val TvFocusedBorder     = PrimeFocusRing
-val TvFocusedSurface    = PrimeSurfaceHigh
