@@ -102,13 +102,6 @@ fun PosterCardSkeleton(modifier: Modifier = Modifier) {
 
 // ── Full-area states ─────────────────────────────────────────
 
-@Composable
-fun LoadingState(modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-    }
-}
-
 /**
  * Empty list / no results. If an [actionLabel] is given the button is
  * auto-focused on TV, so D-pad never starts on an empty screen.
