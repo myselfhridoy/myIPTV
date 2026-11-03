@@ -1,99 +1,30 @@
 package com.streambd.iptv.ui.theme
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
-import com.streambd.iptv.ui.adaptive.FormFactor
-import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
-import com.streambd.iptv.ui.adaptive.rememberDeviceProfile
+import androidx.compose.ui.graphics.Color
 
-private val AppColorScheme = darkColorScheme(
-    primary                = PrimeBlue,
-    onPrimary              = PrimeTextPrimary,
-    primaryContainer       = PrimeBlueDark,
-    onPrimaryContainer     = PrimeTextPrimary,
+// ─────────────────────────────────────────────────────────────
+// Prime-Video-inspired palette (dark navy + electric blue)
+// ─────────────────────────────────────────────────────────────
 
-    secondary              = PrimeCyan,
-    onSecondary            = PrimeBackground,
-    secondaryContainer     = PrimeSurfaceHighest,
-    onSecondaryContainer   = PrimeTextPrimary,
+// ── Surfaces (darkest → lightest) ────────────────────────────
+val PrimeBackground      = Color(0xFF0F171E)   // app background
+val PrimeSurface         = Color(0xFF1A242F)   // cards, sheets
+val PrimeSurfaceHigh     = Color(0xFF243242)   // focused / elevated card
+val PrimeSurfaceHighest  = Color(0xFF2F4054)   // chips, pressed state
+val PrimeOutline         = Color(0xFF3A4A5C)   // dividers, borders
 
-    tertiary               = PrimeGold,
-    onTertiary             = PrimeBackground,
+// ── Brand ────────────────────────────────────────────────────
+val PrimeBlue            = Color(0xFF1A98FF)   // primary accent
+val PrimeBlueDark        = Color(0xFF0B6BB5)   // pressed / container
+val PrimeCyan            = Color(0xFF00A8E1)   // secondary accent
+val PrimeGold            = Color(0xFFF5C518)   // ratings, "premium" badges
+val PrimeError           = Color(0xFFFF5A5F)
+val PrimeLive            = Color(0xFFE53935)   // LIVE badge
 
-    background             = PrimeBackground,
-    onBackground           = PrimeTextPrimary,
+// ── Text ─────────────────────────────────────────────────────
+val PrimeTextPrimary     = Color(0xFFFFFFFF)
+val PrimeTextSecondary   = Color(0xFFB8C4D0)
+val PrimeTextTertiary    = Color(0xFF8A99A8)
 
-    surface                = PrimeSurface,
-    onSurface              = PrimeTextPrimary,
-    surfaceVariant         = PrimeSurfaceHigh,
-    onSurfaceVariant       = PrimeTextSecondary,
-    surfaceTint            = PrimeBlue,
-
-    outline                = PrimeOutline,
-    outlineVariant         = PrimeSurfaceHighest,
-
-    error                  = PrimeError,
-    onError                = PrimeTextPrimary,
-
-    inverseSurface         = PrimeTextPrimary,
-    inverseOnSurface       = PrimeBackground,
-    scrim                  = PrimeBackground
-)
-
-/** Finds the hosting Activity even when the Context is wrapped. */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
-
-@Composable
-fun StreamBDPlayerTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val view = LocalView.current
-
-    // One DeviceProfile for the whole app; spacing tokens follow the form factor.
-    val profile = rememberDeviceProfile()
-    val dimens = when (profile.formFactor) {
-        FormFactor.Tv -> TvDimens
-        FormFactor.Tablet -> TabletDimens
-        FormFactor.Phone -> MobileDimens
-    }
-
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = context.findActivity()?.window ?: return@SideEffect
-            @Suppress("DEPRECATION")
-            run {
-                window.statusBarColor = AppColorScheme.background.toArgb()
-                window.navigationBarColor = AppColorScheme.background.toArgb()
-            }
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = false
-                isAppearanceLightNavigationBars = false
-            }
-        }
-    }
-
-    CompositionLocalProvider(
-        LocalDeviceProfile provides profile,
-        LocalDimens provides dimens
-    ) {
-        MaterialTheme(
-            colorScheme = AppColorScheme,
-            typography = Typography,
-            shapes = AppShapes,
-            content = content
-        )
-    }
-}
+// ── TV focus ─────────────────────────────────────────────────
+val PrimeFocusRing       = Color(0xFFE6EEF5)   // near-white ring, like Prime TV
