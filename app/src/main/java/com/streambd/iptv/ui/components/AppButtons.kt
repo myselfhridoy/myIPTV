@@ -23,6 +23,9 @@ import com.streambd.iptv.ui.theme.AppTheme
 
 enum class AppButtonStyle { Primary, Secondary, Text }
 
+/** Regular = full touch target (screens). Compact = dialog actions. */
+enum class AppButtonSize { Regular, Compact }
+
 /**
  * Standard button. When focused (D-pad) it turns white with dark text —
  * the same strong focus cue Prime Video uses on TV.
@@ -35,10 +38,12 @@ fun AppButton(
     style: AppButtonStyle = AppButtonStyle.Primary,
     icon: ImageVector? = null,
     enabled: Boolean = true,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    size: AppButtonSize = AppButtonSize.Regular
 ) {
     val scheme = MaterialTheme.colorScheme
     val d = AppTheme.dimens
+    val compact = size == AppButtonSize.Compact
 
     val container = when (style) {
         AppButtonStyle.Primary -> scheme.primary
@@ -58,7 +63,7 @@ fun AppButton(
 
     FocusSurface(
         onClick = onClick,
-        modifier = modifier.defaultMinSize(minHeight = d.minTouchTarget),
+        modifier = modifier.defaultMinSize(minHeight = if (compact) 40.dp else d.minTouchTarget),
         enabled = enabled,
         containerColor = container,
         focusedContainerColor = focusedContainer,
@@ -66,7 +71,10 @@ fun AppButton(
     ) { focused ->
         val color = if (focused) focusedContent else restContent
         Row(
-            modifier = Modifier.padding(horizontal = d.spaceXl, vertical = d.spaceSm),
+            modifier = Modifier.padding(
+                horizontal = if (compact) d.spaceLg else d.spaceXl,
+                vertical = if (compact) 6.dp else d.spaceSm
+            ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(d.spaceSm)
         ) {
