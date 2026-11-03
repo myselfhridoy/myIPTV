@@ -9,18 +9,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalContext
-import com.streambd.iptv.utils.DeviceType
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 
 /**
- * True on Android TV / set-top boxes. Result is cached inside [DeviceType],
- * so calling this in any composable is cheap.
+ * True on Android TV / set-top boxes. Reads the app-wide DeviceProfile that
+ * StreamBDPlayerTheme installs, so there is ONE answer to "is this a TV?".
  */
 @Composable
-fun rememberIsTv(): Boolean {
-    val context = LocalContext.current
-    return remember(context) { DeviceType.isTv(context) }
-}
+fun rememberIsTv(): Boolean = LocalDeviceProfile.current.isTv
 
 /**
  * AUTO FOCUS
