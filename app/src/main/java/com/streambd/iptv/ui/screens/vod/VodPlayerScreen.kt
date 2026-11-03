@@ -50,10 +50,8 @@ import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
 import com.streambd.iptv.ui.components.rememberPlayerProgress
-import com.streambd.iptv.ui.components.TvIconButton
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
-import com.streambd.iptv.ui.theme.BioAccent
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.AnalyticsLogger
