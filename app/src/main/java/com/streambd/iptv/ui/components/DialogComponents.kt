@@ -1,6 +1,15 @@
 package com.streambd.iptv.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,9 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,7 +84,10 @@ fun TvFocusableItem(
     }
 }
 
-/** One selectable line in a dialog list (title, optional subtitle/badge, check). */
+/**
+ * One selectable line in a dialog list — Material "single choice" pattern:
+ * radio button · title (+ subtitle) · optional badge.
+ */
 @Composable
 fun PremiumOptionRow(
     title: String,
@@ -92,27 +101,35 @@ fun PremiumOptionRow(
     val scheme = MaterialTheme.colorScheme
     val isCompact = rememberIsCompactLayout()
     val rowPadding = if (isCompact)
+        PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+    else
         PaddingValues(horizontal = 14.dp, vertical = 10.dp)
-    else
-        PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    val titleStyle = if (isCompact)
-        MaterialTheme.typography.bodyLarge
-    else
-        MaterialTheme.typography.titleMedium
 
     TvFocusableItem(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { this.selected = selected },
         focusRequester = focusRequester,
-        contentPadding = rowPadding,
-        restBackground = if (selected) scheme.primary.copy(alpha = 0.12f) else Color.Transparent
+        shape = MaterialTheme.shapes.medium,
+        contentPadding = rowPadding
     ) {
+        // onClick = null → purely visual; the whole row is the click target.
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = scheme.primary,
+                unselectedColor = scheme.onSurfaceVariant
+            )
+        )
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = if (selected) scheme.primary else scheme.onSurface,
-                style = titleStyle,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = scheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -130,15 +147,6 @@ fun PremiumOptionRow(
             Spacer(Modifier.width(8.dp))
             PremiumBadge(badge)
         }
-        if (selected) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = scheme.primary,
-                modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
-            )
-        }
     }
 }
 
@@ -151,9 +159,8 @@ fun PremiumBadge(text: String, modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(scheme.primary.copy(alpha = 0.16f))
-            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .border(1.dp, scheme.primary.copy(alpha = 0.6f), MaterialTheme.shapes.extraSmall)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
     )
 }
 
@@ -176,6 +183,61 @@ fun PremiumButton(
         onClick = onClick,
         modifier = modifier,
         style = if (primary) AppButtonStyle.Primary else AppButtonStyle.Secondary,
+        size = AppButtonSize.Compact,
         focusRequester = focusRequester
     )
+}
+
+/**
+ * Material-style tabs for dialogs: label with an underline indicator on the
+ * selected tab and a hairline under the whole row. Works with touch and D-pad.
+ */
+@Composable
+fun DialogTabRow(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            labels.forEachIndexed { index, label ->
+                val isSelected = index == selectedIndex
+                FocusSurface(
+                    onClick = { onSelect(index) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { this.selected = isSelected },
+                    shape = MaterialTheme.shapes.small,
+                    containerColor = Color.Transparent,
+                    focusedContainerColor = scheme.primary.copy(alpha = 0.16f)
+                        .compositeOver(scheme.surface),
+                    focusScale = 1f,
+                    role = Role.Tab
+                ) { _ ->
+                    Column(
+                        modifier = Modifier.padding(top = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) scheme.primary else scheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(36.dp)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .background(if (isSelected) scheme.primary else Color.Transparent)
+                        )
+                    }
+                }
+            }
+        }
+        HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
+    }
 }
