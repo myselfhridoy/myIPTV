@@ -77,39 +77,3 @@ fun CategoryChip(
         }
     }
 }
-
-/**
- * Horizontal category/filter row.
- *  • Opens already scrolled to the selected chip.
- *  • Remembers the focused chip when D-pad leaves and re-enters.
- *  • Vertical padding leaves room for the focus ring/scale.
- */
-@Composable
-fun CategoryChipRow(
-    labels: List<String>,
-    selectedIndex: Int,
-    onSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = AppTheme.dimens.screenPaddingH,
-        vertical = 6.dp
-    )
-) {
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = selectedIndex.coerceAtLeast(0)
-    )
-    LazyRow(
-        modifier = modifier.restoreFocus(),
-        state = listState,
-        contentPadding = contentPadding,
-        horizontalArrangement = Arrangement.spacedBy(AppTheme.dimens.spaceSm)
-    ) {
-        itemsIndexed(labels, key = { index, _ -> index }) { index, label ->
-            CategoryChip(
-                label = label,
-                selected = index == selectedIndex,
-                onClick = { onSelected(index) }
-            )
-        }
-    }
-}
