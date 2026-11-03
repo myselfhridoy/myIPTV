@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -73,7 +74,7 @@ fun AppTopBar(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     backFocusRequester: FocusRequester? = null,
-    containerColor: Color = MaterialTheme.colorScheme.background,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
     subtitle: String? = null,
     leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
@@ -83,6 +84,7 @@ fun AppTopBar(
         modifier = modifier
             .fillMaxWidth()
             .background(containerColor)
+            .heightIn(min = 64.dp)
             .padding(horizontal = d.spaceSm, vertical = d.spaceXs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(d.spaceXs)
