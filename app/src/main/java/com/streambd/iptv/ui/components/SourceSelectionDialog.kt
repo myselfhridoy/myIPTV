@@ -15,7 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
-import com.streambd.iptv.ui.theme.GrayText
 import kotlinx.coroutines.delay
 
 /**
@@ -55,7 +54,7 @@ fun SourceSelectionDialog(
         if (items.isEmpty()) {
             Text(
                 text = "This channel has no additional sources.",
-                color = GrayText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
             )
@@ -97,3 +96,4 @@ fun SourceSelectionDialog(
         }
     }
 }
+
