@@ -49,6 +49,7 @@ import com.streambd.iptv.R
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
+import com.streambd.iptv.ui.components.PlayerLoadingIndicator
 import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.components.TrackSelectionDialog
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
@@ -701,12 +702,13 @@ val loadErrorPolicy = object :
                 )
             }
 
-            if (isLoading && !isLocked) {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else if (playerError != null || resolveFailed) {
+            val showSpinner = isLoading && !isLocked
+            PlayerLoadingIndicator(
+                visible = showSpinner,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
+            if (!showSpinner && (playerError != null || resolveFailed)) {
                 val primaryText = when {
                     playerError != null -> playerError?.message ?: "Unknown error"
                     resolveFailed ->
