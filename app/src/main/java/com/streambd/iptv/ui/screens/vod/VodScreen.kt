@@ -60,7 +60,7 @@ import com.streambd.iptv.data.models.TmdbMedia
 import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.components.AppButton
 import com.streambd.iptv.ui.components.AppIconButton
-import com.streambd.iptv.ui.components.AppSearchField
+import com.streambd.iptv.ui.components.SearchHeader
 import com.streambd.iptv.ui.components.AppTopBar
 import com.streambd.iptv.ui.components.EmptyState
 import com.streambd.iptv.ui.components.PosterCard
@@ -251,7 +251,8 @@ private fun BrowseMode(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
-    val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null) {
+    // TV: Back opens the drawer, so a hamburger button is just an extra stop for the remote.
+    val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null && !isTv) {
         { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
     } else null
 
@@ -482,27 +483,19 @@ private fun SearchMode(
     BackHandler { onClose() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = d.screenPaddingH, vertical = 12.dp)
-                .focusGroup(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AppSearchField(
-                query = query,
-                onQueryChange = onQueryChange,
-                placeholder = "Search movies, TV shows…",
-                onClose = onClose,
-                modifier = Modifier.fillMaxWidth(),
-                onSearch = {
-                    keyboard?.hide()
-                    if (results.isNotEmpty()) {
-                        pendingJumpToResults = true
-                    }
+        SearchHeader(
+            query = query,
+            onQueryChange = onQueryChange,
+            placeholder = "Search movies, TV shows…",
+            onClose = onClose,
+            modifier = Modifier.focusGroup(),
+            onSearch = {
+                keyboard?.hide()
+                if (results.isNotEmpty()) {
+                    pendingJumpToResults = true
                 }
-            )
-        }
+            }
+        )
 
         when {
             results.isNotEmpty() -> {
