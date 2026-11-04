@@ -1,6 +1,15 @@
 package com.streambd.iptv.ui.screens.playlists
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +28,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,7 +54,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.Playlist
+import com.streambd.iptv.ui.components.AppButton
+import com.streambd.iptv.ui.components.AppButtonSize
+import com.streambd.iptv.ui.components.AppButtonStyle
 import com.streambd.iptv.ui.components.AppIconButton
+import com.streambd.iptv.ui.components.CollapsibleSection
+import com.streambd.iptv.ui.components.HeaderEditor
+import com.streambd.iptv.ui.components.entriesToHeaders
+import com.streambd.iptv.ui.components.headersToEntries
+import com.streambd.iptv.ui.components.rememberIsTv
 import com.streambd.iptv.ui.components.AppTextField
 import com.streambd.iptv.ui.components.AppTopBar
 import com.streambd.iptv.ui.components.EmptyState
@@ -51,6 +72,7 @@ import com.streambd.iptv.ui.components.PremiumDialogScaffold
 import com.streambd.iptv.ui.components.initialFocus
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.viewmodels.PlaylistViewModel
+import com.streambd.iptv.utils.PlaylistSpec
 import java.net.URLEncoder
 
 /**
@@ -190,8 +212,14 @@ fun PlaylistCard(
     modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
-    val subtitle = playlist.url?.takeIf { it.isNotBlank() }
-        ?: playlist.filePath?.takeIf { it.isNotBlank() }
+    // `url` may carry optional headers (url|Name=Value&…) — show only the address.
+    val spec = remember(playlist.url) { PlaylistSpec.parse(playlist.url.orEmpty()) }
+    val subtitle = when {
+        spec.isLocal -> "Local file"
+        spec.url.isNotBlank() -> spec.url +
+            if (spec.headers.isNotEmpty()) "  •  ${spec.headers.size} header(s)" else ""
+        else -> playlist.filePath?.takeIf { it.isNotBlank() }
+    }
 
     FocusSurface(
         onClick = onClick,
@@ -262,6 +290,9 @@ fun PlaylistCard(
 
 // ─────────────────────────────────────────────────────────────
 // Add / Edit dialog
+//   • address: a URL, or a local file chosen with the system picker
+//   • optional "Headers" (User-Agent, Referer, … or any custom header)
+// Everything is saved in the single `url` string, see PlaylistSpec.
 // ─────────────────────────────────────────────────────────────
 @Composable
 fun PlaylistDialog(
@@ -269,17 +300,55 @@ fun PlaylistDialog(
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
+    val isTv = rememberIsTv()
+    val initial = remember(playlist) { PlaylistSpec.parse(playlist?.url.orEmpty()) }
+
     var title by remember { mutableStateOf(playlist?.title ?: "") }
-    var url by remember { mutableStateOf(playlist?.url ?: "") }
+    var url by remember { mutableStateOf(initial.url) }
+    var entries by remember { mutableStateOf(headersToEntries(initial.headers)) }
+    var headersExpanded by remember { mutableStateOf(initial.headers.isNotEmpty()) }
+    var fileName by remember {
+        mutableStateOf(if (initial.isLocal) context.displayNameOf(Uri.parse(initial.url)) else null)
+    }
+    val isLocal = url.startsWith("content://") || url.startsWith("file://")
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            // Keep access to the file after the app restarts.
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            url = uri.toString()
+            val name = context.displayNameOf(uri)
+            fileName = name
+            if (title.isBlank() && !name.isNullOrBlank()) title = name.substringBeforeLast('.')
+        }
+    }
+    val openPicker: () -> Unit = {
+        try {
+            picker.launch(arrayOf("*/*"))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "No file picker available on this device", Toast.LENGTH_LONG).show()
+        }
+    }
 
     val canSave = title.isNotBlank() && url.isNotBlank()
-    val save = { if (canSave) onSave(title.trim(), url.trim()) }
+    val save = {
+        if (canSave) {
+            val finalUrl = if (isLocal) url.trim()
+            else PlaylistSpec.build(url, entriesToHeaders(entries))
+            onSave(title.trim(), finalUrl)
+        }
+    }
 
     PremiumDialogScaffold(
         title = if (playlist == null) "Add New Playlist" else "Edit Playlist",
-        subtitle = "M3U playlist (URL or local path)",
+        subtitle = "M3U playlist: a link or a file",
         onDismiss = onDismiss,
-        scrollContent = false,
+        contentMaxHeight = 440.dp,
         actions = {
             PremiumButton("Cancel", onDismiss)
             PremiumButton(text = "Save", onClick = { save() }, primary = true)
@@ -304,15 +373,117 @@ fun PlaylistDialog(
                         else Modifier
                     )
             )
-            AppTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = "Playlist URL (M3U)",
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Done,
-                onDone = { save() },
-                modifier = Modifier.fillMaxWidth()
-            )
+
+            if (isLocal) {
+                LocalFileRow(
+                    name = fileName ?: "Selected file",
+                    onChange = openPicker,
+                    onClear = {
+                        url = ""
+                        fileName = null
+                    },
+                    showChange = !isTv
+                )
+            } else {
+                AppTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = "Playlist URL (M3U)",
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                // TV boxes often have no document picker, so it is offered on phones/tablets.
+                if (!isTv) {
+                    AppButton(
+                        text = "Choose a file instead",
+                        onClick = openPicker,
+                        style = AppButtonStyle.Text,
+                        size = AppButtonSize.Compact,
+                        icon = Icons.Default.FolderOpen
+                    )
+                }
+
+                CollapsibleSection(
+                    title = "Headers",
+                    summary = if (entries.isEmpty()) "Optional"
+                    else entries.map { it.name }.filter { it.isNotBlank() }.joinToString(", "),
+                    expanded = headersExpanded,
+                    onToggle = { headersExpanded = !headersExpanded }
+                ) {
+                    HeaderEditor(
+                        entries = entries,
+                        onEntriesChange = { entries = it }
+                    )
+                }
+            }
         }
     }
+}
+
+/** Shown instead of the URL field when the playlist is a local file. */
+@Composable
+private fun LocalFileRow(
+    name: String,
+    onChange: () -> Unit,
+    onClear: () -> Unit,
+    showChange: Boolean
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, scheme.outline, MaterialTheme.shapes.medium)
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Filled.InsertDriveFile,
+            contentDescription = null,
+            tint = scheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                color = scheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Local file",
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        if (showChange) {
+            AppButton(
+                text = "Change",
+                onClick = onChange,
+                style = AppButtonStyle.Text,
+                size = AppButtonSize.Compact
+            )
+        }
+        AppIconButton(
+            icon = Icons.Default.Close,
+            contentDescription = "Remove file",
+            onClick = onClear,
+            tint = scheme.onSurfaceVariant,
+            modifier = Modifier.size(40.dp)
+        )
+    }
+}
+
+/** File name shown to the user for a picked document (falls back to the last path part). */
+private fun Context.displayNameOf(uri: Uri): String? {
+    val fromProvider = try {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    } catch (_: Exception) {
+        null
+    }
+    return fromProvider ?: uri.lastPathSegment
 }
