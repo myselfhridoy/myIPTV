@@ -137,9 +137,9 @@ fun TrackSelectionDialog(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 320.dp),
+                .heightIn(max = rememberDialogListMaxHeight(320.dp)),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(rememberDialogRowGap())
         ) {
             item(key = "default_$activeTab") {
                 PremiumOptionRow(
