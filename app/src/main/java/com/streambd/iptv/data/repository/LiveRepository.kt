@@ -36,6 +36,10 @@ class LiveRepository {
 
     suspend fun getChannelsForCategory(context: android.content.Context, categoryUrl: String): List<Channel> = withContext(Dispatchers.IO) {
         try {
+            // Optional per-playlist headers / local file, stored as  url|Name=Value&…
+            // (see PlaylistSpec). From here on `categoryUrl` is the PLAIN address.
+            val spec = com.streambd.iptv.utils.PlaylistSpec.parse(categoryUrl)
+            val categoryUrl = spec.url
             val uri = android.net.Uri.parse(categoryUrl)
             val portalType = uri.getQueryParameter("portal") ?: uri.getQueryParameter("type")
             if (portalType?.equals("oxoo", ignoreCase = true) == true) {
@@ -99,11 +103,22 @@ class LiveRepository {
             }
 
             // Fetch the M3U/JS content directly from the normal URL
-            val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
-            val req = okhttp3.Request.Builder().url(categoryUrl).build()
-            val response = client.newCall(req).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
-            var m3uContent = response.body?.string() ?: return@withContext emptyList()
+            var m3uContent: String
+            if (spec.isLocal) {
+                // Local playlist chosen with the system file picker (content:// or file://)
+                m3uContent = context.contentResolver
+                    .openInputStream(android.net.Uri.parse(categoryUrl))
+                    ?.bufferedReader()?.use { it.readText() }
+                    ?: return@withContext emptyList()
+            } else {
+                val client = com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient()
+                val reqBuilder = okhttp3.Request.Builder().url(categoryUrl)
+                // header() (not addHeader) so a custom User-Agent REPLACES the default one.
+                spec.headers.forEach { (name, value) -> reqBuilder.header(name, value) }
+                val response = client.newCall(reqBuilder.build()).execute()
+                if (!response.isSuccessful) return@withContext emptyList()
+                m3uContent = response.body?.string() ?: return@withContext emptyList()
+            }
             
             // If the URL ends with .js OR the content explicitly starts with '// JS PLAYLIST'
             if (categoryUrl.endsWith(".js", ignoreCase = true) || m3uContent.trim().startsWith("// JS PLAYLIST", ignoreCase = true) || m3uContent.contains("generatePlaylist()", ignoreCase = true)) {
@@ -211,3 +226,4 @@ class LiveRepository {
         }
     }
 }
+
