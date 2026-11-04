@@ -70,9 +70,9 @@ fun SourceSelectionDialog(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 360.dp),
+                .heightIn(max = rememberDialogListMaxHeight(360.dp)),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(rememberDialogRowGap())
         ) {
             // ── FIX: index-based key is guaranteed unique even when two
             //         different source names share the same URL. ──
