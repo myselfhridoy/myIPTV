@@ -72,7 +72,13 @@ fun AppButton(
         val color = if (focused) focusedContent else restContent
         Row(
             modifier = Modifier.padding(
-                horizontal = if (compact) d.spaceLg else d.spaceXl,
+                // Text buttons have no fill, so a big inset would push them away from
+                // the fields above/below them — keep them closer to the edge.
+                horizontal = when {
+                    style == AppButtonStyle.Text -> if (compact) 8.dp else d.spaceMd
+                    compact -> d.spaceLg
+                    else -> d.spaceXl
+                },
                 vertical = if (compact) 6.dp else d.spaceSm
             ),
             verticalAlignment = Alignment.CenterVertically,
