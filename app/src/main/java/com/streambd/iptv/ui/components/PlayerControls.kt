@@ -1,6 +1,13 @@
 package com.streambd.iptv.ui.components
 
 import androidx.compose.foundation.background
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -391,4 +398,37 @@ fun formatPlayerTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
     else String.format("%02d:%02d", minutes, seconds)
+}
+
+/**
+ * Spinner for "resolving / buffering" that does not flicker.
+ *
+ * The raw flags flip many times at start-up (resolver finishes → a moment
+ * with both flags false → player reports BUFFERING), and every flip removed
+ * and re-created the spinner, restarting its animation = visible jitter.
+ *
+ *  • appears only if loading lasts > 200 ms (no flash for instant states)
+ *  • stays through gaps shorter than 450 ms
+ *  • fades in/out instead of popping
+ */
+@Composable
+fun PlayerLoadingIndicator(visible: Boolean, modifier: Modifier = Modifier) {
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            delay(200)
+            show = true
+        } else {
+            delay(450)
+            show = false
+        }
+    }
+    AnimatedVisibility(
+        visible = show,
+        modifier = modifier,
+        enter = fadeIn(tween(150)),
+        exit = fadeOut(tween(200))
+    ) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+    }
 }
