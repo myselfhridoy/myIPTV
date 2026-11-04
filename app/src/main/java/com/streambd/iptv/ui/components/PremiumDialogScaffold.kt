@@ -144,15 +144,15 @@ private fun PremiumDialogCard(
     val isCompact = config.screenWidthDp < 600
     val isShortScreen = config.screenHeightDp < 480
 
-    val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 380.dp) else maxWidth
+    val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 340.dp) else maxWidth
     val outerPadding = when {
         isCompact && isShortScreen -> 6.dp
         isCompact -> 12.dp
         else -> 16.dp
     }
     val headerHorizontal = if (isCompact) 16.dp else 20.dp
-    val headerTop = if (isCompact) 14.dp else 18.dp
-    val headerBottom = if (isCompact) 8.dp else 12.dp
+    val headerTop = if (isCompact) 10.dp else 18.dp
+    val headerBottom = if (isCompact) 4.dp else 12.dp
     val titleStyle = if (isCompact)
         MaterialTheme.typography.titleMedium
     else
@@ -249,7 +249,7 @@ private fun PremiumDialogCard(
                     .fillMaxWidth()
                     .padding(
                         horizontal = if (isCompact) 10.dp else 14.dp,
-                        vertical = if (isCompact) 8.dp else 10.dp
+                        vertical = if (isCompact) 4.dp else 10.dp
                     ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
