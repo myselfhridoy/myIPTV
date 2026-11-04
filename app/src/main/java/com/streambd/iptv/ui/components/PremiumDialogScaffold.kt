@@ -141,10 +141,15 @@ private fun PremiumDialogCard(
 ) {
     val scheme = MaterialTheme.colorScheme
     val config = LocalConfiguration.current
-    val isCompact = config.screenWidthDp < 600
     val isShortScreen = config.screenHeightDp < 480
+    // Landscape phones are wide but short → also compact.
+    val isCompact = config.screenWidthDp < 600 || isShortScreen
 
-    val effectiveMaxWidth = if (isCompact) minOf(maxWidth, 340.dp) else maxWidth
+    val effectiveMaxWidth = when {
+        !isCompact -> maxWidth
+        config.screenWidthDp >= 600 -> minOf(maxWidth, 420.dp) // landscape phone
+        else -> minOf(maxWidth, 340.dp)                        // portrait phone
+    }
     val outerPadding = when {
         isCompact && isShortScreen -> 6.dp
         isCompact -> 12.dp
@@ -166,7 +171,8 @@ private fun PremiumDialogCard(
     val screenBoundedContent = (config.screenHeightDp.dp - chromeHeight)
         .coerceAtLeast(100.dp)
     val effectiveContentMaxHeight = minOf(
-        if (isCompact) minOf(contentMaxHeight, 320.dp) else contentMaxHeight,
+        if (isCompact) minOf(contentMaxHeight, maxOf(320.dp, (config.screenHeightDp * 0.55f).dp))
+        else contentMaxHeight,
         screenBoundedContent
     )
 
