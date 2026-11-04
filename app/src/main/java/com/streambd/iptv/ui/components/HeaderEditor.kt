@@ -84,19 +84,18 @@ fun HeaderEditor(
     var namePickerFor by remember { mutableStateOf<Int?>(null) }
     var uaPickerFor by remember { mutableStateOf<Int?>(null) }
 
+    val stacked = rememberIsCompactLayout()
+
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         entries.forEachIndexed { index, entry ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                // ── name ──
+
+            // ── name: picked from the list, or typed (Custom) ──
+            val nameField: @Composable (Modifier) -> Unit = { m ->
                 if (entry.custom) {
                     AppTextField(
                         value = entry.name,
                         onValueChange = { onEntriesChange(entries.replaceAt(index, entry.copy(name = it))) },
-                        label = "Header name",
+                        label = "Name",
                         trailingIcon = {
                             AppIconButton(
                                 icon = Icons.Default.ArrowDropDown,
@@ -106,18 +105,20 @@ fun HeaderEditor(
                                 modifier = Modifier.size(40.dp)
                             )
                         },
-                        modifier = Modifier.weight(0.42f)
+                        modifier = m
                     )
                 } else {
                     SelectField(
                         label = "Header",
                         value = entry.name.ifBlank { "Select" },
                         onClick = { namePickerFor = index },
-                        modifier = Modifier.weight(0.42f)
+                        modifier = m
                     )
                 }
+            }
 
-                // ── value ──
+            // ── value (+ User-Agent presets) ──
+            val valueField: @Composable (Modifier) -> Unit = { m ->
                 AppTextField(
                     value = entry.value,
                     onValueChange = { onEntriesChange(entries.replaceAt(index, entry.copy(value = it))) },
@@ -133,19 +134,44 @@ fun HeaderEditor(
                             )
                         }
                     } else null,
-                    modifier = Modifier.weight(0.58f)
+                    modifier = m
                 )
+            }
 
-                // ── remove ──
+            val removeButton: @Composable () -> Unit = {
                 AppIconButton(
                     icon = Icons.Default.Delete,
                     contentDescription = "Remove header",
-                    onClick = {
-                        onEntriesChange(entries.filterIndexed { i, _ -> i != index })
-                    },
+                    onClick = { onEntriesChange(entries.filterIndexed { i, _ -> i != index }) },
                     tint = scheme.error,
                     modifier = Modifier.size(40.dp)
                 )
+            }
+
+            if (stacked) {
+                // Phones: side by side was too tight (the name wrapped letter by
+                // letter), so the value goes on its own line.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        nameField(Modifier.weight(1f))
+                        removeButton()
+                    }
+                    valueField(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    nameField(Modifier.weight(0.4f))
+                    valueField(Modifier.weight(0.6f))
+                    removeButton()
+                }
             }
         }
 
