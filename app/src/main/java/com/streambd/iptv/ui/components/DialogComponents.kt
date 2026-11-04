@@ -37,11 +37,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** Phones (< 600dp wide) use tighter spacing in dialogs. */
+/**
+ * Dialog density: tight on phones — in portrait (narrow) AND in landscape
+ * (wide but short, < 480dp tall). Tablets and TVs keep the roomy layout.
+ */
 @Composable
 fun rememberIsCompactLayout(): Boolean {
     val config = LocalConfiguration.current
-    return config.screenWidthDp < 600
+    return config.screenWidthDp < 600 || config.screenHeightDp < 480
 }
 
 /**
