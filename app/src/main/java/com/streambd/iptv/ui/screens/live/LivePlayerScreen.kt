@@ -57,6 +57,7 @@ import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.ChannelInfoCard
 import com.streambd.iptv.ui.components.ChannelNumberBadge
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
+import com.streambd.iptv.ui.components.PlayerLoadingIndicator
 import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.components.TrackSelectionDialog
@@ -558,12 +559,12 @@ fun LivePlayerScreen(
 
             val showError = playerError != null || isResolutionFailed
 
-            if (!showError && (isResolving || isBuffering) && !isLocked) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            } else if (showError) {
+            PlayerLoadingIndicator(
+                visible = !showError && (isResolving || isBuffering) && !isLocked,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
+            if (showError) {
                 val primaryText = when {
                     playerError != null -> playerError?.message ?: "Unknown error"
                     isResolutionFailed ->
