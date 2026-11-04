@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.streambd.iptv.data.models.StreamSource
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.components.AppButton
 import com.streambd.iptv.ui.components.AppIconButton
 import com.streambd.iptv.ui.components.AppTextField
@@ -477,7 +478,9 @@ fun StreamScreen(
         "DRM: $drmScheme".takeIf { !drmScheme.equals("None", ignoreCase = true) }
     ).joinToString(" • ").ifEmpty { "Headers, User-Agent & DRM" }
 
-    val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null) {
+    // TV: Back opens the drawer, so no hamburger button on TV.
+    val isTv = LocalDeviceProfile.current.isTv
+    val menuLeading: (@Composable () -> Unit)? = if (onMenuClick != null && !isTv) {
         { AppIconButton(Icons.Default.Menu, "Menu", onMenuClick) }
     } else null
 
