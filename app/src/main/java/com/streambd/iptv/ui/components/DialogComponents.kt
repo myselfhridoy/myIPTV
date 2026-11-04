@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** Phones (< 600dp wide) use tighter spacing in dialogs. */
@@ -101,7 +102,7 @@ fun PremiumOptionRow(
     val scheme = MaterialTheme.colorScheme
     val isCompact = rememberIsCompactLayout()
     val rowPadding = if (isCompact)
-        PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+        PaddingValues(horizontal = 10.dp, vertical = 4.dp)
     else
         PaddingValues(horizontal = 14.dp, vertical = 10.dp)
 
@@ -128,7 +129,8 @@ fun PremiumOptionRow(
             Text(
                 text = title,
                 color = scheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (isCompact) MaterialTheme.typography.bodyMedium
+                else MaterialTheme.typography.bodyLarge,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -200,6 +202,7 @@ fun DialogTabRow(
     modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
+    val isCompact = rememberIsCompactLayout()
     Column(modifier = modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             labels.forEachIndexed { index, label ->
@@ -217,7 +220,7 @@ fun DialogTabRow(
                     role = Role.Tab
                 ) { _ ->
                     Column(
-                        modifier = Modifier.padding(top = 12.dp),
+                        modifier = Modifier.padding(top = if (isCompact) 8.dp else 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
@@ -226,7 +229,7 @@ fun DialogTabRow(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(if (isCompact) 6.dp else 10.dp))
                         Box(
                             modifier = Modifier
                                 .width(36.dp)
@@ -241,3 +244,14 @@ fun DialogTabRow(
         HorizontalDivider(color = scheme.outline.copy(alpha = 0.4f))
     }
 }
+
+/** Dialog lists never take more than half the screen (and never more than [max]). */
+@Composable
+fun rememberDialogListMaxHeight(max: Dp): Dp {
+    val screenHeight = LocalConfiguration.current.screenHeightDp
+    return (screenHeight * 0.5f).dp.coerceIn(140.dp, max)
+}
+
+/** Gap between rows in a dialog list: tight on phones. */
+@Composable
+fun rememberDialogRowGap(): Dp = if (rememberIsCompactLayout()) 2.dp else 6.dp
