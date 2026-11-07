@@ -24,6 +24,8 @@ import com.streambd.iptv.ui.viewmodels.LiveEventsViewModel
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.AnalyticsLogger
+import com.streambd.iptv.utils.PlayerPreferences
+import android.widget.Toast
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,6 +61,7 @@ fun MainScreen(
     var showTvModeConfigDialog by remember { mutableStateOf(false) }
 
     val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
+    var portraitPlayer by remember { mutableStateOf(PlayerPreferences.isPortraitPlayerEnabled(context)) }
 
     // Safe TV mode toggle off — grace window for the async write.
     val turnOffTvMode: () -> Unit = {
@@ -74,15 +77,28 @@ fun MainScreen(
     }
 
     val labelOf: (AppMenuItem) -> String = { item ->
-        if (item == AppMenuItem.TvMode) {
-            if (isTvModeEnabled) "TV Mode: ON" else "TV Mode: OFF"
-        } else item.label
+        when (item) {
+            AppMenuItem.TvMode -> if (isTvModeEnabled) "TV Mode: ON" else "TV Mode: OFF"
+            AppMenuItem.PortraitPlayer ->
+                if (portraitPlayer) "Portrait Player: ON" else "Portrait Player: OFF"
+            else -> item.label
+        }
     }
 
     val onMenuItem: (AppMenuItem) -> Unit = { item ->
         when (item) {
             AppMenuItem.TvMode ->
                 if (!isTvModeEnabled) showTvModeConfigDialog = true else turnOffTvMode()
+            AppMenuItem.PortraitPlayer -> {
+                portraitPlayer = !portraitPlayer
+                PlayerPreferences.setPortraitPlayerEnabled(context, portraitPlayer)
+                Toast.makeText(
+                    context,
+                    if (portraitPlayer) "Portrait player on: channels open with a channel list below the video"
+                    else "Portrait player off: channels open in fullscreen landscape",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
             AppMenuItem.Playlists -> navController.navigate(Routes.PLAYLISTS)
             AppMenuItem.Notice -> actions.showNotice()
             AppMenuItem.JoinUs -> actions.openTelegram()
