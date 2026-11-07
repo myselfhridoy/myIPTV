@@ -21,6 +21,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPicture
@@ -74,7 +76,13 @@ internal fun LivePlayerOverlay(
     onTogglePlay: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onToggleMute: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Portrait player: the video area is small → fewer, smaller controls. */
+    compact: Boolean = false,
+    /** Phones with the portrait player: show a fullscreen / exit-fullscreen button. */
+    showFullscreenButton: Boolean = false,
+    isFullscreen: Boolean = false,
+    onToggleFullscreen: () -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
 
@@ -99,7 +107,10 @@ internal fun LivePlayerOverlay(
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.displayCutout)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(
+                        horizontal = if (compact) 8.dp else 16.dp,
+                        vertical = if (compact) 6.dp else 12.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerIconButton(
@@ -107,7 +118,7 @@ internal fun LivePlayerOverlay(
                     contentDescription = "Back",
                     onClick = onBack
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
                 Text(
                     text = channelName,
                     color = Color.White,
@@ -119,7 +130,7 @@ internal fun LivePlayerOverlay(
                         .weight(1f)
                         .padding(end = 12.dp)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
                     if (isTvModeEnabled) {
                         PlayerIconButton(
                             icon = Icons.Default.PowerSettingsNew,
@@ -131,8 +142,11 @@ internal fun LivePlayerOverlay(
                     if (hasSources) {
                         PlayerIconButton(Icons.Default.Dns, "Sources", onOpenSources)
                     }
-                    PlayerIconButton(Icons.Default.Lock, "Lock", onLock)
-                    PlayerIconButton(Icons.Default.AspectRatio, "Aspect Ratio", onCycleAspect)
+                    // Lock and aspect ratio only make sense in fullscreen.
+                    if (!compact) {
+                        PlayerIconButton(Icons.Default.Lock, "Lock", onLock)
+                        PlayerIconButton(Icons.Default.AspectRatio, "Aspect Ratio", onCycleAspect)
+                    }
                     PlayerIconButton(Icons.Default.PictureInPicture, "PiP", onEnterPiP)
                     PlayerIconButton(Icons.Default.Settings, "Tracks", onOpenTracks)
                 }
@@ -141,30 +155,30 @@ internal fun LivePlayerOverlay(
             // ── Centre: prev · play/pause · next ──
             Row(
                 modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 20.dp else 28.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerIconButton(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                     contentDescription = "Prev Channel",
                     onClick = onPrev,
-                    size = 48.dp,
-                    iconSize = 28.dp
+                    size = if (compact) 40.dp else 48.dp,
+                    iconSize = if (compact) 24.dp else 28.dp
                 )
                 PlayerIconButton(
                     icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = "Play/Pause",
                     onClick = onTogglePlay,
-                    size = 68.dp,
-                    iconSize = 38.dp,
+                    size = if (compact) 52.dp else 68.dp,
+                    iconSize = if (compact) 30.dp else 38.dp,
                     focusRequester = playPauseFocusRequester
                 )
                 PlayerIconButton(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "Next Channel",
                     onClick = onNext,
-                    size = 48.dp,
-                    iconSize = 28.dp
+                    size = if (compact) 40.dp else 48.dp,
+                    iconSize = if (compact) 24.dp else 28.dp
                 )
             }
 
@@ -176,7 +190,10 @@ internal fun LivePlayerOverlay(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.displayCutout)
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(
+                        horizontal = if (compact) 12.dp else 24.dp,
+                        vertical = if (compact) 6.dp else 16.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerTimeline(
@@ -191,8 +208,19 @@ internal fun LivePlayerOverlay(
                     icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
                     else Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = "Volume",
-                    onClick = onToggleMute
+                    onClick = onToggleMute,
+                    size = if (compact) 40.dp else 44.dp
                 )
+                if (showFullscreenButton) {
+                    Spacer(Modifier.width(if (compact) 6.dp else 12.dp))
+                    PlayerIconButton(
+                        icon = if (isFullscreen) Icons.Default.FullscreenExit
+                        else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                        onClick = onToggleFullscreen,
+                        size = if (compact) 40.dp else 44.dp
+                    )
+                }
             }
         }
     }
