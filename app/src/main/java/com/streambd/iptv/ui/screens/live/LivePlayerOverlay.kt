@@ -9,10 +9,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -34,22 +32,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.components.PlayerIconButton
 import com.streambd.iptv.ui.components.PlayerProgress
-import com.streambd.iptv.ui.components.PlayerTimeline
 import com.streambd.iptv.ui.components.PlayerScrim
-import com.streambd.iptv.ui.theme.PrimeLive
+import com.streambd.iptv.ui.components.PlayerTimeline
 
 /**
  * Controls drawn over the live player. Pure UI: everything the user can do
- * is a callback, and all player state comes in as plain values — the screen
- * keeps owning ExoPlayer, focus requesters and every side effect.
+ * is a callback, and all player state comes in as plain values.
+ *
+ * Looks:
+ *  • TV                  — unchanged (big buttons on dark discs)
+ *  • phone / tablet      — lighter: small plain icons, a soft disc only on Play
+ *  • compact (portrait)  — NO back button / title (the system Back works and the
+ *                          list below names the channel); only a few actions on
+ *                          the right, centre controls, timeline.
  */
 @Composable
 internal fun LivePlayerOverlay(
@@ -77,7 +80,7 @@ internal fun LivePlayerOverlay(
     onSeekTo: (Long) -> Unit,
     onToggleMute: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Portrait player: the video area is small → fewer, smaller controls. */
+    /** Portrait player: the video area is small. */
     compact: Boolean = false,
     /** Phones with the portrait player: show a fullscreen / exit-fullscreen button. */
     showFullscreenButton: Boolean = false,
@@ -85,6 +88,12 @@ internal fun LivePlayerOverlay(
     onToggleFullscreen: () -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
+    val tv = LocalDeviceProfile.current.isTv
+
+    // Cutout insets only matter in fullscreen. In the portrait layout the system
+    // already places the video below the status bar, and applying them again made
+    // the controls jump around (extra top/left offset appearing and disappearing).
+    val insetsModifier = if (compact) Modifier else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
 
     Box(modifier = modifier) {
         PlayerScrim()
@@ -97,40 +106,43 @@ internal fun LivePlayerOverlay(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(16.dp),
-                focusRequester = unlockFocusRequester
+                focusRequester = unlockFocusRequester,
+                glass = true
             )
         } else {
-
             // ── Top bar ──
             Row(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .align(if (compact) Alignment.TopEnd else Alignment.TopStart)
+                    .then(if (compact) Modifier else Modifier.fillMaxWidth())
+                    .then(insetsModifier)
                     .padding(
-                        horizontal = if (compact) 8.dp else 16.dp,
-                        vertical = if (compact) 6.dp else 12.dp
+                        horizontal = if (tv) 16.dp else if (compact) 6.dp else 12.dp,
+                        vertical = if (tv) 12.dp else if (compact) 4.dp else 8.dp
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PlayerIconButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    onClick = onBack
-                )
-                Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
-                Text(
-                    text = channelName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 12.dp)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)) {
+                if (!compact) {
+                    PlayerIconButton(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        onClick = onBack
+                    )
+                    Spacer(Modifier.width(if (tv) 12.dp else 8.dp))
+                    Text(
+                        text = channelName,
+                        color = Color.White,
+                        style = if (tv) MaterialTheme.typography.titleMedium
+                        else MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(if (tv) 8.dp else 2.dp)) {
                     if (isTvModeEnabled) {
                         PlayerIconButton(
                             icon = Icons.Default.PowerSettingsNew,
@@ -155,30 +167,33 @@ internal fun LivePlayerOverlay(
             // ── Centre: prev · play/pause · next ──
             Row(
                 modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(if (compact) 20.dp else 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(
+                    if (tv) 28.dp else if (compact) 18.dp else 24.dp
+                ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayerIconButton(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                     contentDescription = "Prev Channel",
                     onClick = onPrev,
-                    size = if (compact) 40.dp else 48.dp,
-                    iconSize = if (compact) 24.dp else 28.dp
+                    size = if (tv) 48.dp else if (compact) 36.dp else 42.dp,
+                    iconSize = if (tv) 28.dp else if (compact) 22.dp else 26.dp
                 )
                 PlayerIconButton(
                     icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = "Play/Pause",
                     onClick = onTogglePlay,
-                    size = if (compact) 52.dp else 68.dp,
-                    iconSize = if (compact) 30.dp else 38.dp,
-                    focusRequester = playPauseFocusRequester
+                    size = if (tv) 68.dp else if (compact) 46.dp else 56.dp,
+                    iconSize = if (tv) 38.dp else if (compact) 26.dp else 32.dp,
+                    focusRequester = playPauseFocusRequester,
+                    glass = true
                 )
                 PlayerIconButton(
                     icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "Next Channel",
                     onClick = onNext,
-                    size = if (compact) 40.dp else 48.dp,
-                    iconSize = if (compact) 24.dp else 28.dp
+                    size = if (tv) 48.dp else if (compact) 36.dp else 42.dp,
+                    iconSize = if (tv) 28.dp else if (compact) 22.dp else 26.dp
                 )
             }
 
@@ -189,10 +204,10 @@ internal fun LivePlayerOverlay(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .then(insetsModifier)
                     .padding(
-                        horizontal = if (compact) 12.dp else 24.dp,
-                        vertical = if (compact) 6.dp else 16.dp
+                        horizontal = if (tv) 24.dp else if (compact) 10.dp else 18.dp,
+                        vertical = if (tv) 16.dp else if (compact) 2.dp else 8.dp
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -203,22 +218,24 @@ internal fun LivePlayerOverlay(
                     showLiveLabel = true,
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(if (tv) 12.dp else 4.dp))
                 PlayerIconButton(
                     icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
                     else Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = "Volume",
                     onClick = onToggleMute,
-                    size = if (compact) 40.dp else 44.dp
+                    size = if (tv) 44.dp else 36.dp,
+                    iconSize = if (tv) 24.dp else 20.dp
                 )
                 if (showFullscreenButton) {
-                    Spacer(Modifier.width(if (compact) 6.dp else 12.dp))
+                    Spacer(Modifier.width(2.dp))
                     PlayerIconButton(
                         icon = if (isFullscreen) Icons.Default.FullscreenExit
                         else Icons.Default.Fullscreen,
                         contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
                         onClick = onToggleFullscreen,
-                        size = if (compact) 40.dp else 44.dp
+                        size = if (tv) 44.dp else 36.dp,
+                        iconSize = if (tv) 24.dp else 22.dp
                     )
                 }
             }
