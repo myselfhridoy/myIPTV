@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.MovieFilter
 import androidx.compose.material.icons.outlined.NetworkWifi
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.StayCurrentPortrait
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -63,6 +64,8 @@ enum class AppMenuItem(
     CheckUpdate("check_update", "Check Update", Icons.Filled.Refresh, MenuSection.Settings),
     More("more", "More", Icons.Outlined.MoreVert, MenuSection.Settings),
     TvMode("tv_mode", "TV Mode", Icons.Outlined.LiveTv, MenuSection.Settings),
+    /** Phones & tablets: a channel opens in portrait with a channel list below the video. */
+    PortraitPlayer("portrait_player", "Portrait Player", Icons.Outlined.StayCurrentPortrait, MenuSection.Settings),
     Notice("notice", "Notice", Icons.Outlined.Notifications, MenuSection.About),
     JoinUs("join_us", "Join Us", Icons.Outlined.Group, MenuSection.About),
     Copyright("copyright", "Copyright", Icons.Outlined.Copyright, MenuSection.About),
@@ -71,7 +74,7 @@ enum class AppMenuItem(
 
     companion object {
         /** Phone side drawer — same items & order as today. */
-        val PhoneDrawer = listOf(TvMode, Playlists, Notice, JoinUs, Copyright, Share, CheckUpdate, Exit)
+        val PhoneDrawer = listOf(TvMode, PortraitPlayer, Playlists, Notice, JoinUs, Copyright, Share, CheckUpdate, Exit)
 
         /** "More Options" dialog — same items & order as today. */
         val MoreDialog = listOf(TvMode, Notice, JoinUs, Copyright, Share)
