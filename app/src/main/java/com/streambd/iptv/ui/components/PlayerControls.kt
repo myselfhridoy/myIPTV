@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
@@ -57,8 +58,15 @@ import com.streambd.iptv.ui.theme.PrimeLive
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Round control over the video: dark glass at rest, solid white with a dark
- * icon when focused (a clear cue from across the room on TV).
+ * Round control over the video.
+ *
+ * PHONE / TABLET (premium, light): no background at rest — just the icon;
+ * the centre play button can opt in to a soft glass disc with `glass = true`.
+ * TV (unchanged look): every control sits on a dark glass disc, bigger.
+ * Focus: solid white disc with a dark icon (clear from across the room).
+ *
+ * Leave [size] / [iconSize] / [glass] at their defaults to get the right
+ * style for the device.
  */
 @Composable
 fun PlayerIconButton(
@@ -66,16 +74,22 @@ fun PlayerIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 44.dp,
-    iconSize: Dp = 24.dp,
+    size: Dp = Dp.Unspecified,
+    iconSize: Dp = Dp.Unspecified,
     tint: Color = Color.White,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    glass: Boolean? = null
 ) {
+    val tv = LocalDeviceProfile.current.isTv
+    val buttonSize = if (size != Dp.Unspecified) size else if (tv) 44.dp else 40.dp
+    val glyphSize = if (iconSize != Dp.Unspecified) iconSize else if (tv) 24.dp else 22.dp
+    val showGlass = glass ?: tv
+
     FocusSurface(
         onClick = onClick,
-        modifier = modifier.size(size),
+        modifier = modifier.size(buttonSize),
         shape = CircleShape,
-        containerColor = Color.Black.copy(alpha = 0.45f),
+        containerColor = if (showGlass) Color.Black.copy(alpha = 0.45f) else Color.Transparent,
         focusedContainerColor = Color.White,
         focusScale = if (AppTheme.dimens.focusScale > 1f) 1.12f else 1f,
         showRing = false,
@@ -85,7 +99,7 @@ fun PlayerIconButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = if (focused) Color.Black else tint,
-            modifier = Modifier.size(iconSize)
+            modifier = Modifier.size(glyphSize)
         )
     }
 }
