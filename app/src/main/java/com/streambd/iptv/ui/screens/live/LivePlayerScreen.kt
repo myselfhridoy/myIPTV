@@ -54,6 +54,11 @@ import com.streambd.iptv.R
 import com.streambd.iptv.data.models.Channel
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
+import com.streambd.iptv.ui.components.rememberPlayerOrientationController
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
+import com.streambd.iptv.utils.PlayerPreferences
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import com.streambd.iptv.ui.components.ChannelInfoCard
 import com.streambd.iptv.ui.components.ChannelNumberBadge
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
@@ -205,7 +210,20 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    PlayerWindowEffect { inPip ->
+    // ── Portrait player: phones & tablets, user setting "Portrait Player" (never on TV) ──
+    //   portrait  → video on top (16:9) + channel list below
+    //   landscape → the usual fullscreen player
+    val isTvDevice = LocalDeviceProfile.current.isTv
+    val portraitEnabled = remember { PlayerPreferences.isPortraitPlayerEnabled(context) }
+    val flexible = !isTvDevice && portraitEnabled
+    val isLandscapeNow =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val portraitLayout = flexible && !isLandscapeNow && !isInPiP
+    val orientationController = rememberPlayerOrientationController()
+    // Portrait shows the whole picture (FIT); fullscreen keeps the user's choice.
+    val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
+
+    PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
@@ -394,6 +412,9 @@ fun LivePlayerScreen(
                     context, "Press back again to exit app", android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
+        } else if (flexible && isLandscapeNow) {
+            // Fullscreen → back to the portrait player first (like video apps).
+            orientationController.setFullscreen(false)
         } else {
             requestExit()
         }
@@ -401,12 +422,14 @@ fun LivePlayerScreen(
 
     PlayerRevealContainer(
         exitRequested = exitRequested,
-        forceUpright = isInPiP,
+        forceUpright = isInPiP || flexible,
         onExitComplete = finishExit
     ) {
+        // The whole player (video + overlays + dialogs) as one piece, so it can be
+        // placed full-screen OR as the 16:9 video area of the portrait layout.
+        val playerSurface: @Composable (Modifier) -> Unit = { surfaceModifier ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
+            modifier = surfaceModifier
                 .background(Color.Black)
                 .onKeyEvent { event ->
                     if (event.type == KeyEventType.KeyUp) {
@@ -459,7 +482,7 @@ fun LivePlayerScreen(
                     }
                 }
         ) {
-            val isCinema = scaleMode == VideoScaleMode.CINEMA
+            val isCinema = effectiveScaleMode == VideoScaleMode.CINEMA
 
             Box(
                 modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
@@ -484,7 +507,7 @@ fun LivePlayerScreen(
                         }
                     },
                     update = { playerView ->
-                        val exoResizeMode = when (scaleMode) {
+                        val exoResizeMode = when (effectiveScaleMode) {
                             VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                             VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                             VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -513,7 +536,10 @@ fun LivePlayerScreen(
                     isMediaSeekable = { exoPlayer.isCurrentMediaItemSeekable },
                     playPauseFocusRequester = playPauseFocusRequester,
                     unlockFocusRequester = unlockFocusRequester,
-                    onBack = { requestExit() },
+                    onBack = {
+                        if (flexible && isLandscapeNow) orientationController.setFullscreen(false)
+                        else requestExit()
+                    },
                     onUnlock = { isLocked = false },
                     onTurnOffTvMode = {
                         viewModel.toggleTvMode(false)
@@ -553,7 +579,11 @@ fun LivePlayerScreen(
                     onToggleMute = {
                         val newMuted = !isMuted
                         exoPlayer.volume = if (newMuted) 0f else 1f
-                    }
+                    },
+                    compact = portraitLayout,
+                    showFullscreenButton = flexible,
+                    isFullscreen = isLandscapeNow,
+                    onToggleFullscreen = { orientationController.setFullscreen(!isLandscapeNow) }
                 )
             }
 
@@ -601,7 +631,7 @@ fun LivePlayerScreen(
                     androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
                 exit = androidx.compose.animation.fadeOut() +
                     androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
-                modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
+                modifier = Modifier.align(Alignment.TopStart).padding(if (portraitLayout) 12.dp else 32.dp)
             ) {
                 ChannelInfoCard(
                     name = channel.name,
@@ -614,7 +644,7 @@ fun LivePlayerScreen(
                 visible = channelNumberInput.isNotEmpty(),
                 enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
                 exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
-                modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
+                modifier = Modifier.align(Alignment.TopEnd).padding(if (portraitLayout) 12.dp else 32.dp)
             ) {
                 ChannelNumberBadge(text = channelNumberInput)
             }
@@ -634,6 +664,27 @@ fun LivePlayerScreen(
                     onDismiss = { showSourceSelector = false }
                 )
             }
+        }
+        } // end of playerSurface
+
+        if (portraitLayout) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                PortraitChannelPane(
+                    current = channel,
+                    channels = currentPlaylist,
+                    onChannelClick = { viewModel.selectChannel(it) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+            }
+        } else {
+            playerSurface(Modifier.fillMaxSize())
         }
     }
 }
