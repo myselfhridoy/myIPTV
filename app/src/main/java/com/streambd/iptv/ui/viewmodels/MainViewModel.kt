@@ -75,6 +75,16 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     private val _currentPlaylist = MutableStateFlow<List<Channel>>(emptyList())
     val currentPlaylist: StateFlow<List<Channel>> = _currentPlaylist.asStateFlow()
 
+    // What the portrait player's list shows when it is NOT just the playlist above
+    // (e.g. other live events). Cleared by setCurrentPlaylist().
+    private val _playerListContext = MutableStateFlow<com.streambd.iptv.ui.viewmodels.PlayerListContext?>(null)
+    val playerListContext: StateFlow<com.streambd.iptv.ui.viewmodels.PlayerListContext?> =
+        _playerListContext.asStateFlow()
+
+    fun setPlayerListContext(context: com.streambd.iptv.ui.viewmodels.PlayerListContext?) {
+        _playerListContext.value = context
+    }
+
     private val jsonFormat = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
 
     private var tvModeJob: Job? = null
@@ -324,6 +334,7 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
     }
 
     fun setCurrentPlaylist(channels: List<Channel>) {
+        _playerListContext.value = null // a plain playlist replaces any special list
         _currentPlaylist.value = channels
     }
 
@@ -631,3 +642,4 @@ class MainViewModel(application: android.app.Application) : androidx.lifecycle.A
         searchLoadJob = null
     }
 }
+
