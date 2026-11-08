@@ -57,6 +57,7 @@ import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.rememberPlayerOrientationController
 import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.utils.PlayerPreferences
+import com.streambd.iptv.ui.viewmodels.PlayerListEntry
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import com.streambd.iptv.ui.components.ChannelInfoCard
@@ -162,7 +163,12 @@ fun LivePlayerScreen(
 
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
-    var showOverlay by remember { mutableStateOf(true) }
+    // Portrait player (phone/tablet, setting ON): the controls stay hidden until the
+    // user taps the video — the small picture should not start covered by buttons.
+    val startsInPortraitPlayer = !LocalDeviceProfile.current.isTv &&
+        PlayerPreferences.isPortraitPlayerEnabled(context) &&
+        LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
+    var showOverlay by remember { mutableStateOf(!startsInPortraitPlayer) }
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
     var showSourceSelector by remember { mutableStateOf(false) }
@@ -220,6 +226,17 @@ fun LivePlayerScreen(
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val portraitLayout = flexible && !isLandscapeNow && !isInPiP
     val orientationController = rememberPlayerOrientationController()
+    val listContext by viewModel.playerListContext.collectAsState()
+    val playlistEntries = remember(currentPlaylist) {
+        currentPlaylist.map {
+            PlayerListEntry(
+                key = "${it.name}|${it.group}",
+                title = it.name,
+                subtitle = it.group.takeIf { g -> g.isNotBlank() },
+                imageUrl = it.logo
+            )
+        }
+    }
     // Portrait shows the whole picture (FIT); fullscreen keeps the user's choice.
     val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
 
@@ -394,7 +411,7 @@ fun LivePlayerScreen(
             } catch (_: Exception) {}
         }
         if (showOverlay && isPlaying) {
-            delay(5000)
+            delay(if (portraitLayout) 3000 else 5000)
             showOverlay = false
         }
     }
@@ -626,7 +643,7 @@ fun LivePlayerScreen(
             }
 
             androidx.compose.animation.AnimatedVisibility(
-                visible = showChannelInfoOverlay && !showOverlay && !isInPiP,
+                visible = showChannelInfoOverlay && !showOverlay && !isInPiP && !portraitLayout,
                 enter = androidx.compose.animation.fadeIn() +
                     androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
                 exit = androidx.compose.animation.fadeOut() +
@@ -674,10 +691,22 @@ fun LivePlayerScreen(
                     .background(MaterialTheme.colorScheme.background)
             ) {
                 playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                PortraitChannelPane(
-                    current = channel,
-                    channels = currentPlaylist,
-                    onChannelClick = { viewModel.selectChannel(it) },
+                PortraitListPane(
+                    heading = listContext?.heading ?: "Channels",
+                    entries = listContext?.entries ?: playlistEntries,
+                    currentKey = listContext?.currentKey ?: "${channel.name}|${channel.group}",
+                    fallbackTitle = channel.name,
+                    fallbackSubtitle = channel.group,
+                    onSelect = { entry ->
+                        val ctx = listContext
+                        if (ctx != null) {
+                            ctx.onSelect(entry)
+                        } else {
+                            currentPlaylist
+                                .firstOrNull { "${it.name}|${it.group}" == entry.key }
+                                ?.let { viewModel.selectChannel(it) }
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
