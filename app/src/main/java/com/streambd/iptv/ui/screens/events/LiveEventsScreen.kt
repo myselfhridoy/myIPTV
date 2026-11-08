@@ -140,7 +140,15 @@ fun LiveEventsScreen(
     // Same hand-off as before: build the Channel, give it to the player screen.
     val play: (SportzfyEvent, SportzfyStream, List<SportzfyStream>) -> Unit =
         { event, stream, all ->
-            mainViewModel.selectChannel(buildEventChannel(event, stream, all))
+            val channel = buildEventChannel(event, stream, all)
+            // The player's prev/next buttons must not wander into the LAST channel
+            // list that happened to be loaded: an event is a playlist of one …
+            mainViewModel.setCurrentPlaylist(listOf(channel))
+            mainViewModel.selectChannel(channel)
+            // … and the portrait player's list shows the other live events.
+            mainViewModel.setPlayerListContext(
+                buildEventPlayerContext(events, event.id, eventsViewModel, mainViewModel)
+            )
             navController.navigate(Routes.LIVE_PLAYER) { launchSingleTop = true }
         }
 
