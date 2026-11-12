@@ -64,6 +64,7 @@ import com.streambd.iptv.ui.components.ChannelInfoCard
 import com.streambd.iptv.ui.components.ChannelNumberBadge
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
 import com.streambd.iptv.ui.components.PlayerLoadingIndicator
+import com.streambd.iptv.ui.components.rememberLoadingElapsed
 import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.components.SourceSelectionDialog
 import com.streambd.iptv.ui.components.TrackSelectionDialog
@@ -156,15 +157,10 @@ fun LivePlayerScreen(
     }
 
     val channel = selectedChannel!!
-    // Compound key: two channels with the same name but different URLs
-    // (or different tokenIds) must be distinct. Previously `tokenId ?: name`
-    // collided for same-named channels.
     val channelKey = "${channel.tokenId ?: channel.name}|${channel.primarySourceUrl()}"
 
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
-    // Portrait player (phone/tablet, setting ON): the controls stay hidden until the
-    // user taps the video — the small picture should not start covered by buttons.
     val startsInPortraitPlayer = !LocalDeviceProfile.current.isTv &&
         PlayerPreferences.isPortraitPlayerEnabled(context) &&
         LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
@@ -180,9 +176,6 @@ fun LivePlayerScreen(
     }
     var failedSourceUrls by remember(channelKey) { mutableStateOf(setOf<String>()) }
 
-    // Position / buffer / duration: observable holder, polled only while the
-    // controls are visible. Only the seek bar reads it, so the screen itself
-    // no longer recomposes every 500 ms.
     val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
     var playerError by remember { mutableStateOf<UiPlaybackError?>(null) }
     var lastHlsError by remember { mutableStateOf(false) }
@@ -216,9 +209,6 @@ fun LivePlayerScreen(
     val isTvModeEnabled by viewModel.isTvModeEnabled.collectAsState()
     val mainFocusRequester = remember { FocusRequester() }
 
-    // ── Portrait player: phones & tablets, user setting "Portrait Player" (never on TV) ──
-    //   portrait  → video on top (16:9) + channel list below
-    //   landscape → the usual fullscreen player
     val isTvDevice = LocalDeviceProfile.current.isTv
     val portraitEnabled = remember { PlayerPreferences.isPortraitPlayerEnabled(context) }
     val flexible = !isTvDevice && portraitEnabled
@@ -237,7 +227,6 @@ fun LivePlayerScreen(
             )
         }
     }
-    // Portrait shows the whole picture (FIT); fullscreen keeps the user's choice.
     val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
 
     PlayerWindowEffect(flexible = flexible) { inPip ->
@@ -249,10 +238,6 @@ fun LivePlayerScreen(
         onDispose { playerViewModel.stopPrefetch() }
     }
 
-    // ── Real exit ────────────────────────────────────────────────────────
-    // Runs on the Activity lifecycleScope (survives recomposition) so the
-    // continuation reaches popBackStack even if the screen re-composes
-    // between the orientation request and the teardown.
     val finishExit: () -> Unit = {
         val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
@@ -324,11 +309,7 @@ fun LivePlayerScreen(
         if (index != -1) playerViewModel.prefetchChannels(currentPlaylist, index)
     }
 
-    // ── Player listener ──────────────────────────────────────────────────
-    // Keyed on channelKey so a channel switch re-registers the listener
-    // with fresh closures over the new failedSourceUrls / currentSourceUrl
-    // state. Previously this listener captured state from the first
-    // composition and mishandled failover after surfing.
+    // ── Player listener ──
     DisposableEffect(exoPlayer, channelKey) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -348,7 +329,6 @@ fun LivePlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                // If the player fell behind the live window in DASH/HLS, auto-seek to current live edge
                 var cause: Throwable? = error
                 var isBehindLive = false
                 while (cause != null) {
@@ -430,7 +410,6 @@ fun LivePlayerScreen(
                 ).show()
             }
         } else if (flexible && isLandscapeNow) {
-            // Fullscreen → back to the portrait player first (like video apps).
             orientationController.setFullscreen(false)
         } else {
             requestExit()
@@ -442,247 +421,263 @@ fun LivePlayerScreen(
         forceUpright = isInPiP || flexible,
         onExitComplete = finishExit
     ) {
-        // The whole player (video + overlays + dialogs) as one piece, so it can be
-        // placed full-screen OR as the 16:9 video area of the portrait layout.
         val playerSurface: @Composable (Modifier) -> Unit = { surfaceModifier ->
-        Box(
-            modifier = surfaceModifier
-                .background(Color.Black)
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyUp) {
-                        when (event.nativeKeyEvent.keyCode) {
-                            android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                                if (!showOverlay) { viewModel.tuneToNextChannel(); true } else false
-                            }
-                            android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
-                                viewModel.tuneToNextChannel(); true
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                if (!showOverlay) { viewModel.tuneToPrevChannel(); true } else false
-                            }
-                            android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                                viewModel.tuneToPrevChannel(); true
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                            android.view.KeyEvent.KEYCODE_ENTER -> {
-                                if (!showOverlay) { showOverlay = true; true } else false
-                            }
-                            in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
-                                channelNumberInput +=
-                                    (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0).toString()
-                                true
-                            }
-                            in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
-                                channelNumberInput +=
-                                    (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0).toString()
-                                true
-                            }
-                            else -> false
-                        }
-                    } else false
-                }
-                .focusRequester(mainFocusRequester)
-                .focusable()
-                .pointerInput(Unit) { detectTapGestures(onTap = { showOverlay = !showOverlay }) }
-                .pointerInput(Unit) {
-                    var totalDrag = 0f
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (totalDrag > 150f) viewModel.tuneToPrevChannel()
-                            else if (totalDrag < -150f) viewModel.tuneToNextChannel()
-                            totalDrag = 0f
-                        },
-                        onDragCancel = { totalDrag = 0f }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        totalDrag += dragAmount
-                    }
-                }
-        ) {
-            val isCinema = effectiveScaleMode == VideoScaleMode.CINEMA
-
             Box(
-                modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
-                           else Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                AndroidView(
-                    modifier = if (isCinema)
-                        Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
-                    else Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        val parent = FrameLayout(ctx)
-                        val view = LayoutInflater.from(ctx)
-                            .inflate(R.layout.view_player_texture, parent, false) as PlayerView
-                        view.apply {
-                            player = exoPlayer
-                            useController = false
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        }
-                    },
-                    update = { playerView ->
-                        val exoResizeMode = when (effectiveScaleMode) {
-                            VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        }
-                        if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
-                        if (playerView.player != exoPlayer) playerView.player = exoPlayer
+                modifier = surfaceModifier
+                    .background(Color.Black)
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyUp) {
+                            when (event.nativeKeyEvent.keyCode) {
+                                android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                    if (!showOverlay) { viewModel.tuneToNextChannel(); true } else false
+                                }
+                                android.view.KeyEvent.KEYCODE_CHANNEL_UP -> {
+                                    viewModel.tuneToNextChannel(); true
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    if (!showOverlay) { viewModel.tuneToPrevChannel(); true } else false
+                                }
+                                android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                                    viewModel.tuneToPrevChannel(); true
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                                android.view.KeyEvent.KEYCODE_ENTER -> {
+                                    if (!showOverlay) { showOverlay = true; true } else false
+                                }
+                                in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_9 -> {
+                                    channelNumberInput +=
+                                        (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_0).toString()
+                                    true
+                                }
+                                in android.view.KeyEvent.KEYCODE_NUMPAD_0..android.view.KeyEvent.KEYCODE_NUMPAD_9 -> {
+                                    channelNumberInput +=
+                                        (event.nativeKeyEvent.keyCode - android.view.KeyEvent.KEYCODE_NUMPAD_0).toString()
+                                    true
+                                }
+                                else -> false
+                            }
+                        } else false
                     }
-                )
-            }
-
-            if (playerError != null || isResolutionFailed) {
-                StaticNoiseBackground(Modifier.fillMaxSize())
-            }
-
-            if (showOverlay && !isInPiP) {
-                LivePlayerOverlay(
-                    modifier = Modifier.fillMaxSize(),
-                    channelName = channel.name,
-                    isLocked = isLocked,
-                    isTvModeEnabled = isTvModeEnabled,
-                    hasSources = channel.sources.isNotEmpty(),
-                    isPlaying = isPlaying,
-                    isMuted = isMuted,
-                    progress = progress,
-                    isMediaSeekable = { exoPlayer.isCurrentMediaItemSeekable },
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    unlockFocusRequester = unlockFocusRequester,
-                    onBack = {
-                        if (flexible && isLandscapeNow) orientationController.setFullscreen(false)
-                        else requestExit()
-                    },
-                    onUnlock = { isLocked = false },
-                    onTurnOffTvMode = {
-                        viewModel.toggleTvMode(false)
-                        val intent = context.packageManager
-                            .getLaunchIntentForPackage(context.packageName)
-                        intent?.addFlags(
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_CLEAR_TASK
-                        )
-                        if (intent != null) context.startActivity(intent)
-                        (context as? ComponentActivity)?.finishAndRemoveTask()
-                    },
-                    onOpenSources = { showSourceSelector = true },
-                    onLock = { isLocked = true },
-                    onCycleAspect = {
-                        val modes = VideoScaleMode.entries.toTypedArray()
-                        scaleMode = modes[(modes.indexOf(scaleMode) + 1) % modes.size]
-                        android.widget.Toast.makeText(
-                            context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    onEnterPiP = {
-                        val activity = context as? ComponentActivity
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            val params = android.app.PictureInPictureParams.Builder().build()
-                            activity?.enterPictureInPictureMode(params)
-                        } else {
-                            onEnterPiP()
+                    .focusRequester(mainFocusRequester)
+                    .focusable()
+                    .pointerInput(Unit) { detectTapGestures(onTap = { showOverlay = !showOverlay }) }
+                    .pointerInput(Unit) {
+                        var totalDrag = 0f
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (totalDrag > 150f) viewModel.tuneToPrevChannel()
+                                else if (totalDrag < -150f) viewModel.tuneToNextChannel()
+                                totalDrag = 0f
+                            },
+                            onDragCancel = { totalDrag = 0f }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            totalDrag += dragAmount
                         }
-                    },
-                    onOpenTracks = { showTrackSelector = true },
-                    onPrev = { viewModel.tuneToPrevChannel() },
-                    onNext = { viewModel.tuneToNextChannel() },
-                    onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                    onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
-                    onToggleMute = {
-                        val newMuted = !isMuted
-                        exoPlayer.volume = if (newMuted) 0f else 1f
-                    },
-                    compact = portraitLayout,
-                    showFullscreenButton = flexible,
-                    isFullscreen = isLandscapeNow,
-                    onToggleFullscreen = { orientationController.setFullscreen(!isLandscapeNow) }
-                )
-            }
+                    }
+            ) {
+                val isCinema = effectiveScaleMode == VideoScaleMode.CINEMA
 
-            val showError = playerError != null || isResolutionFailed
-
-            PlayerLoadingIndicator(
-                visible = !showError && (isResolving || isBuffering) && !isLocked,
-                modifier = Modifier.align(Alignment.Center)
-            )
-
-            if (showError) {
-                val primaryText = when {
-                    playerError != null -> playerError?.message ?: "Unknown error"
-                    isResolutionFailed ->
-                        "Stream resolver could not extract a playable URL.\n" +
-                            "The provider page may be unreachable, blocked, or behind a captcha."
-                    else -> "Unknown error"
+                Box(
+                    modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
+                               else Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AndroidView(
+                        modifier = if (isCinema)
+                            Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
+                        else Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            val parent = FrameLayout(ctx)
+                            val view = LayoutInflater.from(ctx)
+                                .inflate(R.layout.view_player_texture, parent, false) as PlayerView
+                            view.apply {
+                                player = exoPlayer
+                                useController = false
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                        },
+                        update = { playerView ->
+                            val exoResizeMode = when (effectiveScaleMode) {
+                                VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            }
+                            if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
+                            if (playerView.player != exoPlayer) playerView.player = exoPlayer
+                        }
+                    )
                 }
-                PlaybackErrorPanel(
-                    modifier = Modifier.align(Alignment.Center),
-                    message = primaryText,
-                    hint = if (lastHlsError || isResolutionFailed)
-                        "Hint: The resolver could not extract a valid HLS/DASH manifest."
-                    else null,
-                    cause = playerError?.causeMessage,
-                    onRetry = {
+
+                if (playerError != null || isResolutionFailed) {
+                    StaticNoiseBackground(Modifier.fillMaxSize())
+                }
+
+                if (showOverlay && !isInPiP) {
+                    LivePlayerOverlay(
+                        modifier = Modifier.fillMaxSize(),
+                        channelName = channel.name,
+                        isLocked = isLocked,
+                        isTvModeEnabled = isTvModeEnabled,
+                        hasSources = channel.sources.isNotEmpty(),
+                        isPlaying = isPlaying,
+                        isMuted = isMuted,
+                        progress = progress,
+                        isMediaSeekable = { exoPlayer.isCurrentMediaItemSeekable },
+                        playPauseFocusRequester = playPauseFocusRequester,
+                        unlockFocusRequester = unlockFocusRequester,
+                        onBack = {
+                            if (flexible && isLandscapeNow) orientationController.setFullscreen(false)
+                            else requestExit()
+                        },
+                        onUnlock = { isLocked = false },
+                        onTurnOffTvMode = {
+                            viewModel.toggleTvMode(false)
+                            val intent = context.packageManager
+                                .getLaunchIntentForPackage(context.packageName)
+                            intent?.addFlags(
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            )
+                            if (intent != null) context.startActivity(intent)
+                            (context as? ComponentActivity)?.finishAndRemoveTask()
+                        },
+                        onOpenSources = { showSourceSelector = true },
+                        onLock = { isLocked = true },
+                        onCycleAspect = {
+                            val modes = VideoScaleMode.entries.toTypedArray()
+                            scaleMode = modes[(modes.indexOf(scaleMode) + 1) % modes.size]
+                            android.widget.Toast.makeText(
+                                context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onEnterPiP = {
+                            val activity = context as? ComponentActivity
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                val params = android.app.PictureInPictureParams.Builder().build()
+                                activity?.enterPictureInPictureMode(params)
+                            } else {
+                                onEnterPiP()
+                            }
+                        },
+                        onOpenTracks = { showTrackSelector = true },
+                        onPrev = { viewModel.tuneToPrevChannel() },
+                        onNext = { viewModel.tuneToNextChannel() },
+                        onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                        onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
+                        onToggleMute = {
+                            val newMuted = !isMuted
+                            exoPlayer.volume = if (newMuted) 0f else 1f
+                        },
+                        compact = portraitLayout,
+                        showFullscreenButton = flexible,
+                        isFullscreen = isLandscapeNow,
+                        onToggleFullscreen = { orientationController.setFullscreen(!isLandscapeNow) }
+                    )
+                }
+
+                val showError = playerError != null || isResolutionFailed
+
+                // ── Loading diagnostic ──
+                val showSpinner = !showError && (isResolving || isBuffering) && !isLocked
+                val loadingSeconds = rememberLoadingElapsed(showSpinner)
+                val loadingSubtitle = when {
+                    loadingSeconds < 5 -> null
+                    isResolving -> "Resolving stream…  ${loadingSeconds}s"
+                    else -> "Buffering…  ${loadingSeconds}s"
+                }
+                val loadingRetry: (() -> Unit)? = if (loadingSeconds >= 20) {
+                    {
                         playerError = null
                         lastHlsError = false
                         isBuffering = true
                         failedSourceUrls = emptySet()
-                        // Always reset to the primary source AND bust the
-                        // cache. Setting currentSourceUrl to the same
-                        // value won't trigger the LaunchedEffect, so we
-                        // also call retryResolution to force a re-resolve.
                         val retryUrl = channel.primarySourceUrl()
                         currentSourceUrl = retryUrl
                         playerViewModel.retryResolution(channel, retryUrl)
-                    },
-                    compact = portraitLayout
+                    }
+                } else null
+
+                PlayerLoadingIndicator(
+                    visible = showSpinner,
+                    modifier = Modifier.align(Alignment.Center),
+                    subtitle = loadingSubtitle,
+                    onRetry = loadingRetry
                 )
-            }
 
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showChannelInfoOverlay && !showOverlay && !isInPiP && !portraitLayout,
-                enter = androidx.compose.animation.fadeIn() +
-                    androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
-                exit = androidx.compose.animation.fadeOut() +
-                    androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
-                modifier = Modifier.align(Alignment.TopStart).padding(if (portraitLayout) 12.dp else 32.dp)
-            ) {
-                ChannelInfoCard(
-                    name = channel.name,
-                    group = channel.group,
-                    logoUrl = channel.logo
-                )
-            }
+                if (showError) {
+                    val primaryText = when {
+                        playerError != null -> playerError?.message ?: "Unknown error"
+                        isResolutionFailed ->
+                            "Stream resolver could not extract a playable URL.\n" +
+                                "The provider page may be unreachable, blocked, or behind a captcha."
+                        else -> "Unknown error"
+                    }
+                    PlaybackErrorPanel(
+                        modifier = Modifier.align(Alignment.Center),
+                        message = primaryText,
+                        hint = if (lastHlsError || isResolutionFailed)
+                            "Hint: The resolver could not extract a valid HLS/DASH manifest."
+                        else null,
+                        cause = playerError?.causeMessage,
+                        onRetry = {
+                            playerError = null
+                            lastHlsError = false
+                            isBuffering = true
+                            failedSourceUrls = emptySet()
+                            val retryUrl = channel.primarySourceUrl()
+                            currentSourceUrl = retryUrl
+                            playerViewModel.retryResolution(channel, retryUrl)
+                        },
+                        compact = portraitLayout
+                    )
+                }
 
-            androidx.compose.animation.AnimatedVisibility(
-                visible = channelNumberInput.isNotEmpty(),
-                enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
-                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
-                modifier = Modifier.align(Alignment.TopEnd).padding(if (portraitLayout) 12.dp else 32.dp)
-            ) {
-                ChannelNumberBadge(text = channelNumberInput)
-            }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showChannelInfoOverlay && !showOverlay && !isInPiP && !portraitLayout,
+                    enter = androidx.compose.animation.fadeIn() +
+                        androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+                    exit = androidx.compose.animation.fadeOut() +
+                        androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+                    modifier = Modifier.align(Alignment.TopStart).padding(if (portraitLayout) 12.dp else 32.dp)
+                ) {
+                    ChannelInfoCard(
+                        name = channel.name,
+                        group = channel.group,
+                        logoUrl = channel.logo
+                    )
+                }
 
-            if (showTrackSelector) {
-                TrackSelectionDialog(player = exoPlayer, onDismiss = { showTrackSelector = false })
-            }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = channelNumberInput.isNotEmpty(),
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(if (portraitLayout) 12.dp else 32.dp)
+                ) {
+                    ChannelNumberBadge(text = channelNumberInput)
+                }
 
-            if (showSourceSelector) {
-                SourceSelectionDialog(
-                    sources = channel.sources,
-                    currentSourceUrl = currentSourceUrl,
-                    onSourceSelected = { _, url ->
-                        failedSourceUrls = emptySet()
-                        currentSourceUrl = url
-                    },
-                    onDismiss = { showSourceSelector = false }
-                )
+                if (showTrackSelector) {
+                    TrackSelectionDialog(player = exoPlayer, onDismiss = { showTrackSelector = false })
+                }
+
+                if (showSourceSelector) {
+                    SourceSelectionDialog(
+                        sources = channel.sources,
+                        currentSourceUrl = currentSourceUrl,
+                        onSourceSelected = { _, url ->
+                            failedSourceUrls = emptySet()
+                            currentSourceUrl = url
+                        },
+                        onDismiss = { showSourceSelector = false }
+                    )
+                }
             }
-        }
         } // end of playerSurface
 
         if (portraitLayout) {
@@ -729,9 +724,6 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
 
     LaunchedEffect(Unit) {
         val pixels = IntArray(w * h)
-        // Two bitmaps ping-ponged: while the previous frame is still being
-        // drawn from one bitmap, we write into the other. Prevents tearing
-        // that a single reused Bitmap produces.
         val bitmaps = Array(2) {
             android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
         }
@@ -759,4 +751,3 @@ private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
         )
     }
 }
-
