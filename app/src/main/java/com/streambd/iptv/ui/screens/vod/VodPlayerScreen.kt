@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalConfiguration
@@ -42,6 +41,7 @@ import com.streambd.iptv.ui.components.PlayerLoadingIndicator
 import com.streambd.iptv.ui.components.PlayerRevealContainer
 import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.TrackSelectionDialog
+import com.streambd.iptv.ui.components.rememberLoadingElapsed
 import com.streambd.iptv.ui.components.rememberPlayerOrientationController
 import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
@@ -52,9 +52,7 @@ import com.streambd.iptv.utils.ClearKeyHelper
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
 import com.streambd.iptv.utils.PlayerPreferences
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
@@ -83,7 +81,7 @@ fun VodPlayerScreen(
     val stream = selectedStream!!
     val videoTitle = selectedMedia?.displayTitle
 
-    // ── Portrait player detection (mirrors LivePlayerScreen) ──
+    // ── Portrait player detection ──
     val device = LocalDeviceProfile.current
     val isTvDevice = device.isTv
     val portraitEnabled = remember { PlayerPreferences.isPortraitPlayerEnabled(context) }
@@ -93,8 +91,6 @@ fun VodPlayerScreen(
     val orientationController = rememberPlayerOrientationController()
 
     // ── Layout / UI state ──
-    // Hidden at start in the portrait player (small video, don't bury it
-    // under controls). Shown at start in landscape (user expects a seek bar).
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
@@ -103,7 +99,6 @@ fun VodPlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
-    // Computed AFTER PiP state is known.
     val portraitLayout = flexible && !isLandscapeNow && !isInPiP
 
     // ── Playback state ──
@@ -113,8 +108,11 @@ fun VodPlayerScreen(
     var resolveFailed by remember { mutableStateOf(false) }
     var retryToken by remember { mutableStateOf(0) }
 
+    // Used only by the loading diagnostic to pick the right label
+    // ("Resolving stream…" vs "Buffering…").
+    var isResolving by remember(stream, retryToken) { mutableStateOf(false) }
+
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
-    // Portrait shows the whole picture (FIT); landscape keeps the user's choice.
     val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
 
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
@@ -133,6 +131,7 @@ fun VodPlayerScreen(
 
     // ── Resolve + setup media source ──
     LaunchedEffect(stream, retryToken) {
+        isResolving = true
         isLoading = true
         resolveFailed = false
         hasLoggedPlayback = false
@@ -441,7 +440,9 @@ fun VodPlayerScreen(
 
                 var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
                 if (finalDrm.type.lowercase() == "clearkey") {
-                    clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
+                    clearKeyParsed = ClearKeyHelper.parseClearKeys(
+                        finalDrm.rawKeyPair, finalDrm.licenseServer
+                    )
                 }
 
                 if (clearKeyParsed != null) {
@@ -487,6 +488,8 @@ fun VodPlayerScreen(
                 streamUrl = stream.url,
                 error = null
             )
+        } finally {
+            isResolving = false
         }
     }
 
@@ -580,7 +583,6 @@ fun VodPlayerScreen(
         if (isLocked) {
             showOverlay = true
         } else if (flexible && isLandscapeNow) {
-            // Fullscreen → back to portrait player first (like video apps).
             orientationController.setFullscreen(false)
         } else {
             requestExit()
@@ -592,8 +594,6 @@ fun VodPlayerScreen(
         forceUpright = isInPiP || flexible,
         onExitComplete = finishExit
     ) {
-        // The whole player (video + overlays + dialogs) as one piece, so it can be
-        // placed full-screen OR as the 16:9 video area of the portrait layout.
         val playerSurface: @Composable (Modifier) -> Unit = { surfaceModifier ->
             Box(
                 modifier = surfaceModifier
@@ -710,10 +710,30 @@ fun VodPlayerScreen(
                     )
                 }
 
+                // ── Loading diagnostic ──
                 val showSpinner = isLoading && !isLocked
+                val loadingSeconds = rememberLoadingElapsed(showSpinner)
+                val loadingSubtitle = when {
+                    loadingSeconds < 5 -> null
+                    isResolving -> "Resolving stream…  ${loadingSeconds}s"
+                    else -> "Buffering…  ${loadingSeconds}s"
+                }
+                val loadingRetry: (() -> Unit)? = if (loadingSeconds >= 20) {
+                    {
+                        playerError = null
+                        resolveFailed = false
+                        isLoading = true
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        retryToken++
+                    }
+                } else null
+
                 PlayerLoadingIndicator(
                     visible = showSpinner,
-                    modifier = Modifier.align(Alignment.Center)
+                    modifier = Modifier.align(Alignment.Center),
+                    subtitle = loadingSubtitle,
+                    onRetry = loadingRetry
                 )
 
                 if (!showSpinner && (playerError != null || resolveFailed)) {
@@ -756,9 +776,6 @@ fun VodPlayerScreen(
             ) {
                 playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
 
-                // ── Below the video ──
-                // VOD (media selected + sources available): show source list.
-                // Stream mode / no sources: show simple info pane.
                 if (selectedMedia != null && availableStreams.isNotEmpty()) {
                     val m = selectedMedia!!
                     val subtitle = buildString {
@@ -780,8 +797,6 @@ fun VodPlayerScreen(
                         mediaTitle = m.displayTitle,
                         mediaSubtitle = subtitle,
                         onSelectStream = { newSource ->
-                            // Switching source: stop current, let the
-                            // LaunchedEffect re-resolve the new one.
                             mainViewModel.selectStream(newSource)
                         },
                         modifier = Modifier
