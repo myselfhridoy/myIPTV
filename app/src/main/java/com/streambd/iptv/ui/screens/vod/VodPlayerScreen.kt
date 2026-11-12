@@ -82,7 +82,6 @@ fun VodPlayerScreen(
     val stream = selectedStream!!
     val videoTitle = selectedMedia?.displayTitle
 
-    // ── Portrait player detection ──
     val device = LocalDeviceProfile.current
     val isTvDevice = device.isTv
     val portraitEnabled = remember { PlayerPreferences.isPortraitPlayerEnabled(context) }
@@ -91,7 +90,6 @@ fun VodPlayerScreen(
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val orientationController = rememberPlayerOrientationController()
 
-    // ── Layout / UI state ──
     val scope = rememberCoroutineScope()
     val activity = context as? ComponentActivity
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
@@ -105,7 +103,6 @@ fun VodPlayerScreen(
 
     val portraitLayout = flexible && !isLandscapeNow && !isInPiP
 
-    // ── Playback state ──
     val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
@@ -133,23 +130,20 @@ fun VodPlayerScreen(
         } else if (wasInPiP) {
             wasInPiP = false
             scope.launch {
-                delay(1000) // Enough time for PiP animation & Activity to resume
+                delay(1000)
                 val act = activity ?: return@launch
                 if (act.isFinishing || act.isDestroyed) return@launch
                 
                 val state = act.lifecycle.currentState
-                // If user tapped X (close), state will remain CREATED. 
-                // If user expanded to fullscreen, state will be STARTED/RESUMED.
                 if (state == Lifecycle.State.CREATED || state == Lifecycle.State.DESTROYED) {
                     try { exoPlayer.stop() } catch (_: Exception) {}
                     try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
-                    try { act.finishAndRemoveTask() } catch (_: Exception) {}
+                    try { act.finish() } catch (_: Exception) {} // finishAndRemoveTask() থেকে পরিবর্তিত
                 }
             }
         }
     }
 
-    // ── Resolve + setup media source ──
     LaunchedEffect(stream, retryToken) {
         isResolving = true
         isLoading = true
@@ -513,7 +507,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Player listener ──
     DisposableEffect(exoPlayer, stream) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -576,7 +569,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Real exit ──
     val finishExit: () -> Unit = {
         val teardown: () -> Unit = {
             try { exoPlayer.stop() } catch (_: Exception) {}
@@ -706,11 +698,14 @@ fun VodPlayerScreen(
                         },
                         onEnterPiP = {
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && activity != null) {
-                                val params = android.app.PictureInPictureParams.Builder()
+                                val paramsBuilder = android.app.PictureInPictureParams.Builder()
                                     .setAspectRatio(android.util.Rational(16, 9))
-                                    .setActions(emptyList()) // Clears unwanted system action buttons
-                                    .build()
-                                activity.enterPictureInPictureMode(params)
+                                
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    paramsBuilder.setAutoEnterEnabled(true)
+                                }
+                                
+                                activity.enterPictureInPictureMode(paramsBuilder.build())
                             }
                         },
                         onOpenTracks = { showTrackSelector = true },
@@ -731,7 +726,6 @@ fun VodPlayerScreen(
                     )
                 }
 
-                // ── Loading diagnostic ──
                 val showSpinner = isLoading && !isLocked && !isInPiP
                 val loadingSeconds = rememberLoadingElapsed(showSpinner)
                 val loadingSubtitle = when {
@@ -787,7 +781,7 @@ fun VodPlayerScreen(
                     )
                 }
             }
-        } // end playerSurface
+        }
 
         if (portraitLayout) {
             Column(
