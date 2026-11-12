@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.navigation
 
 import android.app.ActivityManager
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.session.MediaSession
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,6 +33,7 @@ import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.ui.viewmodels.PlaylistViewModel
 import com.streambd.iptv.ui.viewmodels.PlaylistChannelsViewModel
 import com.streambd.iptv.utils.DeviceType
+import com.streambd.iptv.utils.PlaybackService
 import java.net.URLDecoder
 
 object Routes {
@@ -58,35 +61,16 @@ fun AppNavigation(
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    // ── Device profile ───────────────────────────────────────────────────
-    // Single source of truth: the existing DeviceType helper. Anything
-    // the UI layer (TvIconButton etc.) treats as a TV will also get the
-    // TV-tuned player profile here, so behaviour stays consistent.
     val useTvProfile = remember { DeviceType.isTv(context) }
 
-    // ── Track selector ────────────────────────────────────────────────────
-    // Tunneling disabled on TV boxes. Amlogic's tunneled playback path is
-    // partially implemented and freezes on many MPEG-TS streams; software
-    // path is more predictable. Mobile keeps the media3 default.
     val trackSelector = remember {
         DefaultTrackSelector(context).apply {
             if (useTvProfile) {
-                parameters = buildUponParameters()
-                    .setTunnelingEnabled(false)
-                    .build()
+                parameters = buildUponParameters().setTunnelingEnabled(false).build()
             }
         }
     }
 
-    // ── LoadControl ──────────────────────────────────────────────────────
-    // On TV boxes we give the hardware video decoder more time to
-    // initialize before playback starts. Cheap Amlogic S905 decoders
-    // (TX3 Mini and friends) need ~2-3 s to come online; with the mobile
-    // 1.5 s buffer the player starts audio while the video decoder is
-    // still warming up, producing the "audio first, video later" symptom
-    // the user reports only on that box. Mobile stays at 1.5 s because
-    // phone decoders are ready in <300 ms and a longer buffer would just
-    // add zapping latency.
     val loadControl = remember {
         val am = context.getSystemService(ActivityManager::class.java)
         val heapMb = am?.memoryClass ?: 256
@@ -101,10 +85,10 @@ fun AppNavigation(
 
         DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs                 = */ if (lowRam) 5_000 else 8_000,
-                /* maxBufferMs                 = */ maxBufMs,
-                /* bufferForPlaybackMs         = */ if (useTvProfile) 3_000 else 1_500,
-                /* bufferForPlaybackAfterRebuf = */ if (useTvProfile) 4_000 else 3_000
+                if (lowRam) 5_000 else 8_000,
+                maxBufMs,
+                if (useTvProfile) 3_000 else 1_500,
+                if (useTvProfile) 4_000 else 3_000
             )
             .setTargetBufferBytes(if (lowRam) 24 * 1024 * 1024 else C.LENGTH_UNSET)
             .setBackBuffer(if (lowRam) 5_000 else 15_000, true)
@@ -112,35 +96,13 @@ fun AppNavigation(
             .build()
     }
 
-    // ── Renderers factory ────────────────────────────────────────────────
-    // Hardware-first decoder selection everywhere. On TV boxes we also
-    // route A/V sync speed corrections through AudioTrack HAL instead of
-    // the Sonic software processor — this is THE critical fix for the
-    // Amlogic audio-ahead bug.
-    //
-    // Why it matters: ExoPlayer keeps A/V aligned by nudging audio playback
-    // speed between 0.97x and 1.03x. By default those nudges are applied
-    // in the Sonic audio processor, an application-level component whose
-    // latency on Amlogic is measured in hundreds of milliseconds. The
-    // correction therefore lands too late to converge, and the initial
-    // drift never recovers.
-    //
-    // AudioTrack.setPlaybackParams (API 23+) applies the same correction
-    // inside the platform audio HAL, where it takes effect near-instantly.
-    // On phones the change is skipped entirely to keep existing behaviour.
     val renderersFactory = remember {
         DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(
-                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-            )
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .apply {
                 if (useTvProfile) {
-                    // Route A/V sync corrections through AudioTrack HAL.
                     setEnableAudioTrackPlaybackParams(true)
-
-                    // Reduce audio underruns and dropped video frames on
-                    // slower Amlogic / Rockchip decoders.
                     forceEnableMediaCodecAsynchronousQueueing()
                 }
             }
@@ -153,38 +115,62 @@ fun AppNavigation(
             .build()
     }
 
-    // ── Single global player for Live + VOD ──────────────────────────────
     val globalExoPlayer = remember {
         ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
-            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+            .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setUseLazyPreparation(true)
             .build()
-            .apply {
-                // setRepeatMode() is a method on Player. Kotlin property
-                // synthesis (repeatMode = ...) does not happen here because
-                // ExoPlayer is a sub-interface.
-                setRepeatMode(Player.REPEAT_MODE_OFF)
+            .apply { setRepeatMode(Player.REPEAT_MODE_OFF) }
+    }
+
+    // ── MediaSession: স্বয়ংক্রিয়ভাবে PiP ও নোটিফিকেশনে Play/Pause বাটন যুক্ত করবে ──
+    val mediaSession = remember {
+        MediaSession.Builder(context, globalExoPlayer).build()
+    }
+
+    var isPlayerPlaying by remember { mutableStateOf(false) }
+    DisposableEffect(globalExoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                isPlayerPlaying = isPlaying
             }
+        }
+        globalExoPlayer.addListener(listener)
+        onDispose { globalExoPlayer.removeListener(listener) }
+    }
+
+    // ── Foreground Service: ব্যাকগ্রাউন্ডে অডিও চালু রাখবে ──
+    LaunchedEffect(isPlayerPlaying) {
+        val intent = Intent(context, PlaybackService::class.java)
+        if (isPlayerPlaying) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } else {
+            context.stopService(intent)
+        }
     }
 
     DisposableEffect(Unit) {
-        onDispose { globalExoPlayer.release() }
+        onDispose {
+            mediaSession.release()
+            globalExoPlayer.release()
+        }
     }
 
-    // ── Safety net: stop playback when leaving a player route via any path
-    //    other than the in-screen back handler. ──
+    // ── Safety net: stop playback when leaving player route ──
     DisposableEffect(navController) {
         val playerRoutes = setOf(Routes.LIVE_PLAYER, Routes.VOD_PLAYER)
         val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
             val arriving = destination.route
             if (arriving != null && arriving !in playerRoutes) {
-                if (globalExoPlayer.isPlaying ||
-                    globalExoPlayer.playbackState != Player.STATE_IDLE
-                ) {
+                if (globalExoPlayer.isPlaying || globalExoPlayer.playbackState != Player.STATE_IDLE) {
                     globalExoPlayer.stop()
                     globalExoPlayer.clearMediaItems()
                 }
@@ -199,98 +185,46 @@ fun AppNavigation(
             composable(Routes.SPLASH) {
                 val isTvModeEnabled by mainViewModel.isTvModeEnabled.collectAsState()
                 val selectedChannel by mainViewModel.selectedChannel.collectAsState()
-
                 com.streambd.iptv.ui.screens.splash.SplashScreen(
                     onTimeout = {
                         if (isTvModeEnabled && selectedChannel != null) {
-                            navController.navigate(Routes.LIVE_PLAYER) {
-                                popUpTo(Routes.SPLASH) { inclusive = true }
-                            }
+                            navController.navigate(Routes.LIVE_PLAYER) { popUpTo(Routes.SPLASH) { inclusive = true } }
                         } else {
-                            navController.navigate(Routes.MAIN) {
-                                popUpTo(Routes.SPLASH) { inclusive = true }
-                            }
+                            navController.navigate(Routes.MAIN) { popUpTo(Routes.SPLASH) { inclusive = true } }
                         }
                     }
                 )
             }
-
             composable(Routes.MAIN) {
-                MainScreen(
-                    mainViewModel = mainViewModel,
-                    tmdbViewModel = tmdbViewModel,
-                    navController = navController,
-                    onCheckUpdate = onCheckUpdate
-                )
+                MainScreen(mainViewModel, tmdbViewModel, navController, onCheckUpdate)
             }
-
             composable(Routes.LIVE_CATEGORY_CHANNELS) {
-                LiveCategoryChannelsScreen(
-                    viewModel = mainViewModel,
-                    navController = navController
-                )
+                LiveCategoryChannelsScreen(mainViewModel, navController)
             }
-
             composable(Routes.LIVE_PLAYER) {
-                LivePlayerScreen(
-                    viewModel = mainViewModel,
-                    navController = navController,
-                    exoPlayer = globalExoPlayer,
-                    onEnterPiP = { /* handled by PlayerWindowEffect */ }
-                )
+                LivePlayerScreen(mainViewModel, navController = navController, exoPlayer = globalExoPlayer, onEnterPiP = { })
             }
-
             composable(Routes.TMDB_DETAILS) {
-                TmdbDetailsScreen(
-                    mainViewModel = mainViewModel,
-                    tmdbViewModel = tmdbViewModel,
-                    navController = navController
-                )
+                TmdbDetailsScreen(mainViewModel, tmdbViewModel, navController)
             }
-
             composable(Routes.SOURCE_SELECTION) {
-                SourceSelectionScreen(
-                    mainViewModel = mainViewModel,
-                    tmdbViewModel = tmdbViewModel,
-                    navController = navController
-                )
+                SourceSelectionScreen(mainViewModel, tmdbViewModel, navController)
             }
-
             composable(Routes.VOD_PLAYER) {
-                VodPlayerScreen(
-                    mainViewModel = mainViewModel,
-                    tmdbViewModel = tmdbViewModel,
-                    navController = navController,
-                    exoPlayer = globalExoPlayer
-                )
+                VodPlayerScreen(mainViewModel, tmdbViewModel, navController, globalExoPlayer)
             }
-
             composable(Routes.PLAYLISTS) {
-                PlaylistsScreen(
-                    playlistViewModel = playlistViewModel,
-                    navController = navController
-                )
+                PlaylistsScreen(playlistViewModel, navController)
             }
-
             composable(Routes.PLAYLIST_CHANNELS) { backStackEntry ->
                 val title = backStackEntry.arguments?.getString("title") ?: "Playlist"
-                val url = backStackEntry.arguments?.getString("url")
-                    ?.let { try { URLDecoder.decode(it, "UTF-8") } catch (_: Exception) { it } }
-                    ?: ""
-
-                PlaylistChannelsScreen(
-                    playlistTitle = title,
-                    playlistUrl = url,
-                    viewModel = playlistChannelsViewModel,
-                    mainViewModel = mainViewModel,
-                    navController = navController
-                )
+                val url = backStackEntry.arguments?.getString("url")?.let {
+                    try { URLDecoder.decode(it, "UTF-8") } catch (_: Exception) { it }
+                } ?: ""
+                PlaylistChannelsScreen(title, url, playlistChannelsViewModel, mainViewModel, navController)
             }
-
             composable(Routes.ADMIN_CONVERTER) {
-                com.streambd.iptv.ui.screens.admin.AdminConverterScreen(
-                    navController = navController
-                )
+                com.streambd.iptv.ui.screens.admin.AdminConverterScreen(navController)
             }
         }
     }
