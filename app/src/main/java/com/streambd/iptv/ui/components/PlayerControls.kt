@@ -130,9 +130,65 @@ fun PlaybackErrorPanel(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     hint: String? = null,
-    cause: String? = null
+    cause: String? = null,
+    compact: Boolean = false
 ) {
     val scheme = MaterialTheme.colorScheme
+
+    if (compact) {
+        // ─────────────────────────────────────────────────────────
+        // COMPACT — for the small 16:9 video area of the portrait
+        // player. Single row: icon + short text + retry, fits comfortably
+        // inside ~200dp of height so the retry button is never clipped.
+        // ─────────────────────────────────────────────────────────
+        Row(
+            modifier = modifier
+                .widthIn(max = 300.dp)
+                .background(Color.Black.copy(alpha = 0.82f), MaterialTheme.shapes.medium)
+                .border(1.dp, scheme.outline.copy(alpha = 0.6f), MaterialTheme.shapes.medium)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = null,
+                tint = scheme.error,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Playback error",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (message.isNotBlank()) {
+                    Text(
+                        text = message,
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            AppButton(
+                text = "Retry",
+                onClick = onRetry,
+                size = AppButtonSize.Compact,
+                modifier = Modifier.initialFocus()
+            )
+        }
+        return
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // FULL (unchanged) — landscape / TV / tablet layout
+    // ─────────────────────────────────────────────────────────────
     Column(
         modifier = modifier
             .widthIn(max = 420.dp)
