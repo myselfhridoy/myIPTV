@@ -93,12 +93,14 @@ fun VodPlayerScreen(
 
     // ── Layout / UI state ──
     val scope = rememberCoroutineScope()
+    val activity = context as? ComponentActivity
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
     var isLocked by remember { mutableStateOf(false) }
     var showTrackSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
+    var wasInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
     val portraitLayout = flexible && !isLandscapeNow && !isInPiP
@@ -119,26 +121,26 @@ fun VodPlayerScreen(
     val unlockFocusRequester = remember { FocusRequester() }
 
     var hasLoggedPlayback by remember(stream, retryToken) { mutableStateOf(false) }
-    var backPressedTime by remember { mutableStateOf(0L) }
 
     val seekAmount = 10_000L
 
     PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
         if (inPip) {
-            // Entering PiP: hide overlays so only the video shows.
+            wasInPiP = true
             showOverlay = false
             showTrackSelector = false
-        } else {
-            // Exiting PiP. Two possibilities:
-            //   1) User expanded the PiP → activity RESUMED → keep playing
-            //   2) User tapped X → activity STOPPED → stop + finish
-            // Wait 300ms so the activity lifecycle settles.
+        } else if (wasInPiP) {
+            wasInPiP = false
             scope.launch {
-                delay(300)
-                val act = context as? ComponentActivity ?: return@launch
+                delay(1000) // Enough time for PiP animation & Activity to resume
+                val act = activity ?: return@launch
+                if (act.isFinishing || act.isDestroyed) return@launch
+                
                 val state = act.lifecycle.currentState
-                if (!act.isFinishing && !state.isAtLeast(Lifecycle.State.RESUMED)) {
+                // If user tapped X (close), state will remain CREATED. 
+                // If user expanded to fullscreen, state will be STARTED/RESUMED.
+                if (state == Lifecycle.State.CREATED || state == Lifecycle.State.DESTROYED) {
                     try { exoPlayer.stop() } catch (_: Exception) {}
                     try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
                     try { act.finishAndRemoveTask() } catch (_: Exception) {}
@@ -576,7 +578,6 @@ fun VodPlayerScreen(
 
     // ── Real exit ──
     val finishExit: () -> Unit = {
-        val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
             try { exoPlayer.stop() } catch (_: Exception) {}
             try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
@@ -704,10 +705,12 @@ fun VodPlayerScreen(
                             ).show()
                         },
                         onEnterPiP = {
-                            val activity = context as? ComponentActivity
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                val params = android.app.PictureInPictureParams.Builder().build()
-                                activity?.enterPictureInPictureMode(params)
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && activity != null) {
+                                val params = android.app.PictureInPictureParams.Builder()
+                                    .setAspectRatio(android.util.Rational(16, 9))
+                                    .setActions(emptyList()) // Clears unwanted system action buttons
+                                    .build()
+                                activity.enterPictureInPictureMode(params)
                             }
                         },
                         onOpenTracks = { showTrackSelector = true },
