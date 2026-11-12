@@ -28,6 +28,21 @@ import androidx.compose.ui.platform.LocalContext
  *                   the moment they tilt the phone past the landscape
  *                   threshold while watching. In this case we keep the lock
  *                   and let the user exit via the fullscreen / back button.
+ *
+ * NOTE ON EXPLICIT TYPES
+ * ----------------------
+ * Both `listener` and `activity` are declared with EXPLICIT types.
+ * `listener`'s anonymous object references `listener.disable()` inside
+ * `onOrientationChanged`. Without the explicit type, Kotlin's type
+ * inference gets caught in a recursion:
+ *
+ *   1. Type of `listener`  ← inferred from the object literal
+ *   2. Object literal needs `listener`'s type (for `listener.disable()`)
+ *   3. → circular, compile error:
+ *      "Type checking has run into a recursive problem."
+ *
+ * Adding `: OrientationEventListener` breaks the cycle — the type is known
+ * before the object literal is analysed, so step 2 no longer needs step 1.
  */
 @Stable
 class PlayerOrientationController(context: Context) {
@@ -35,31 +50,34 @@ class PlayerOrientationController(context: Context) {
     private val activity: Activity? = context.findActivity()
     private var target: Int? = null
 
-    private val listener = object : OrientationEventListener(appContext) {
-        override fun onOrientationChanged(angle: Int) {
-            val wanted = target ?: return
-            if (angle == ORIENTATION_UNKNOWN) return
-            val physicallyLandscape = angle in 60..120 || angle in 240..300
-            val physicallyPortrait = angle <= 30 || angle >= 330 || angle in 150..210
-            val reached = when (wanted) {
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> physicallyPortrait
-                else -> physicallyLandscape
-            }
-            if (reached) {
-                if (isAutoRotateOn()) {
-                    // Sensor will take over cleanly after this — the classic
-                    // Prime / Netflix behaviour.
-                    release()
-                } else {
-                    // Auto-rotate is OFF: UNSPECIFIED would snap the user
-                    // back to their preferred orientation (usually portrait).
-                    // Keep the lock, just stop calling the listener.
-                    target = null
-                    listener.disable()
+    // ⚠️ Explicit type is REQUIRED — see the class KDoc above.
+    private val listener: OrientationEventListener =
+        object : OrientationEventListener(appContext) {
+            override fun onOrientationChanged(angle: Int) {
+                val wanted = target ?: return
+                if (angle == ORIENTATION_UNKNOWN) return
+                val physicallyLandscape = angle in 60..120 || angle in 240..300
+                val physicallyPortrait =
+                    angle <= 30 || angle >= 330 || angle in 150..210
+                val reached = when (wanted) {
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> physicallyPortrait
+                    else -> physicallyLandscape
+                }
+                if (reached) {
+                    if (isAutoRotateOn()) {
+                        // Sensor will take over cleanly after this — the classic
+                        // Prime / Netflix behaviour.
+                        release()
+                    } else {
+                        // Auto-rotate is OFF: UNSPECIFIED would snap the user
+                        // back to their preferred orientation (usually portrait).
+                        // Keep the lock, just stop calling the listener.
+                        target = null
+                        listener.disable()
+                    }
                 }
             }
         }
-    }
 
     private fun isAutoRotateOn(): Boolean = try {
         Settings.System.getInt(
