@@ -72,6 +72,14 @@
             </intent-filter>
         </activity>
 
+        <service
+    android:name=".utils.PlaybackService"
+    android:foregroundServiceType="mediaPlayback"
+    android:exported="true">
+    <intent-filter>
+        <action android:name="androidx.media3.session.MediaSessionService" />
+    </intent-filter>
+		</service>
         <!-- Firebase messaging: not exported, only Firebase can trigger -->
         <service
             android:name=".utils.MyFirebaseMessagingService"
