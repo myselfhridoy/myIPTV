@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
@@ -159,8 +160,10 @@ fun LivePlayerScreen(
     val channel = selectedChannel!!
     val channelKey = "${channel.tokenId ?: channel.name}|${channel.primarySourceUrl()}"
 
+    val scope = rememberCoroutineScope()
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
+    
     val startsInPortraitPlayer = !LocalDeviceProfile.current.isTv &&
         PlayerPreferences.isPortraitPlayerEnabled(context) &&
         LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
@@ -231,7 +234,22 @@ fun LivePlayerScreen(
 
     PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
-        if (inPip) showOverlay = false
+        if (inPip) {
+            showOverlay = false
+            showTrackSelector = false
+            showSourceSelector = false
+        } else {
+            scope.launch {
+                delay(300)
+                val act = context as? ComponentActivity ?: return@launch
+                val state = act.lifecycle.currentState
+                if (!act.isFinishing && !state.isAtLeast(Lifecycle.State.RESUMED)) {
+                    try { exoPlayer.stop() } catch (_: Exception) {}
+                    try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
+                    try { act.finishAndRemoveTask() } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     DisposableEffect(playerViewModel) {
@@ -584,7 +602,7 @@ fun LivePlayerScreen(
                 val showError = playerError != null || isResolutionFailed
 
                 // ── Loading diagnostic ──
-                val showSpinner = !showError && (isResolving || isBuffering) && !isLocked
+                val showSpinner = !showError && (isResolving || isBuffering) && !isLocked && !isInPiP
                 val loadingSeconds = rememberLoadingElapsed(showSpinner)
                 val loadingSubtitle = when {
                     loadingSeconds < 5 -> null
@@ -610,7 +628,7 @@ fun LivePlayerScreen(
                     onRetry = loadingRetry
                 )
 
-                if (showError) {
+                if (showError && !isInPiP) {
                     val primaryText = when {
                         playerError != null -> playerError?.message ?: "Unknown error"
                         isResolutionFailed ->
