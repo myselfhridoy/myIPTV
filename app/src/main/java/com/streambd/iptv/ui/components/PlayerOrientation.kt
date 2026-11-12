@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.provider.Settings
 import android.view.OrientationEventListener
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -17,16 +18,24 @@ import androidx.compose.ui.platform.LocalContext
  * Tapping the button forces the requested orientation. If we left it forced
  * forever, rotating the phone would no longer work. If we released it at once,
  * the system would rotate straight back (the phone is still held upright).
- * So the lock is kept only until the phone is PHYSICALLY in the requested
- * orientation, then released (UNSPECIFIED) so the sensor takes over — the same
- * way video apps behave.
+ *
+ * Auto-rotate ON  → release after the phone reaches the target orientation,
+ *                   so the sensor takes over naturally (Prime / Netflix style).
+ *
+ * Auto-rotate OFF → DO NOT release. `SCREEN_ORIENTATION_UNSPECIFIED` snaps
+ *                   back to the user's preferred orientation (usually
+ *                   portrait), which visibly kicks the user out of fullscreen
+ *                   the moment they tilt the phone past the landscape
+ *                   threshold while watching. In this case we keep the lock
+ *                   and let the user exit via the fullscreen / back button.
  */
 @Stable
 class PlayerOrientationController(context: Context) {
+    private val appContext: Context = context.applicationContext
     private val activity: Activity? = context.findActivity()
     private var target: Int? = null
 
-    private val listener = object : OrientationEventListener(context) {
+    private val listener = object : OrientationEventListener(appContext) {
         override fun onOrientationChanged(angle: Int) {
             val wanted = target ?: return
             if (angle == ORIENTATION_UNKNOWN) return
@@ -36,15 +45,39 @@ class PlayerOrientationController(context: Context) {
                 ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> physicallyPortrait
                 else -> physicallyLandscape
             }
-            if (reached) release()
+            if (reached) {
+                if (isAutoRotateOn()) {
+                    // Sensor will take over cleanly after this — the classic
+                    // Prime / Netflix behaviour.
+                    release()
+                } else {
+                    // Auto-rotate is OFF: UNSPECIFIED would snap the user
+                    // back to their preferred orientation (usually portrait).
+                    // Keep the lock, just stop calling the listener.
+                    target = null
+                    listener.disable()
+                }
+            }
         }
+    }
+
+    private fun isAutoRotateOn(): Boolean = try {
+        Settings.System.getInt(
+            appContext.contentResolver,
+            Settings.System.ACCELEROMETER_ROTATION,
+            0
+        ) == 1
+    } catch (_: Throwable) {
+        // If we can't read the setting, assume OFF — better to keep the
+        // lock than risk snapping the user out of fullscreen.
+        false
     }
 
     /** true → fullscreen (landscape), false → back to portrait. */
     fun setFullscreen(fullscreen: Boolean) {
         val act = activity ?: return
         val wanted = if (fullscreen) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                     else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         target = wanted
         act.requestedOrientation = wanted
         if (listener.canDetectOrientation()) listener.enable()
