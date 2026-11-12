@@ -2,6 +2,7 @@ package com.streambd.iptv.ui.components
 
 import androidx.compose.foundation.background
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.fadeOut
@@ -123,7 +124,13 @@ fun PlayerScrim(modifier: Modifier = Modifier) {
     )
 }
 
-/** Centered error card with a Retry button (auto-focused on TV). */
+/**
+ * Centered error card with a Retry button (auto-focused on TV).
+ *
+ * [compact] — for the small 16:9 video area of the portrait player:
+ * single-row layout that fits inside ~200dp of height, so the Retry
+ * button is never clipped when the video area is short.
+ */
 @Composable
 fun PlaybackErrorPanel(
     message: String,
@@ -136,11 +143,6 @@ fun PlaybackErrorPanel(
     val scheme = MaterialTheme.colorScheme
 
     if (compact) {
-        // ─────────────────────────────────────────────────────────
-        // COMPACT — for the small 16:9 video area of the portrait
-        // player. Single row: icon + short text + retry, fits comfortably
-        // inside ~200dp of height so the retry button is never clipped.
-        // ─────────────────────────────────────────────────────────
         Row(
             modifier = modifier
                 .widthIn(max = 300.dp)
@@ -186,9 +188,7 @@ fun PlaybackErrorPanel(
         return
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // FULL (unchanged) — landscape / TV / tablet layout
-    // ─────────────────────────────────────────────────────────────
+    // ── Full (landscape / TV / tablet) ──
     Column(
         modifier = modifier
             .widthIn(max = 420.dp)
@@ -471,18 +471,46 @@ fun formatPlayerTime(ms: Long): String {
 }
 
 /**
+ * Elapsed seconds since [active] became true. Resets to 0 the moment
+ * it goes false — so each retry / phase transition starts a fresh clock.
+ *
+ * Used by the loading diagnostic so we don't fire the "slow loading"
+ * text the instant a stream starts buffering (200ms would look like a bug).
+ */
+@Composable
+fun rememberLoadingElapsed(active: Boolean): Int {
+    var seconds by remember { mutableStateOf(0) }
+    LaunchedEffect(active) {
+        seconds = 0
+        if (active) {
+            while (isActive) {
+                delay(1000)
+                seconds++
+            }
+        }
+    }
+    return seconds
+}
+
+/**
  * Spinner for "resolving / buffering" that does not flicker.
  *
- * The raw flags flip many times at start-up (resolver finishes → a moment
- * with both flags false → player reports BUFFERING), and every flip removed
- * and re-created the spinner, restarting its animation = visible jitter.
+ * NEW: optional [subtitle] (e.g. "Buffering… 12s") and [onRetry] (shown as a
+ * Retry button below the spinner once loading has dragged on for a while).
+ * Both are provided by the caller so the timing logic stays in the screen —
+ * this composable only draws.
  *
  *  • appears only if loading lasts > 200 ms (no flash for instant states)
  *  • stays through gaps shorter than 450 ms
  *  • fades in/out instead of popping
  */
 @Composable
-fun PlayerLoadingIndicator(visible: Boolean, modifier: Modifier = Modifier) {
+fun PlayerLoadingIndicator(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onRetry: (() -> Unit)? = null
+) {
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(visible) {
         if (visible) {
@@ -499,6 +527,34 @@ fun PlayerLoadingIndicator(visible: Boolean, modifier: Modifier = Modifier) {
         enter = fadeIn(tween(150)),
         exit = fadeOut(tween(200))
     ) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = subtitle,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .background(
+                            Color.Black.copy(alpha = 0.65f),
+                            MaterialTheme.shapes.small
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+
+            if (onRetry != null) {
+                Spacer(Modifier.height(14.dp))
+                AppButton(
+                    text = "Retry",
+                    onClick = onRetry,
+                    size = AppButtonSize.Compact,
+                    modifier = Modifier.initialFocus()
+                )
+            }
+        }
     }
 }
