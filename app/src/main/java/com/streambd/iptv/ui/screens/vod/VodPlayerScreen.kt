@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -91,6 +92,7 @@ fun VodPlayerScreen(
     val orientationController = rememberPlayerOrientationController()
 
     // ── Layout / UI state ──
+    val scope = rememberCoroutineScope()
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
@@ -107,9 +109,6 @@ fun VodPlayerScreen(
 
     var resolveFailed by remember { mutableStateOf(false) }
     var retryToken by remember { mutableStateOf(0) }
-
-    // Used only by the loading diagnostic to pick the right label
-    // ("Resolving stream…" vs "Buffering…").
     var isResolving by remember(stream, retryToken) { mutableStateOf(false) }
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
@@ -126,7 +125,26 @@ fun VodPlayerScreen(
 
     PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
-        if (inPip) showOverlay = false
+        if (inPip) {
+            // Entering PiP: hide overlays so only the video shows.
+            showOverlay = false
+            showTrackSelector = false
+        } else {
+            // Exiting PiP. Two possibilities:
+            //   1) User expanded the PiP → activity RESUMED → keep playing
+            //   2) User tapped X → activity STOPPED → stop + finish
+            // Wait 300ms so the activity lifecycle settles.
+            scope.launch {
+                delay(300)
+                val act = context as? ComponentActivity ?: return@launch
+                val state = act.lifecycle.currentState
+                if (!act.isFinishing && !state.isAtLeast(Lifecycle.State.RESUMED)) {
+                    try { exoPlayer.stop() } catch (_: Exception) {}
+                    try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
+                    try { act.finishAndRemoveTask() } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     // ── Resolve + setup media source ──
@@ -711,7 +729,7 @@ fun VodPlayerScreen(
                 }
 
                 // ── Loading diagnostic ──
-                val showSpinner = isLoading && !isLocked
+                val showSpinner = isLoading && !isLocked && !isInPiP
                 val loadingSeconds = rememberLoadingElapsed(showSpinner)
                 val loadingSubtitle = when {
                     loadingSeconds < 5 -> null
@@ -736,7 +754,7 @@ fun VodPlayerScreen(
                     onRetry = loadingRetry
                 )
 
-                if (!showSpinner && (playerError != null || resolveFailed)) {
+                if (!showSpinner && !isInPiP && (playerError != null || resolveFailed)) {
                     val primaryText = when {
                         playerError != null -> playerError?.message ?: "Unknown error"
                         resolveFailed ->
