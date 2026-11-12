@@ -638,7 +638,8 @@ fun LivePlayerScreen(
                         val retryUrl = channel.primarySourceUrl()
                         currentSourceUrl = retryUrl
                         playerViewModel.retryResolution(channel, retryUrl)
-                    }
+                    },
+                    compact = portraitLayout
                 )
             }
 
