@@ -161,6 +161,7 @@ fun LivePlayerScreen(
     val channelKey = "${channel.tokenId ?: channel.name}|${channel.primarySourceUrl()}"
 
     val scope = rememberCoroutineScope()
+    val activity = context as? ComponentActivity
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
     
@@ -172,6 +173,7 @@ fun LivePlayerScreen(
     var showTrackSelector by remember { mutableStateOf(false) }
     var showSourceSelector by remember { mutableStateOf(false) }
     var isInPiP by remember { mutableStateOf(false) }
+    var wasInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
     var currentSourceUrl by remember(channelKey) {
@@ -235,15 +237,19 @@ fun LivePlayerScreen(
     PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
         if (inPip) {
+            wasInPiP = true
             showOverlay = false
             showTrackSelector = false
             showSourceSelector = false
-        } else {
+        } else if (wasInPiP) {
+            wasInPiP = false
             scope.launch {
-                delay(300)
-                val act = context as? ComponentActivity ?: return@launch
+                delay(1000)
+                val act = activity ?: return@launch
+                if (act.isFinishing || act.isDestroyed) return@launch
+                
                 val state = act.lifecycle.currentState
-                if (!act.isFinishing && !state.isAtLeast(Lifecycle.State.RESUMED)) {
+                if (state == Lifecycle.State.CREATED || state == Lifecycle.State.DESTROYED) {
                     try { exoPlayer.stop() } catch (_: Exception) {}
                     try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
                     try { act.finishAndRemoveTask() } catch (_: Exception) {}
@@ -257,7 +263,6 @@ fun LivePlayerScreen(
     }
 
     val finishExit: () -> Unit = {
-        val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
             try { exoPlayer.stop() } catch (_: Exception) {}
             try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
@@ -420,7 +425,7 @@ fun LivePlayerScreen(
         } else if (isTvModeEnabled) {
             val now = System.currentTimeMillis()
             if (now - backPressedTime < 2000) {
-                (context as? ComponentActivity)?.finishAndRemoveTask()
+                activity?.finishAndRemoveTask()
             } else {
                 backPressedTime = now
                 android.widget.Toast.makeText(
@@ -563,7 +568,7 @@ fun LivePlayerScreen(
                                     Intent.FLAG_ACTIVITY_CLEAR_TASK
                             )
                             if (intent != null) context.startActivity(intent)
-                            (context as? ComponentActivity)?.finishAndRemoveTask()
+                            activity?.finishAndRemoveTask()
                         },
                         onOpenSources = { showSourceSelector = true },
                         onLock = { isLocked = true },
@@ -575,10 +580,12 @@ fun LivePlayerScreen(
                             ).show()
                         },
                         onEnterPiP = {
-                            val activity = context as? ComponentActivity
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                val params = android.app.PictureInPictureParams.Builder().build()
-                                activity?.enterPictureInPictureMode(params)
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && activity != null) {
+                                val params = android.app.PictureInPictureParams.Builder()
+                                    .setAspectRatio(android.util.Rational(16, 9))
+                                    .setActions(emptyList()) // Clears unwanted system action buttons
+                                    .build()
+                                activity.enterPictureInPictureMode(params)
                             } else {
                                 onEnterPiP()
                             }
