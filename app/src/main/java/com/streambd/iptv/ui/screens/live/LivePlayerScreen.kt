@@ -85,8 +85,6 @@ enum class VideoScaleMode(val title: String) {
     CINEMA("Cinema (18:9)")
 }
 
-// ---------- top-level helpers ----------------------------------------------
-
 private data class UiPlaybackError(
     val message: String,
     val causeMessage: String?,
@@ -133,8 +131,6 @@ private fun formatTime(ms: Long): String {
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
 }
-
-// ---------- screen ---------------------------------------------------------
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -252,7 +248,7 @@ fun LivePlayerScreen(
                 if (state == Lifecycle.State.CREATED || state == Lifecycle.State.DESTROYED) {
                     try { exoPlayer.stop() } catch (_: Exception) {}
                     try { exoPlayer.clearMediaItems() } catch (_: Exception) {}
-                    try { act.finishAndRemoveTask() } catch (_: Exception) {}
+                    try { act.finish() } catch (_: Exception) {} // finishAndRemoveTask() থেকে পরিবর্তিত
                 }
             }
         }
@@ -332,7 +328,6 @@ fun LivePlayerScreen(
         if (index != -1) playerViewModel.prefetchChannels(currentPlaylist, index)
     }
 
-    // ── Player listener ──
     DisposableEffect(exoPlayer, channelKey) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -581,11 +576,14 @@ fun LivePlayerScreen(
                         },
                         onEnterPiP = {
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && activity != null) {
-                                val params = android.app.PictureInPictureParams.Builder()
+                                val paramsBuilder = android.app.PictureInPictureParams.Builder()
                                     .setAspectRatio(android.util.Rational(16, 9))
-                                    .setActions(emptyList()) // Clears unwanted system action buttons
-                                    .build()
-                                activity.enterPictureInPictureMode(params)
+                                
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    paramsBuilder.setAutoEnterEnabled(true)
+                                }
+                                
+                                activity.enterPictureInPictureMode(paramsBuilder.build())
                             } else {
                                 onEnterPiP()
                             }
@@ -608,7 +606,6 @@ fun LivePlayerScreen(
 
                 val showError = playerError != null || isResolutionFailed
 
-                // ── Loading diagnostic ──
                 val showSpinner = !showError && (isResolving || isBuffering) && !isLocked && !isInPiP
                 val loadingSeconds = rememberLoadingElapsed(showSpinner)
                 val loadingSubtitle = when {
@@ -703,7 +700,7 @@ fun LivePlayerScreen(
                     )
                 }
             }
-        } // end of playerSurface
+        }
 
         if (portraitLayout) {
             Column(
@@ -738,8 +735,6 @@ fun LivePlayerScreen(
         }
     }
 }
-
-// ---------- Static noise background ---------------------------------------
 
 @Composable
 private fun StaticNoiseBackground(modifier: Modifier = Modifier) {
