@@ -29,20 +29,24 @@ import androidx.compose.ui.platform.LocalContext
  *                   threshold while watching. In this case we keep the lock
  *                   and let the user exit via the fullscreen / back button.
  *
- * NOTE ON EXPLICIT TYPES
- * ----------------------
- * Both `listener` and `activity` are declared with EXPLICIT types.
- * `listener`'s anonymous object references `listener.disable()` inside
- * `onOrientationChanged`. Without the explicit type, Kotlin's type
- * inference gets caught in a recursion:
+ * ⚠️ IMPLEMENTATION NOTE — why `disable()` is called WITHOUT `listener.`
+ * ---------------------------------------------------------------------
+ * `OrientationEventListener.disable()` is an instance method — calling
+ * `disable()` inside `onOrientationChanged` resolves to `this.disable()`,
+ * where `this` is the anonymous listener object itself.
  *
- *   1. Type of `listener`  ← inferred from the object literal
- *   2. Object literal needs `listener`'s type (for `listener.disable()`)
- *   3. → circular, compile error:
- *      "Type checking has run into a recursive problem."
+ * The alternatives fail:
  *
- * Adding `: OrientationEventListener` breaks the cycle — the type is known
- * before the object literal is analysed, so step 2 no longer needs step 1.
+ *   • `private val listener = object : ... { ... listener.disable() }`
+ *       → "Type checking has run into a recursive problem"
+ *         (type of `listener` inferred from its own initializer)
+ *
+ *   • `private val listener: OrientationEventListener = object ... { listener.disable() }`
+ *       → "Variable 'listener' must be initialized"
+ *         (val referenced before declaration completes)
+ *
+ * Using the implicit `this` avoids the self-reference entirely and is the
+ * simplest, safest form.
  */
 @Stable
 class PlayerOrientationController(context: Context) {
@@ -50,7 +54,6 @@ class PlayerOrientationController(context: Context) {
     private val activity: Activity? = context.findActivity()
     private var target: Int? = null
 
-    // ⚠️ Explicit type is REQUIRED — see the class KDoc above.
     private val listener: OrientationEventListener =
         object : OrientationEventListener(appContext) {
             override fun onOrientationChanged(angle: Int) {
@@ -72,8 +75,10 @@ class PlayerOrientationController(context: Context) {
                         // Auto-rotate is OFF: UNSPECIFIED would snap the user
                         // back to their preferred orientation (usually portrait).
                         // Keep the lock, just stop calling the listener.
+                        // NOTE: `disable()` is `this.disable()` — the anonymous
+                        // listener calling its own inherited method.
                         target = null
-                        listener.disable()
+                        disable()
                     }
                 }
             }
