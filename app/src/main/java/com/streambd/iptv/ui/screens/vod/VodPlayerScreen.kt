@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.screens.vod
 
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -11,15 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,16 +22,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import com.streambd.iptv.utils.ClearKeyHelper
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -46,18 +36,22 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import com.streambd.iptv.R
-import com.streambd.iptv.ui.components.PlayerRevealContainer
-import com.streambd.iptv.ui.components.PlayerWindowEffect
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.components.PlaybackErrorPanel
 import com.streambd.iptv.ui.components.PlayerLoadingIndicator
-import com.streambd.iptv.ui.components.rememberPlayerProgress
+import com.streambd.iptv.ui.components.PlayerRevealContainer
+import com.streambd.iptv.ui.components.PlayerWindowEffect
 import com.streambd.iptv.ui.components.TrackSelectionDialog
+import com.streambd.iptv.ui.components.rememberPlayerOrientationController
+import com.streambd.iptv.ui.components.rememberPlayerProgress
 import com.streambd.iptv.ui.screens.live.VideoScaleMode
 import com.streambd.iptv.ui.viewmodels.MainViewModel
 import com.streambd.iptv.ui.viewmodels.TmdbViewModel
 import com.streambd.iptv.utils.AnalyticsLogger
+import com.streambd.iptv.utils.ClearKeyHelper
 import com.streambd.iptv.utils.MediaResolver
 import com.streambd.iptv.utils.PlaybackLogger
+import com.streambd.iptv.utils.PlayerPreferences
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -76,6 +70,7 @@ fun VodPlayerScreen(
     val context = LocalContext.current
     val selectedStream by mainViewModel.selectedStream.collectAsState()
     val selectedMedia by tmdbViewModel.selectedMedia.collectAsState()
+    val availableStreams by mainViewModel.availableStreams.collectAsState()
 
     if (selectedStream == null) {
         Box(
@@ -88,7 +83,18 @@ fun VodPlayerScreen(
     val stream = selectedStream!!
     val videoTitle = selectedMedia?.displayTitle
 
+    // ── Portrait player detection (mirrors LivePlayerScreen) ──
+    val device = LocalDeviceProfile.current
+    val isTvDevice = device.isTv
+    val portraitEnabled = remember { PlayerPreferences.isPortraitPlayerEnabled(context) }
+    val flexible = !isTvDevice && portraitEnabled
+    val isLandscapeNow =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val orientationController = rememberPlayerOrientationController()
+
     // ── Layout / UI state ──
+    // Hidden at start in the portrait player (small video, don't bury it
+    // under controls). Shown at start in landscape (user expects a seek bar).
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isLoading by remember { mutableStateOf(false) }
     var showOverlay by remember { mutableStateOf(true) }
@@ -97,9 +103,10 @@ fun VodPlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
 
+    // Computed AFTER PiP state is known.
+    val portraitLayout = flexible && !isLandscapeNow && !isInPiP
+
     // ── Playback state ──
-    // Position / buffer / duration: observable holder, polled only while the
-    // controls are visible; only the timeline reads it.
     val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
@@ -107,23 +114,24 @@ fun VodPlayerScreen(
     var retryToken by remember { mutableStateOf(0) }
 
     var scaleMode by remember { mutableStateOf(VideoScaleMode.FIT) }
+    // Portrait shows the whole picture (FIT); landscape keeps the user's choice.
+    val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
+
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
 
-    // Fires analytics exactly once per successful playback start. Reset
-    // whenever a new stream is set up.
     var hasLoggedPlayback by remember(stream, retryToken) { mutableStateOf(false) }
     var backPressedTime by remember { mutableStateOf(0L) }
 
     val seekAmount = 10_000L
 
-    PlayerWindowEffect { inPip ->
+    PlayerWindowEffect(flexible = flexible) { inPip ->
         isInPiP = inPip
         if (inPip) showOverlay = false
     }
 
-    // ── Resolve + setup media source ────────────────────────────────────
+    // ── Resolve + setup media source ──
     LaunchedEffect(stream, retryToken) {
         isLoading = true
         resolveFailed = false
@@ -132,7 +140,8 @@ fun VodPlayerScreen(
         try {
             val initialHeaders = stream.headers?.toMutableMap() ?: mutableMapOf()
             if (initialHeaders.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
-                initialHeaders["User-Agent"] = com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
+                initialHeaders["User-Agent"] =
+                    com.streambd.iptv.utils.UnsafeOkHttpClient.DEFAULT_USER_AGENT
             }
 
             val currentPlayRef = stream.headers?.entries?.firstOrNull {
@@ -158,7 +167,6 @@ fun VodPlayerScreen(
                 )
             }
 
-            // Token-based URLs must not fall through to the generic path.
             if (resolved == null) {
                 val tokenLower = stream.tokenUrl?.trim()?.lowercase().orEmpty()
                 val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" ||
@@ -310,7 +318,6 @@ fun VodPlayerScreen(
                 .applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: stream.drm
 
-            // Path-only view for extension checks so `.ts?token=x` is handled.
             val preWrapPath = finalUrl.substringBefore("?").substringBefore("#").lowercase()
 
             val isMacUrl = MediaResolver.isStalkerMacUrl(stream.url) ||
@@ -335,9 +342,6 @@ fun VodPlayerScreen(
                     )
             }
 
-            // Skip setup if the same URL is already playing (retry with unchanged URL).
-            // On retry, the caller stops + clears the player, so currentMediaItem is null
-            // and this check passes through.
             val alreadyPlaying =
                 exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString() == finalUrl
             if (alreadyPlaying) {
@@ -395,25 +399,20 @@ fun VodPlayerScreen(
                 mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
             }
 
-// Fast-fail policy — shorter retry cadence so a dead source doesn't hold
-// the failover chain hostage. We don't inspect the exception cause here
-// because the field name varies across media3 versions; the default
-// policy already returns C.TIME_UNSET for non-retryable errors.
-val loadErrorPolicy = object :
-    androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
-    override fun getRetryDelayMsFor(
-        info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
-    ): Long {
-        val defaultDelay = super.getRetryDelayMsFor(info)
-        if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-        // Short backoff: 500ms, 1s, 2s, 4s.
-        return if (info.errorCount <= 4) {
-            500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
-        } else defaultDelay
-    }
+            val loadErrorPolicy = object :
+                androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(
+                    info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
+                ): Long {
+                    val defaultDelay = super.getRetryDelayMsFor(info)
+                    if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
+                    return if (info.errorCount <= 4) {
+                        500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+                    } else defaultDelay
+                }
 
-    override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
-}
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
+            }
 
             val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
                 .setMp4ExtractorFlags(
@@ -473,10 +472,6 @@ val loadErrorPolicy = object :
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
-
-            // Analytics is NOT logged here — it fires from onPlaybackStateChanged
-            // (STATE_READY) via the `hasLoggedPlayback` flag so a stream that
-            // never actually starts does not get counted.
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -495,7 +490,7 @@ val loadErrorPolicy = object :
         }
     }
 
-    // ── Player listener — keyed on stream so error handling uses fresh state ──
+    // ── Player listener ──
     DisposableEffect(exoPlayer, stream) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -503,7 +498,6 @@ val loadErrorPolicy = object :
                 if (playbackState == Player.STATE_READY) {
                     playerError = null
 
-                    // First time we reach READY for this stream, fire analytics once.
                     if (!hasLoggedPlayback) {
                         hasLoggedPlayback = true
                         val vType = when {
@@ -554,12 +548,12 @@ val loadErrorPolicy = object :
             } catch (_: Exception) {}
         }
         if (showOverlay && isPlaying) {
-            delay(5000)
+            delay(if (portraitLayout) 3000 else 5000)
             showOverlay = false
         }
     }
 
-    // ── Real exit — lifecycleScope (survives recomposition). ──
+    // ── Real exit ──
     val finishExit: () -> Unit = {
         val activity = context as? ComponentActivity
         val teardown: () -> Unit = {
@@ -585,6 +579,9 @@ val loadErrorPolicy = object :
     BackHandler {
         if (isLocked) {
             showOverlay = true
+        } else if (flexible && isLandscapeNow) {
+            // Fullscreen → back to portrait player first (like video apps).
+            orientationController.setFullscreen(false)
         } else {
             requestExit()
         }
@@ -592,150 +589,216 @@ val loadErrorPolicy = object :
 
     PlayerRevealContainer(
         exitRequested = exitRequested,
-        forceUpright = isInPiP,
+        forceUpright = isInPiP || flexible,
         onExitComplete = finishExit
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyUp) {
-                        when (event.nativeKeyEvent.keyCode) {
-                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                if (!showOverlay) {
-                                    progress.overridePosition(seekBy(exoPlayer, -seekAmount)); true
-                                } else false
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                if (!showOverlay) {
-                                    progress.overridePosition(seekBy(exoPlayer, seekAmount)); true
-                                } else false
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                            android.view.KeyEvent.KEYCODE_ENTER -> {
-                                if (!showOverlay) { showOverlay = true; true } else false
-                            }
-                            else -> false
-                        }
-                    } else false
-                }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { showOverlay = !showOverlay }
-        ) {
-            val isCinema = scaleMode == VideoScaleMode.CINEMA
-
+        // The whole player (video + overlays + dialogs) as one piece, so it can be
+        // placed full-screen OR as the 16:9 video area of the portrait layout.
+        val playerSurface: @Composable (Modifier) -> Unit = { surfaceModifier ->
             Box(
-                modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
-                           else Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+                modifier = surfaceModifier
+                    .background(Color.Black)
+                    .onKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyUp) {
+                            when (event.nativeKeyEvent.keyCode) {
+                                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    if (!showOverlay) {
+                                        progress.overridePosition(seekBy(exoPlayer, -seekAmount)); true
+                                    } else false
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    if (!showOverlay) {
+                                        progress.overridePosition(seekBy(exoPlayer, seekAmount)); true
+                                    } else false
+                                }
+                                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                                android.view.KeyEvent.KEYCODE_ENTER -> {
+                                    if (!showOverlay) { showOverlay = true; true } else false
+                                }
+                                else -> false
+                            }
+                        } else false
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showOverlay = !showOverlay }
             ) {
-                AndroidView(
-                    modifier = if (isCinema)
-                        Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
-                    else Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        val parent = FrameLayout(ctx)
-                        val view = LayoutInflater.from(ctx)
-                            .inflate(R.layout.view_player_texture, parent, false) as PlayerView
-                        view.apply {
-                            player = exoPlayer
-                            useController = false
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        }
-                    },
-                    update = { playerView ->
-                        val exoResizeMode = when (scaleMode) {
-                            VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        }
-                        if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
-                        if (playerView.player != exoPlayer) playerView.player = exoPlayer
-                    }
-                )
-            }
+                val isCinema = effectiveScaleMode == VideoScaleMode.CINEMA
 
-            if (showOverlay && !isInPiP) {
-                VodPlayerOverlay(
-                    modifier = Modifier.fillMaxSize(),
-                    title = videoTitle,
-                    isLocked = isLocked,
-                    isPlaying = isPlaying,
-                    isMuted = isMuted,
-                    progress = progress,
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    unlockFocusRequester = unlockFocusRequester,
-                    onBack = { requestExit() },
-                    onUnlock = { isLocked = false },
-                    onLock = { isLocked = true },
-                    onCycleAspect = {
-                        val modes = VideoScaleMode.entries.toTypedArray()
-                        val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
-                        scaleMode = modes[nextIndex]
-                        android.widget.Toast.makeText(
-                            context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    onEnterPiP = {
-                        val activity = context as? ComponentActivity
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            val params = android.app.PictureInPictureParams.Builder().build()
-                            activity?.enterPictureInPictureMode(params)
+                Box(
+                    modifier = if (isCinema) Modifier.fillMaxSize(0.9f).align(Alignment.Center)
+                               else Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AndroidView(
+                        modifier = if (isCinema)
+                            Modifier.aspectRatio(18f / 9f).clip(RoundedCornerShape(16.dp))
+                        else Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            val parent = FrameLayout(ctx)
+                            val view = LayoutInflater.from(ctx)
+                                .inflate(R.layout.view_player_texture, parent, false) as PlayerView
+                            view.apply {
+                                player = exoPlayer
+                                useController = false
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                        },
+                        update = { playerView ->
+                            val exoResizeMode = when (effectiveScaleMode) {
+                                VideoScaleMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                VideoScaleMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                VideoScaleMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                VideoScaleMode.CINEMA -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            }
+                            if (playerView.resizeMode != exoResizeMode) playerView.resizeMode = exoResizeMode
+                            if (playerView.player != exoPlayer) playerView.player = exoPlayer
                         }
-                    },
-                    onOpenTracks = { showTrackSelector = true },
-                    onSeekBack = { progress.overridePosition(seekBy(exoPlayer, -seekAmount)) },
-                    onSeekForward = { progress.overridePosition(seekBy(exoPlayer, seekAmount)) },
-                    onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                    onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
-                    onToggleMute = {
-                        isMuted = !isMuted
-                        exoPlayer.volume = if (isMuted) 0f else 1f
-                    }
-                )
-            }
-
-            val showSpinner = isLoading && !isLocked
-            PlayerLoadingIndicator(
-                visible = showSpinner,
-                modifier = Modifier.align(Alignment.Center)
-            )
-
-            if (!showSpinner && (playerError != null || resolveFailed)) {
-                val primaryText = when {
-                    playerError != null -> playerError?.message ?: "Unknown error"
-                    resolveFailed ->
-                        "The stream could not be resolved or the URL is unreachable."
-                    else -> "Unknown error"
+                    )
                 }
-                PlaybackErrorPanel(
-                    modifier = Modifier.align(Alignment.Center),
-                    message = primaryText,
-                    cause = playerError?.cause?.message,
-                    onRetry = {
-                        playerError = null
-                        resolveFailed = false
-                        isLoading = true
-                        exoPlayer.stop()
-                        exoPlayer.clearMediaItems()
-                        retryToken++
-                    }
-                )
-            }
 
-            if (showTrackSelector) {
-                TrackSelectionDialog(
-                    player = exoPlayer,
-                    onDismiss = { showTrackSelector = false }
+                if (showOverlay && !isInPiP) {
+                    VodPlayerOverlay(
+                        modifier = Modifier.fillMaxSize(),
+                        title = videoTitle,
+                        isLocked = isLocked,
+                        isPlaying = isPlaying,
+                        isMuted = isMuted,
+                        progress = progress,
+                        playPauseFocusRequester = playPauseFocusRequester,
+                        unlockFocusRequester = unlockFocusRequester,
+                        onBack = {
+                            if (flexible && isLandscapeNow) orientationController.setFullscreen(false)
+                            else requestExit()
+                        },
+                        onUnlock = { isLocked = false },
+                        onLock = { isLocked = true },
+                        onCycleAspect = {
+                            val modes = VideoScaleMode.entries.toTypedArray()
+                            val nextIndex = (modes.indexOf(scaleMode) + 1) % modes.size
+                            scaleMode = modes[nextIndex]
+                            android.widget.Toast.makeText(
+                                context, scaleMode.title, android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onEnterPiP = {
+                            val activity = context as? ComponentActivity
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                val params = android.app.PictureInPictureParams.Builder().build()
+                                activity?.enterPictureInPictureMode(params)
+                            }
+                        },
+                        onOpenTracks = { showTrackSelector = true },
+                        onSeekBack = { progress.overridePosition(seekBy(exoPlayer, -seekAmount)) },
+                        onSeekForward = { progress.overridePosition(seekBy(exoPlayer, seekAmount)) },
+                        onTogglePlay = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                        onSeekTo = { positionMs -> exoPlayer.seekTo(positionMs) },
+                        onToggleMute = {
+                            isMuted = !isMuted
+                            exoPlayer.volume = if (isMuted) 0f else 1f
+                        },
+                        compact = portraitLayout,
+                        showFullscreenButton = flexible,
+                        isFullscreen = isLandscapeNow,
+                        onToggleFullscreen = {
+                            orientationController.setFullscreen(!isLandscapeNow)
+                        }
+                    )
+                }
+
+                val showSpinner = isLoading && !isLocked
+                PlayerLoadingIndicator(
+                    visible = showSpinner,
+                    modifier = Modifier.align(Alignment.Center)
                 )
+
+                if (!showSpinner && (playerError != null || resolveFailed)) {
+                    val primaryText = when {
+                        playerError != null -> playerError?.message ?: "Unknown error"
+                        resolveFailed ->
+                            "The stream could not be resolved or the URL is unreachable."
+                        else -> "Unknown error"
+                    }
+                    PlaybackErrorPanel(
+                        modifier = Modifier.align(Alignment.Center),
+                        message = primaryText,
+                        cause = playerError?.cause?.message,
+                        onRetry = {
+                            playerError = null
+                            resolveFailed = false
+                            isLoading = true
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            retryToken++
+                        },
+                        compact = portraitLayout
+                    )
+                }
+
+                if (showTrackSelector) {
+                    TrackSelectionDialog(
+                        player = exoPlayer,
+                        onDismiss = { showTrackSelector = false }
+                    )
+                }
             }
+        } // end playerSurface
+
+        if (portraitLayout) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+
+                // ── Below the video ──
+                // VOD (media selected + sources available): show source list.
+                // Stream mode / no sources: show simple info pane.
+                if (selectedMedia != null && availableStreams.isNotEmpty()) {
+                    val m = selectedMedia!!
+                    val subtitle = buildString {
+                        append(if (m.isMovie) "Movie" else "TV Show")
+                        if (!m.displayDate.isNullOrBlank() && m.displayDate.length >= 4) {
+                            append("  •  ").append(m.displayDate.take(4))
+                        }
+                        if (!m.isMovie) {
+                            val season = mainViewModel.selectedSeason.value
+                            val episode = mainViewModel.selectedEpisode.value
+                            if (season != null && episode != null) {
+                                append("  •  S${season} E${episode}")
+                            }
+                        }
+                    }
+                    PortraitSourcePane(
+                        streams = availableStreams,
+                        currentStream = stream,
+                        mediaTitle = m.displayTitle,
+                        mediaSubtitle = subtitle,
+                        onSelectStream = { newSource ->
+                            // Switching source: stop current, let the
+                            // LaunchedEffect re-resolve the new one.
+                            mainViewModel.selectStream(newSource)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    )
+                } else {
+                    PortraitStreamInfoPane(
+                        stream = stream,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    )
+                }
+            }
+        } else {
+            playerSurface(Modifier.fillMaxSize())
         }
     }
 }
@@ -748,14 +811,3 @@ private fun seekBy(player: ExoPlayer, deltaMs: Long): Long {
     player.seekTo(target)
     return target
 }
-
-private fun formatVodTime(ms: Long): String {
-    if (ms <= 0) return "00:00"
-    val totalSeconds = ms / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds)
-           else String.format("%02d:%02d", minutes, seconds)
-}
-
