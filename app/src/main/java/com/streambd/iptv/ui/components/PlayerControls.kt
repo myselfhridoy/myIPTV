@@ -53,22 +53,6 @@ import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
 
-// ─────────────────────────────────────────────────────────────
-// Building blocks shared by the live and VOD players.
-// They only draw things — no player logic lives here.
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Round control over the video.
- *
- * PHONE / TABLET (premium, light): no background at rest — just the icon;
- * the centre play button can opt in to a soft glass disc with `glass = true`.
- * TV (unchanged look): every control sits on a dark glass disc, bigger.
- * Focus: solid white disc with a dark icon (clear from across the room).
- *
- * Leave [size] / [iconSize] / [glass] at their defaults to get the right
- * style for the device.
- */
 @Composable
 fun PlayerIconButton(
     icon: ImageVector,
@@ -105,7 +89,6 @@ fun PlayerIconButton(
     }
 }
 
-/** Soft top/bottom darkening so controls stay readable on any picture. */
 @Composable
 fun PlayerScrim(modifier: Modifier = Modifier) {
     Box(
@@ -124,13 +107,6 @@ fun PlayerScrim(modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * Centered error card with a Retry button (auto-focused on TV).
- *
- * [compact] — for the small 16:9 video area of the portrait player:
- * single-row layout that fits inside ~200dp of height, so the Retry
- * button is never clipped when the video area is short.
- */
 @Composable
 fun PlaybackErrorPanel(
     message: String,
@@ -188,7 +164,6 @@ fun PlaybackErrorPanel(
         return
     }
 
-    // ── Full (landscape / TV / tablet) ──
     Column(
         modifier = modifier
             .widthIn(max = 420.dp)
@@ -247,7 +222,6 @@ fun PlaybackErrorPanel(
     }
 }
 
-/** Banner shown for a few seconds after switching channel. */
 @Composable
 fun ChannelInfoCard(
     name: String,
@@ -293,7 +267,6 @@ fun ChannelInfoCard(
     }
 }
 
-/** Digits typed on the remote while "dialling" a channel number. */
 @Composable
 fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     Box(
@@ -310,18 +283,6 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Timeline = [position]  ━━━ seek bar ━━━  [duration]
-// Used by BOTH players. The component never touches the player: the
-// screen passes a PlayerProgress to read and an `onSeekTo` callback.
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Low-level bar: a buffer track plus a draggable slider ONLY when
- * [seekable]. Pure live streams pass `seekable = false` — dragging on a
- * live window would jump to the DVR start (rewinding the viewer away from
- * the live edge), so only the passive buffer indicator is drawn.
- */
 @Composable
 fun PlayerSeekBar(
     fraction: Float,
@@ -359,18 +320,6 @@ fun PlayerSeekBar(
     }
 }
 
-/**
- * Time labels + seek bar.
- *
- * [commitOnRelease]
- *  • false (live) — every slider move calls [onSeekTo] straight away
- *  • true  (VOD)  — dragging only previews the time; [onSeekTo] is called
- *    ONCE when the finger lifts, and the polled position is held
- *    ([PlayerProgress.holdPosition]) so the thumb doesn't jump while dragging
- *
- * [showLiveLabel] — show "LIVE" instead of the position when the duration
- * is unknown (live channels).
- */
 @Composable
 fun PlayerTimeline(
     progress: PlayerProgress,
@@ -459,7 +408,6 @@ private fun LiveLabel() {
     }
 }
 
-/** 83_000 ms → "01:23"; 3_725_000 ms → "1:02:05". Non-positive → "00:00". */
 fun formatPlayerTime(ms: Long): String {
     if (ms <= 0) return "00:00"
     val totalSeconds = ms / 1000
@@ -470,13 +418,6 @@ fun formatPlayerTime(ms: Long): String {
     else String.format("%02d:%02d", minutes, seconds)
 }
 
-/**
- * Elapsed seconds since [active] became true. Resets to 0 the moment
- * it goes false — so each retry / phase transition starts a fresh clock.
- *
- * Used by the loading diagnostic so we don't fire the "slow loading"
- * text the instant a stream starts buffering (200ms would look like a bug).
- */
 @Composable
 fun rememberLoadingElapsed(active: Boolean): Int {
     var seconds by remember { mutableStateOf(0) }
@@ -492,32 +433,23 @@ fun rememberLoadingElapsed(active: Boolean): Int {
     return seconds
 }
 
-/**
- * Spinner for "resolving / buffering" that does not flicker.
- *
- * NEW: optional [subtitle] (e.g. "Buffering… 12s") and [onRetry] (shown as a
- * Retry button below the spinner once loading has dragged on for a while).
- * Both are provided by the caller so the timing logic stays in the screen —
- * this composable only draws.
- *
- *  • appears only if loading lasts > 200 ms (no flash for instant states)
- *  • stays through gaps shorter than 450 ms
- *  • fades in/out instead of popping
- */
 @Composable
 fun PlayerLoadingIndicator(
     visible: Boolean,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    forceHide: Boolean = false
 ) {
     var show by remember { mutableStateOf(false) }
-    LaunchedEffect(visible) {
-        if (visible) {
+    LaunchedEffect(visible, forceHide) {
+        if (forceHide) {
+            show = false
+        } else if (visible) {
             delay(200)
             show = true
         } else {
-            delay(450)
+            delay(150)
             show = false
         }
     }
