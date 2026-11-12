@@ -8,9 +8,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
-import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -29,10 +26,9 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -46,73 +42,32 @@ data class ResolvedMediaParams(
 @UnstableApi
 object MediaResolver {
 
-    // -------------------------------------------------------------------------
-    // URL pattern tables — no provider names anywhere.
-    // -------------------------------------------------------------------------
-
-    private val EXT_REGEX = Regex(
-        "\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp|m4v|3gp)(\\?|#|$|[\"'])",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val PROTO_REGEX = Regex(
-        "^(rtmp|rtsp|udp|srt|rtp|mms)://",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val REDIRECT_REGEX = Regex(
-        "(is\\.gd|tinyurl|bit\\.ly|t\\.co|redirect|url=|goto=)",
-        RegexOption.IGNORE_CASE
-    )
-
+    private val EXT_REGEX = Regex("\\.(m3u8|mpd|mp4|mkv|ts|webm|flv|avi|mov|mpeg|mpg|m4s|f4m|ism|sdp|m4v|3gp)(\\?|#|$|[\"'])", RegexOption.IGNORE_CASE)
+    private val PROTO_REGEX = Regex("^(rtmp|rtsp|udp|srt|rtp|mms)://", RegexOption.IGNORE_CASE)
+    private val REDIRECT_REGEX = Regex("(is\\.gd|tinyurl|bit\\.ly|t\\.co|redirect|url=|goto=)", RegexOption.IGNORE_CASE)
     private val DRM_KEY_REGEX = Regex("[0-9a-fA-F]{32}:[0-9a-fA-F]{32}")
-
-    private val MEDIA_PATH_HINT_REGEX = Regex(
-        "/(hls|dash|mpegts|manifest|playlist|chunklist|master|index|live)(\\?|/|#|$)",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val MEDIA_QUERY_HINT_REGEX = Regex(
-        "[?&](extension|output|type|format|stream|mimetype|media|container)=(m3u8|mpd|ts|hls|dash|mpegts)",
-        RegexOption.IGNORE_CASE
-    )
-
-    private val PAGE_URL_MARKERS = listOf(
-        "tokenurl=",
-        "portal.php",
-        "action=create_link",
-        "action=get_profile",
-        "action=handshake",
-        "/player.php"
-    )
-
+    private val MEDIA_PATH_HINT_REGEX = Regex("/(hls|dash|mpegts|manifest|playlist|chunklist|master|index|live)(\\?|/|#|$)", RegexOption.IGNORE_CASE)
+    private val MEDIA_QUERY_HINT_REGEX = Regex("[?&](extension|output|type|format|stream|mimetype|media|container)=(m3u8|mpd|ts|hls|dash|mpegts)", RegexOption.IGNORE_CASE)
+    private val PAGE_URL_MARKERS = listOf("tokenurl=", "portal.php", "action=create_link", "action=get_profile", "action=handshake", "/player.php")
     private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
+    private val STALKER_MAC_REGEX = Regex("[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)", RegexOption.IGNORE_CASE)
 
-    private val STALKER_MAC_REGEX = Regex(
-        "[?&]mac=(?:[0-9a-f]{2}(?::|%3a|-)){5}[0-9a-f]{2}(?=&|#|$)",
-        RegexOption.IGNORE_CASE
-    )
+    fun isStalkerMacUrl(url: String?): Boolean = !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
 
-    fun isStalkerMacUrl(url: String?): Boolean =
-        !url.isNullOrEmpty() && STALKER_MAC_REGEX.containsMatchIn(url)
-
+    // FIX: Connection timeout 20s -> 8s for faster failover
     val sharedOkHttpClient: OkHttpClient by lazy {
-        UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder().build()
+        UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
     }
 
-    /**
-     * Returns true for URLs that are obviously HTML/API pages, not streams.
-     * Public so the UI layer can reuse this exact classification.
-     */
     fun isKnownPageUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
-
         if (PAGE_URL_MARKERS.any { lower.contains(it) }) return true
-
         val path = lower.substringBefore("?").substringBefore("#")
         if (path.endsWith(".html") || path.endsWith(".htm")) return true
-
         return false
     }
 
@@ -132,47 +87,25 @@ object MediaResolver {
             override fun onFailure(call: Call, e: IOException) {
                 if (cont.isActive) cont.resumeWithException(e)
             }
-
             override fun onResponse(call: Call, response: Response) {
                 if (cont.isActive) cont.resume(response) else response.close()
             }
         })
     }
 
-    /**
-     * Filter hop-by-hop headers that OkHttp owns, and constrain
-     * Accept-Encoding to encodings our decompression interceptor handles.
-     *
-     * IMPORTANT: We deliberately DO NOT strip sec-fetch-* headers. Many
-     * IPTV CDNs (Cloudflare-fronted ones in particular) use these browser
-     * Fetch-metadata headers to distinguish a real browser fetch from a
-     * plain HTTP client. Stripping them causes a 403 or 530. The playlist
-     * declares them for a reason; we must forward them untouched.
-     */
     private fun filterHopByHopHeaders(source: Map<String, String>): Map<String, String> {
         val out = linkedMapOf<String, String>()
         source.forEach { (key, value) ->
             val lower = key.lowercase()
             when {
-                // Hop-by-hop headers OkHttp sets itself.
-                lower == "host" ||
-                lower == "content-length" ||
-                lower == "connection" -> {
-                    // Skip
-                }
-                // Constrain to what our gzip/deflate interceptor can handle.
-                lower == "accept-encoding" -> {
-                    out["Accept-Encoding"] = "gzip, deflate"
-                }
+                lower == "host" || lower == "content-length" || lower == "connection" -> { }
+                lower == "accept-encoding" -> out["Accept-Encoding"] = "gzip, deflate"
                 else -> out[key] = value
             }
         }
         return out
     }
 
-    // =========================================================================
-    // Public entry point
-    // =========================================================================
     suspend fun resolveMediaParams(
         context: Context,
         channel: Channel,
@@ -182,7 +115,6 @@ object MediaResolver {
             val parsedSource = M3UParser.parseUrlHeaders(currentSourceUrl)
             val rawSourceUrl = parsedSource.cleanUrl
 
-            // ---- Merge headers from channel metadata + URL custom params ----
             val rawHeaders = mutableMapOf<String, String>()
             channel.userAgent?.let { rawHeaders["User-Agent"] = it }
             channel.cookie?.let { rawHeaders["Cookie"] = it }
@@ -191,11 +123,8 @@ object MediaResolver {
             channel.httpHeaders?.forEach { (k, v) -> rawHeaders[k] = v }
             parsedSource.headers.forEach { (k, v) -> rawHeaders[k] = v }
 
-            // Case-insensitive dedup: last-wins for conflicting keys.
             val deduped = linkedMapOf<String, Pair<String, String>>()
-            rawHeaders.forEach { (k, v) ->
-                deduped[k.lowercase()] = k to v
-            }
+            rawHeaders.forEach { (k, v) -> deduped[k.lowercase()] = k to v }
             val initialHeaders = linkedMapOf<String, String>()
             deduped.values.forEach { (k, v) -> initialHeaders[k] = v }
 
@@ -206,16 +135,11 @@ object MediaResolver {
             val currentTokenUrl = parsedSource.custom["tokenurl"] ?: channel.tokenUrl
             val currentTokenMatch = parsedSource.custom["tokenmatch"] ?: channel.tokenMatch
             val currentTokenReplace = parsedSource.custom["tokenreplace"] ?: channel.tokenReplace
-            val currentTokenId =
-                parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
+            val currentTokenId = parsedSource.custom["tokenid"]?.toIntOrNull() ?: channel.tokenId
             val currentPlayRef = parsedSource.custom["playref"]
 
-            // ---- DRM extraction from URL custom params ----
             var sourceDrm = channel.drm
-            if (parsedSource.custom.containsKey("drm-type") ||
-                parsedSource.custom.containsKey("drm-key") ||
-                parsedSource.custom.containsKey("drm-url")
-            ) {
+            if (parsedSource.custom.containsKey("drm-type") || parsedSource.custom.containsKey("drm-key") || parsedSource.custom.containsKey("drm-url")) {
                 val drmType = parsedSource.custom["drm-type"] ?: "clearkey"
                 val drmKey = parsedSource.custom["drm-url"] ?: parsedSource.custom["drm-key"]
                 val existingPairs = sourceDrm?.rawKeyPair?.split(",")?.filter { it.isNotBlank() }.orEmpty()
@@ -230,83 +154,51 @@ object MediaResolver {
                 }
             }
 
-            val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) ||
-                rawSourceUrl.contains("action=create_link", ignoreCase = true)
+            val isStalkerOrPortal = rawSourceUrl.contains("portal.php", ignoreCase = true) || rawSourceUrl.contains("action=create_link", ignoreCase = true)
 
-            // ---- Try the token/page resolver first ----
             var resolved: ResolvedToken? = null
-            if (!currentTokenUrl.isNullOrEmpty() ||
-                isStalkerOrPortal ||
-                YouTubeExtractor.isYouTubeUrl(rawSourceUrl)
-            ) {
+            if (!currentTokenUrl.isNullOrEmpty() || isStalkerOrPortal || YouTubeExtractor.isYouTubeUrl(rawSourceUrl)) {
                 resolved = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
                     TokenParser.resolveTokenForUrl(
-                        context = context,
-                        baseUrl = rawSourceUrl,
-                        tokenUrl = currentTokenUrl,
-                        tokenId = currentTokenId?.toString(),
-                        headers = initialHeaders,
-                        tokenMatch = currentTokenMatch,
-                        tokenReplace = currentTokenReplace,
-                        playRef = currentPlayRef
+                        context = context, baseUrl = rawSourceUrl, tokenUrl = currentTokenUrl,
+                        tokenId = currentTokenId?.toString(), headers = initialHeaders,
+                        tokenMatch = currentTokenMatch, tokenReplace = currentTokenReplace, playRef = currentPlayRef
                     )
                 }
                 if (resolved == null) {
-                    android.util.Log.w(
-                        "MediaResolver",
-                        "TokenParser resolve timed out or failed for $rawSourceUrl"
-                    )
+                    android.util.Log.w("MediaResolver", "TokenParser resolve timed out or failed for $rawSourceUrl")
                 }
             }
 
-            // ---- Fall back to generic redirect / playlist sniffing ----
             if (resolved == null) {
                 val tokenLower = currentTokenUrl?.trim()?.lowercase().orEmpty()
-                val mustUseResolver = tokenLower == "streambd" ||
-                    tokenLower == "streamplay" ||
-                    tokenLower == "crichd" ||
-                    tokenLower == "dlhd" ||
-                    Regex("""^[\\/]?\d+$""").matches(tokenLower)
+                val mustUseResolver = tokenLower == "streambd" || tokenLower == "streamplay" || tokenLower == "crichd" || tokenLower == "dlhd" || Regex("""^[\\/]?\d+$""").matches(tokenLower)
                 if (mustUseResolver) return@withContext null
                 resolved = resolveRedirectsAndPlaylists(rawSourceUrl, initialHeaders)
             }
 
             var finalUrl = resolved?.url ?: rawSourceUrl
             val rawFinalHeaders = resolved?.headers ?: initialHeaders
-            val finalHeaders =
-                TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
+            val finalHeaders = TokenParser.applyPlayRefToHeaders(finalUrl, rawFinalHeaders, currentPlayRef)
             val finalDrm = resolved?.drm ?: sourceDrm
 
             if (resolved == null && isKnownPageUrl(finalUrl)) {
                 return@withContext null
             }
 
-            // ---- Compute stream-type flags BEFORE any wrapping ----
             val preWrapPath = finalUrl.substringBefore("?").substringBefore("#").lowercase()
-
             val isMacUrl = isStalkerMacUrl(rawSourceUrl) || isStalkerMacUrl(finalUrl)
-            val isTsStream = finalUrl.contains("extension=ts", ignoreCase = true) ||
-                finalUrl.contains("output=ts", ignoreCase = true) ||
-                preWrapPath.endsWith(".ts") ||
-                preWrapPath.endsWith("/mpegts")
+            val isTsStream = finalUrl.contains("extension=ts", ignoreCase = true) || finalUrl.contains("output=ts", ignoreCase = true) || preWrapPath.endsWith(".ts") || preWrapPath.endsWith("/mpegts")
             val shouldWrapMac = isMacUrl && !isTsStream
-
-            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) &&
-                (resolved?.needsPlaylistWrap == true || shouldWrapMac)
+            val shouldWrapInMasterPlaylist = !finalUrl.startsWith("data:", ignoreCase = true) && (resolved?.needsPlaylistWrap == true || shouldWrapMac)
 
             if (shouldWrapInMasterPlaylist) {
                 val bandwidth = 2_000_000
-                val masterPlaylist =
-                    "#EXTM3U\n#EXT-X-VERSION:3\n" +
-                        "#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
-                finalUrl = "data:application/x-mpegURL;base64," +
-                    Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
+                val masterPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=$bandwidth\n$finalUrl"
+                finalUrl = "data:application/x-mpegURL;base64," + Base64.encodeToString(masterPlaylist.toByteArray(), Base64.NO_WRAP)
             }
 
-            // ---- MimeType detection ----
-            var mimeType: String? = if (shouldWrapInMasterPlaylist ||
-                finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)
-            ) {
+            var mimeType: String? = if (shouldWrapInMasterPlaylist || finalUrl.startsWith("data:application/x-mpegURL", ignoreCase = true)) {
                 MimeTypes.APPLICATION_M3U8
             } else {
                 TokenParser.detectMimeType(finalUrl, resolved?.mimeType)
@@ -314,9 +206,7 @@ object MediaResolver {
 
             if (mimeType == null && !isKnownPageUrl(finalUrl) && looksLikeMediaUrl(finalUrl)) {
                 mimeType = when {
-                    finalUrl.contains(".mpd", ignoreCase = true) ||
-                        finalUrl.contains("dash+xml", ignoreCase = true) ||
-                        finalUrl.contains("/dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                    finalUrl.contains(".mpd", ignoreCase = true) || finalUrl.contains("dash+xml", ignoreCase = true) || finalUrl.contains("/dash", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
                     else -> MimeTypes.APPLICATION_M3U8
                 }
             }
@@ -324,14 +214,6 @@ object MediaResolver {
             if (isTsStream && !finalUrl.startsWith("data:", ignoreCase = true)) {
                 mimeType = MimeTypes.VIDEO_MP2T
             }
-
-            android.util.Log.d(
-                "MediaResolver",
-                "resolveMediaParams ← url=${finalUrl.take(100)} " +
-                    "mimeType=$mimeType " +
-                    "drm=${finalDrm?.type}/${finalDrm?.rawKeyPair?.take(16)} " +
-                    "headers=${finalHeaders.keys}"
-            )
 
             return@withContext ResolvedMediaParams(
                 url = finalUrl,
@@ -347,56 +229,25 @@ object MediaResolver {
         }
     }
 
-    // =========================================================================
-    // Generic redirect / playlist resolver
-    // =========================================================================
-    private suspend fun resolveRedirectsAndPlaylists(
-        rawSourceUrl: String,
-        initialHeaders: Map<String, String>
-    ): ResolvedToken? {
-        val decodedUrl = try {
-            URLDecoder.decode(rawSourceUrl, "UTF-8")
-        } catch (e: Exception) {
-            rawSourceUrl
-        }
-
-        val isExplicitHlsPhp =
-            rawSourceUrl.contains("live.php", ignoreCase = true) ||
-                rawSourceUrl.contains("extension=m3u8", ignoreCase = true) ||
-                rawSourceUrl.contains("output=m3u8", ignoreCase = true)
-
-        val hasKnownExtensionOrProto =
-            EXT_REGEX.containsMatchIn(decodedUrl) ||
-                PROTO_REGEX.containsMatchIn(rawSourceUrl) ||
-                isExplicitHlsPhp
-
-        val isKnownFileHost =
-            rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
+    private suspend fun resolveRedirectsAndPlaylists(rawSourceUrl: String, initialHeaders: Map<String, String>): ResolvedToken? {
+        val decodedUrl = try { URLDecoder.decode(rawSourceUrl, "UTF-8") } catch (e: Exception) { rawSourceUrl }
+        val isExplicitHlsPhp = rawSourceUrl.contains("live.php", ignoreCase = true) || rawSourceUrl.contains("extension=m3u8", ignoreCase = true) || rawSourceUrl.contains("output=m3u8", ignoreCase = true)
+        val hasKnownExtensionOrProto = EXT_REGEX.containsMatchIn(decodedUrl) || PROTO_REGEX.containsMatchIn(rawSourceUrl) || isExplicitHlsPhp
+        val isKnownFileHost = rawSourceUrl.contains("googleusercontent.com", ignoreCase = true)
 
         if (isKnownPageUrl(rawSourceUrl)) return null
 
-        val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) ||
-            (!isKnownFileHost && !hasKnownExtensionOrProto)
-
+        val shouldPreResolve = REDIRECT_REGEX.containsMatchIn(rawSourceUrl) || (!isKnownFileHost && !hasKnownExtensionOrProto)
         if (!shouldPreResolve) return null
 
         try {
-            // Use the shared header filter — same policy as buildMediaSource.
-            // sec-fetch-* survive intact.
             val safeInitialHeaders = filterHopByHopHeaders(initialHeaders)
-            val req = Request.Builder().url(rawSourceUrl).apply {
-                safeInitialHeaders.forEach { (k, v) -> header(k, v) }
-            }.build()
+            val req = Request.Builder().url(rawSourceUrl).apply { safeInitialHeaders.forEach { (k, v) -> header(k, v) } }.build()
 
             sharedOkHttpClient.newCall(req).await().use { res ->
-                val isPlaylistOrJsonType = isExplicitHlsPhp ||
-                    res.header("Content-Type")?.lowercase()?.let {
-                        it.contains("mpegurl") ||
-                            it.contains("text/") ||
-                            it.contains("application/vnd.apple.mpegurl") ||
-                            it.contains("json") ||
-                            it.contains("javascript")
-                    } == true
+                val isPlaylistOrJsonType = isExplicitHlsPhp || res.header("Content-Type")?.lowercase()?.let {
+                    it.contains("mpegurl") || it.contains("text/") || it.contains("application/vnd.apple.mpegurl") || it.contains("json") || it.contains("javascript")
+                } == true
 
                 val contentLength = res.header("Content-Length")?.toLongOrNull() ?: 0L
                 var isMasterPlaylist = false
@@ -406,18 +257,12 @@ object MediaResolver {
                     isMasterPlaylist = bodyStr.contains("#EXT-X-STREAM-INF")
 
                     if (bodyStr.trim().startsWith("{")) {
-                        val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(
-                            rawSourceUrl, initialHeaders, bodyStr
-                        )
+                        val stalkerResolved = TokenParser.resolveStalkerPortalOrJson(rawSourceUrl, initialHeaders, bodyStr)
                         if (stalkerResolved != null) return stalkerResolved
                     }
 
-                    val isHlsStream = bodyStr.contains("#EXTINF:") ||
-                        bodyStr.contains("EXT-X-STREAM-INF")
-
-                    if (bodyStr.contains("#EXTM3U") &&
-                        (bodyStr.contains("EXTHTTP:") || !isHlsStream)
-                    ) {
+                    val isHlsStream = bodyStr.contains("#EXTINF:") || bodyStr.contains("EXT-X-STREAM-INF")
+                    if (bodyStr.contains("#EXTM3U") && (bodyStr.contains("EXTHTTP:") || !isHlsStream)) {
                         val parsedChannels = M3UParser.parsePlaylist(bodyStr)
                         if (parsedChannels.isNotEmpty()) {
                             val first = parsedChannels.first()
@@ -427,26 +272,14 @@ object MediaResolver {
                             first.cookie?.let { mergedHeaders["Cookie"] = it }
                             first.httpReferer?.let { mergedHeaders["Referer"] = it }
                             first.origin?.let { mergedHeaders["Origin"] = it }
-
                             val innerParsed = M3UParser.parseUrlHeaders(first.url)
                             innerParsed.headers.forEach { (k, v) -> mergedHeaders[k] = v }
-
-                            return ResolvedToken(
-                                url = innerParsed.cleanUrl,
-                                headers = mergedHeaders,
-                                mimeType = MimeTypes.APPLICATION_M3U8,
-                                isMasterPlaylist = false
-                            )
+                            return ResolvedToken(url = innerParsed.cleanUrl, headers = mergedHeaders, mimeType = MimeTypes.APPLICATION_M3U8, isMasterPlaylist = false)
                         }
                     }
 
                     if (isHlsStream && !bodyStr.trim().startsWith("#EXTM3U")) {
-                        return ResolvedToken(
-                            url = res.request.url.toString(),
-                            headers = initialHeaders,
-                            mimeType = MimeTypes.APPLICATION_M3U8,
-                            isMasterPlaylist = isMasterPlaylist
-                        )
+                        return ResolvedToken(url = res.request.url.toString(), headers = initialHeaders, mimeType = MimeTypes.APPLICATION_M3U8, isMasterPlaylist = isMasterPlaylist)
                     }
                 }
 
@@ -454,20 +287,11 @@ object MediaResolver {
                     val redirectedUrl = res.request.url.toString()
                     val contentType = res.header("Content-Type")?.lowercase()
                     val mimeType: String? = when {
-                        contentType?.contains("mpegurl") == true ||
-                            redirectedUrl.contains(".m3u8", ignoreCase = true) ||
-                            isMasterPlaylist -> MimeTypes.APPLICATION_M3U8
-                        contentType?.contains("dash") == true ||
-                            redirectedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
+                        contentType?.contains("mpegurl") == true || redirectedUrl.contains(".m3u8", ignoreCase = true) || isMasterPlaylist -> MimeTypes.APPLICATION_M3U8
+                        contentType?.contains("dash") == true || redirectedUrl.contains(".mpd", ignoreCase = true) -> MimeTypes.APPLICATION_MPD
                         else -> TokenParser.detectMimeType(redirectedUrl)
                     }
-
-                    return ResolvedToken(
-                        url = redirectedUrl,
-                        headers = initialHeaders,
-                        mimeType = mimeType,
-                        isMasterPlaylist = isMasterPlaylist
-                    )
+                    return ResolvedToken(url = redirectedUrl, headers = initialHeaders, mimeType = mimeType, isMasterPlaylist = isMasterPlaylist)
                 }
             }
         } catch (e: CancellationException) {
@@ -478,44 +302,15 @@ object MediaResolver {
         return null
     }
 
-    // =========================================================================
-    // MediaSource builder
-    // =========================================================================
     @androidx.annotation.MainThread
-    fun buildMediaSource(
-        context: Context,
-        params: ResolvedMediaParams
-    ): MediaSource {
-        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-            "MediaResolver.buildMediaSource must be called on the main thread"
-        }
+    fun buildMediaSource(context: Context, params: ResolvedMediaParams): MediaSource {
+        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) { "MediaResolver.buildMediaSource must be called on the main thread" }
 
         val finalUrl = params.url
         val finalHeaders = params.headers
         val mimeType = params.mimeType
         val finalDrm = params.drm
-
-        // ── Header policy ────────────────────────────────────────────────
-        // Only strip hop-by-hop headers that OkHttp owns (Host,
-        // Content-Length, Connection). Everything else — including
-        // sec-fetch-*, sec-ch-ua-*, Accept-Language, Origin, Referer —
-        // is forwarded untouched.
-        //
-        // Why sec-fetch-* must survive: Cloudflare-fronted IPTV CDNs
-        // (mini.allinonereborn.site, JioTV catchup, many others) use
-        // these Fetch-metadata headers to detect browser-shaped requests.
-        // Stripping them causes 403 or 530 responses. Forwarding them
-        // makes our client look identical to a browser and the CDN
-        // serves the stream.
-        // ────────────────────────────────────────────────────────────────
         val safeHeaders = filterHopByHopHeaders(finalHeaders)
-
-        android.util.Log.d(
-            "MediaResolver",
-            "buildMediaSource → url=${params.url.take(120)} " +
-                "headers=${safeHeaders.keys} " +
-                "drm=${params.drm?.type}/${params.drm?.rawKeyPair?.take(16)}"
-        )
 
         val okHttpClient = sharedOkHttpClient.newBuilder().apply {
             addNetworkInterceptor { chain ->
@@ -526,17 +321,12 @@ object MediaResolver {
             }
         }.build()
 
-        val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setDefaultRequestProperties(safeHeaders)
-
+        val httpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient).setDefaultRequestProperties(safeHeaders)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
         val mediaItemBuilder = MediaItem.Builder().setUri(finalUrl)
         mimeType?.let { mediaItemBuilder.setMimeType(it) }
 
-        // ── LiveConfiguration ────────────────────────────────────────────
-        // 20s target / 10s min / 60s max. Playback speed unlocked
-        // (0.97–1.03) so ExoPlayer's A/V sync corrector can nudge.
         val liveConfig = MediaItem.LiveConfiguration.Builder()
             .setTargetOffsetMs(20_000)
             .setMinOffsetMs(10_000)
@@ -546,45 +336,35 @@ object MediaResolver {
             .build()
         mediaItemBuilder.setLiveConfiguration(liveConfig)
 
-        // ── Error handling: shorter retry cadence for faster failover ──
+        // FIX: Retry standard 5 -> 2 for faster failover
         val loadErrorPolicy = object : DefaultLoadErrorHandlingPolicy() {
-            override fun getRetryDelayMsFor(
-                info: LoadErrorHandlingPolicy.LoadErrorInfo
-            ): Long {
+            override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                 val defaultDelay = super.getRetryDelayMsFor(info)
                 if (defaultDelay == C.TIME_UNSET) return C.TIME_UNSET
-                return if (info.errorCount <= 5) {
-                    500L * (1 shl (info.errorCount - 1).coerceIn(0, 3))
+                return if (info.errorCount <= 2) {
+                    500L * (1 shl (info.errorCount - 1).coerceIn(0, 1))
                 } else defaultDelay
             }
-
-            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 5
+            override fun getMinimumLoadableRetryCount(dataType: Int): Int = 2
         }
 
-        val extractorsFactory = DefaultExtractorsFactory()
-            .setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
+        val extractorsFactory = DefaultExtractorsFactory().setMp4ExtractorFlags(Mp4Extractor.FLAG_WORKAROUND_IGNORE_EDIT_LISTS)
 
         if (finalUrl.contains("googleusercontent.com", ignoreCase = true)) {
-            extractorsFactory.setMatroskaExtractorFlags(
-                MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES
-            )
+            extractorsFactory.setMatroskaExtractorFlags(MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
         }
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
-            .setLoadErrorHandlingPolicy(loadErrorPolicy)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory).setLoadErrorHandlingPolicy(loadErrorPolicy)
 
         if (finalDrm != null && (finalDrm.type != null || !finalDrm.rawKeyPair.isNullOrBlank() || !finalDrm.licenseServer.isNullOrBlank())) {
             var clearKeyParsed: ClearKeyHelper.ClearKeyParsed? = null
-            val isClearKey = finalDrm.type?.contains("clearkey", ignoreCase = true) == true ||
-                !finalDrm.rawKeyPair.isNullOrBlank()
+            val isClearKey = finalDrm.type?.contains("clearkey", ignoreCase = true) == true || !finalDrm.rawKeyPair.isNullOrBlank()
 
             if (isClearKey) {
                 clearKeyParsed = ClearKeyHelper.parseClearKeys(finalDrm.rawKeyPair, finalDrm.licenseServer)
             }
 
-            val drmScheme = if (clearKeyParsed != null || isClearKey) {
-                C.CLEARKEY_UUID
-            } else {
+            val drmScheme = if (clearKeyParsed != null || isClearKey) C.CLEARKEY_UUID else {
                 when (finalDrm.type?.lowercase()) {
                     "widevine" -> C.WIDEVINE_UUID
                     "playready" -> C.PLAYREADY_UUID
@@ -596,18 +376,13 @@ object MediaResolver {
             val drmBuilder = MediaItem.DrmConfiguration.Builder(drmScheme)
 
             if (clearKeyParsed != null) {
-                val drmSessionManager = ClearKeyHelper.createClearKeyDrmSessionManager(
-                    clearKeyParsed.jwkBytes,
-                    clearKeyParsed.kidBytesList
-                )
+                val drmSessionManager = ClearKeyHelper.createClearKeyDrmSessionManager(clearKeyParsed.jwkBytes, clearKeyParsed.kidBytesList)
                 mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
                 drmBuilder.setForceSessionsForAudioAndVideoTracks(true)
                 drmBuilder.setMultiSession(true)
             } else if (finalDrm.licenseServer != null) {
                 drmBuilder.setLicenseUri(finalDrm.licenseServer)
-                drmBuilder.setLicenseRequestHeaders(
-                    safeHeaders.filterKeys { it.lowercase() != "user-agent" }
-                )
+                drmBuilder.setLicenseRequestHeaders(safeHeaders.filterKeys { it.lowercase() != "user-agent" })
                 drmBuilder.setMultiSession(true)
             }
 
