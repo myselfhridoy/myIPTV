@@ -142,7 +142,7 @@ fun LivePlayerScreen(
     val activity = context as? ComponentActivity
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(false) }
-    var isPlayerReady by remember { mutableStateOf(false) } // Spinner fix
+    var isPlayerReady by remember { mutableStateOf(false) }
     
     val startsInPortraitPlayer = !LocalDeviceProfile.current.isTv && PlayerPreferences.isPortraitPlayerEnabled(context) && LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
     var showOverlay by remember { mutableStateOf(!startsInPortraitPlayer) }
@@ -239,8 +239,12 @@ fun LivePlayerScreen(
     LaunchedEffect(channel) { showChannelInfoOverlay = true; delay(4000L); showChannelInfoOverlay = false }
 
     LaunchedEffect(channelKey, currentSourceUrl) {
-        playerError = null; lastHlsError = false; isPlayerReady = false
-        exoPlayer.stop(); exoPlayer.clearMediaItems(); playerViewModel.resolveChannel(channel, currentSourceUrl)
+        playerError = null
+        lastHlsError = false
+        isPlayerReady = false
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        playerViewModel.resolveChannel(channel, currentSourceUrl)
     }
 
     LaunchedEffect(currentMediaSource) {
@@ -262,7 +266,7 @@ fun LivePlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
-                isPlayerReady = playbackState == Player.STATE_READY // Spinner fix
+                isPlayerReady = playbackState == Player.STATE_READY
                 if (playbackState == Player.STATE_READY) { playerError = null; lastHlsError = false }
             }
             override fun onIsPlayingChanged(isPlayingState: Boolean) { isPlaying = isPlayingState }
@@ -274,14 +278,34 @@ fun LivePlayerScreen(
                 if (isBehindLive) {
                     exoPlayer.seekToDefaultPosition(); exoPlayer.prepare(); exoPlayer.play(); return
                 }
+                
                 val hls = isHlsFormatError(error)
                 PlaybackLogger.logLivePlaybackError(context, channel.name, channel.group, channel.url, currentSourceUrl, channel.sources.size, error, hls)
+                
                 val allUrls = (listOf(channel.url) + channel.sources.values.toList()).filter { it.isNotBlank() }.distinct()
-                val remaining = allUrls.filter { it !in failedSourceUrls && it != currentSourceUrl }
-                if (remaining.isNotEmpty()) {
-                    failedSourceUrls = failedSourceUrls + currentSourceUrl; currentSourceUrl = remaining.first(); isBuffering = true; playerError = null; lastHlsError = hls
+                
+                // FIX: Find the NEXT available source instead of just taking the first one
+                val currentIndex = allUrls.indexOf(currentSourceUrl)
+                var nextUrl: String? = null
+                for (i in 1..allUrls.size) {
+                    val idx = if (currentIndex != -1) (currentIndex + i) % allUrls.size else (i - 1) % allUrls.size
+                    val url = allUrls[idx]
+                    if (url !in failedSourceUrls && url != currentSourceUrl) {
+                        nextUrl = url
+                        break
+                    }
+                }
+
+                if (nextUrl != null) {
+                    failedSourceUrls = failedSourceUrls + currentSourceUrl
+                    currentSourceUrl = nextUrl
+                    isBuffering = true
+                    playerError = null
+                    lastHlsError = hls
                 } else {
-                    playerError = UiPlaybackError(error.message ?: "Unknown playback error", error.cause?.message, hls); isBuffering = false; lastHlsError = hls
+                    playerError = UiPlaybackError(error.message ?: "Unknown playback error", error.cause?.message, hls)
+                    isBuffering = false
+                    lastHlsError = hls
                 }
             }
         }
@@ -404,8 +428,8 @@ fun LivePlayerScreen(
                 val loadingRetry: (() -> Unit)? = if (loadingSeconds >= 20) {
                     {
                         playerError = null; lastHlsError = false; isBuffering = true
-                        failedSourceUrls = emptySet(); currentSourceUrl = channel.primarySourceUrl()
-                        playerViewModel.retryResolution(channel, currentSourceUrl)
+                        failedSourceUrls = emptySet()
+                        playerViewModel.retryResolution(channel, currentSourceUrl) // FIX: Retry current source
                     }
                 } else null
 
@@ -414,7 +438,7 @@ fun LivePlayerScreen(
                     modifier = Modifier.align(Alignment.Center),
                     subtitle = loadingSubtitle,
                     onRetry = loadingRetry,
-                    forceHide = isPlayerReady && isPlaying // Spinner fix
+                    forceHide = isPlayerReady && isPlaying
                 )
 
                 if (showError && !isInPiP) {
@@ -425,8 +449,8 @@ fun LivePlayerScreen(
                         cause = playerError?.causeMessage,
                         onRetry = {
                             playerError = null; lastHlsError = false; isBuffering = true
-                            failedSourceUrls = emptySet(); currentSourceUrl = channel.primarySourceUrl()
-                            playerViewModel.retryResolution(channel, currentSourceUrl)
+                            failedSourceUrls = emptySet()
+                            playerViewModel.retryResolution(channel, currentSourceUrl) // FIX: Retry current source
                         },
                         compact = portraitLayout
                     )
@@ -447,10 +471,19 @@ fun LivePlayerScreen(
                 ) { ChannelNumberBadge(text = channelNumberInput) }
 
                 if (showTrackSelector) TrackSelectionDialog(player = exoPlayer, onDismiss = { showTrackSelector = false })
+                
                 if (showSourceSelector) {
                     SourceSelectionDialog(
                         sources = channel.sources, currentSourceUrl = currentSourceUrl,
-                        onSourceSelected = { _, url -> failedSourceUrls = emptySet(); currentSourceUrl = url },
+                        onSourceSelected = { _, url -> 
+                            failedSourceUrls = emptySet() 
+                            if (currentSourceUrl == url) {
+                                // FIX: If user picks the same source, they likely want to retry it
+                                playerViewModel.retryResolution(channel, url)
+                            } else {
+                                currentSourceUrl = url 
+                            }
+                        },
                         onDismiss = { showSourceSelector = false }
                     )
                 }
