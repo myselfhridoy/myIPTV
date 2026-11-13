@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.media3.common.Player
@@ -26,8 +27,21 @@ class PlayerProgress {
         private set
     var buffered by mutableLongStateOf(0L)
         private set
-    /** 0 when unknown (live stream) — `Player.duration` is clamped like before. */
+
+    /**
+     * 0 when unknown. For a live stream with a DVR / time-shift window this is
+     * the length of that window (ExoPlayer reports it), so it can be > 0 even
+     * though the stream is live.
+     */
     var duration by mutableLongStateOf(0L)
+        private set
+
+    /**
+     * True when ExoPlayer itself says the current item is a live stream
+     * (`Player.isCurrentMediaItemLive`). This is the reliable "is it live?"
+     * signal — it does NOT depend on how long the DVR window is.
+     */
+    var isLiveStream by mutableStateOf(false)
         private set
 
     /**
@@ -37,6 +51,7 @@ class PlayerProgress {
      */
     var holdPosition: Boolean = false
 
+    /** Duration unknown (kept for existing callers). Not the same as "live". */
     val isLive: Boolean get() = duration <= 0L
 
     /** Show [ms] right now (after a seek) instead of waiting for the next poll. */
@@ -48,6 +63,7 @@ class PlayerProgress {
         if (!holdPosition) position = player.currentPosition
         buffered = player.bufferedPosition
         duration = player.duration.coerceAtLeast(0L)
+        isLiveStream = player.isCurrentMediaItemLive
     }
 }
 
