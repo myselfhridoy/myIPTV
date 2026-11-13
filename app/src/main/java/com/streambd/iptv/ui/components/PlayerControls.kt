@@ -11,17 +11,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
@@ -43,16 +46,26 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
 
+/**
+ * Round control over the video.
+ *
+ * PHONE / TABLET (premium, light): no background at rest — just the icon;
+ * the centre play button can opt in to a soft glass disc with `glass = true`.
+ * TV (unchanged look): every control sits on a dark glass disc, bigger.
+ * Focus: solid white disc with a dark icon (clear from across the room).
+ */
 @Composable
 fun PlayerIconButton(
     icon: ImageVector,
@@ -89,6 +102,7 @@ fun PlayerIconButton(
     }
 }
 
+/** Soft top/bottom darkening so controls stay readable on any picture. */
 @Composable
 fun PlayerScrim(modifier: Modifier = Modifier) {
     Box(
@@ -107,6 +121,13 @@ fun PlayerScrim(modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * Centered error card with a Retry button (auto-focused on TV).
+ *
+ * [compact] — for the small 16:9 video area of the portrait player:
+ * single-row layout that fits inside ~200dp of height, so the Retry
+ * button is never clipped when the video area is short.
+ */
 @Composable
 fun PlaybackErrorPanel(
     message: String,
@@ -222,6 +243,7 @@ fun PlaybackErrorPanel(
     }
 }
 
+/** Banner shown for a few seconds after switching channel. */
 @Composable
 fun ChannelInfoCard(
     name: String,
@@ -267,6 +289,7 @@ fun ChannelInfoCard(
     }
 }
 
+/** Digits typed on the remote while "dialling" a channel number. */
 @Composable
 fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     Box(
@@ -283,6 +306,14 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Low-level bar: a buffer track plus a draggable slider ONLY when
+ * [seekable].
+ *
+ * NEW: [showTooltip] + [tooltipText] — when dragging the thumb, a small
+ * floating time badge appears above the thumb so the user can preview
+ * the target position before releasing.
+ */
 @Composable
 fun PlayerSeekBar(
     fraction: Float,
@@ -290,36 +321,88 @@ fun PlayerSeekBar(
     seekable: Boolean,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showTooltip: Boolean = false,
+    tooltipText: String? = null
 ) {
     val scheme = MaterialTheme.colorScheme
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        LinearProgressIndicator(
-            progress = { bufferFraction },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp)
-                .height(4.dp)
-                .clip(CircleShape),
-            color = Color.White.copy(alpha = 0.4f),
-            trackColor = Color.Gray.copy(alpha = 0.3f)
-        )
-        if (seekable) {
-            Slider(
-                value = fraction,
-                onValueChange = onValueChange,
-                onValueChangeFinished = onValueChangeFinished,
-                modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = scheme.primary,
-                    inactiveTrackColor = Color.Transparent
-                )
+    BoxWithConstraints(modifier = modifier) {
+        val barWidthPx = constraints.maxWidth
+
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LinearProgressIndicator(
+                progress = { bufferFraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .height(4.dp)
+                    .clip(CircleShape),
+                color = Color.White.copy(alpha = 0.4f),
+                trackColor = Color.Gray.copy(alpha = 0.3f)
             )
+            if (seekable) {
+                Slider(
+                    value = fraction,
+                    onValueChange = onValueChange,
+                    onValueChangeFinished = onValueChangeFinished,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White,
+                        activeTrackColor = scheme.primary,
+                        inactiveTrackColor = Color.Transparent
+                    )
+                )
+            }
+        }
+
+        // ── Time tooltip above the thumb (drag only) ──
+        if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
+            val thumbX = fraction * barWidthPx
+            val density = LocalDensity.current
+            val tooltipWidthPx = with(density) { 56.dp.toPx() }
+            val xOffset = (thumbX - tooltipWidthPx / 2)
+                .coerceIn(0f, (barWidthPx - tooltipWidthPx).coerceAtLeast(0f))
+
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            x = xOffset.toInt(),
+                            y = (-46).dp.roundToPx()
+                        )
+                    }
+                    .width(56.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.9f),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = tooltipText,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
 
+/**
+ * Time labels + seek bar.
+ *
+ * [commitOnRelease]
+ *  • false (live) — every slider move calls [onSeekTo] straight away
+ *  • true  (VOD)  — dragging only previews the time; [onSeekTo] is called
+ *    ONCE when the finger lifts, and the polled position is held
+ *    ([PlayerProgress.holdPosition]) so the thumb doesn't jump while dragging
+ *
+ * [showLiveLabel] — show "LIVE" instead of the position when the duration
+ * is unknown (live channels).
+ */
 @Composable
 fun PlayerTimeline(
     progress: PlayerProgress,
@@ -376,6 +459,9 @@ fun PlayerTimeline(
                     progress.holdPosition = false
                 }
             },
+            showTooltip = dragging && duration > 0,
+            tooltipText = if (dragging && duration > 0)
+                formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 16.dp)
@@ -408,6 +494,7 @@ private fun LiveLabel() {
     }
 }
 
+/** 83_000 ms → "01:23"; 3_725_000 ms → "1:02:05". Non-positive → "00:00". */
 fun formatPlayerTime(ms: Long): String {
     if (ms <= 0) return "00:00"
     val totalSeconds = ms / 1000
@@ -418,6 +505,10 @@ fun formatPlayerTime(ms: Long): String {
     else String.format("%02d:%02d", minutes, seconds)
 }
 
+/**
+ * Elapsed seconds since [active] became true. Resets to 0 the moment
+ * it goes false — so each retry / phase transition starts a fresh clock.
+ */
 @Composable
 fun rememberLoadingElapsed(active: Boolean): Int {
     var seconds by remember { mutableStateOf(0) }
@@ -433,6 +524,13 @@ fun rememberLoadingElapsed(active: Boolean): Int {
     return seconds
 }
 
+/**
+ * Spinner for "resolving / buffering" that does not flicker.
+ *
+ * [forceHide] — when true, hides IMMEDIATELY (skipping the 150ms exit
+ * delay). Used when the player is confirmed READY + PLAYING, so the user
+ * never sees the spinner over already-playing video.
+ */
 @Composable
 fun PlayerLoadingIndicator(
     visible: Boolean,
