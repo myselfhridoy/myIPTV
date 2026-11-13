@@ -69,13 +69,24 @@ import kotlinx.coroutines.isActive
 private val TimelineRowHeight = 48.dp
 
 /**
- * On a live screen, any media shorter than this window is treated as LIVE
- * (shows the LIVE badge). Time is still displayed whenever it is known.
+ * Fallback only: on a live screen, media shorter than this is treated as LIVE
+ * when ExoPlayer has not (yet) flagged the item as live. The real signal is
+ * [PlayerProgress.isLiveStream].
  */
 private const val LIVE_WINDOW_MAX_MS = 10 * 60 * 1000L
 
-/** If playback is within this distance of the live edge, we show "LIVE". */
-private const val LIVE_EDGE_TOLERANCE_MS = 10 * 1000L
+/**
+ * If playback is within this distance of the live edge we show "LIVE".
+ * MediaResolver deliberately plays ~20s behind the edge (target offset),
+ * so this must be larger than that.
+ */
+private const val LIVE_EDGE_TOLERANCE_MS = 30 * 1000L
+
+/**
+ * Space reserved above and below the loading ring so the ring itself never
+ * moves when the subtitle / Retry button appear.
+ */
+private val LoadingExtraHeight = 96.dp
 
 @Composable
 fun PlayerIconButton(
@@ -456,8 +467,15 @@ fun PlayerTimeline(
     val hasDuration = duration > 0L
 
     // "Is this a live stream?" -> only decides the LIVE badge, NOT whether time is shown.
-    val isLive = showLiveLabel &&
-        (progress.isLive || !seekable || !hasDuration || duration < LIVE_WINDOW_MAX_MS)
+    // Primary signal: ExoPlayer's own flag. The rest are fallbacks for streams
+    // that are not (yet) flagged as live.
+    val isLive = showLiveLabel && (
+        progress.isLiveStream ||
+            progress.isLive ||
+            !seekable ||
+            !hasDuration ||
+            duration < LIVE_WINDOW_MAX_MS
+        )
 
     // Time is shown whenever we know anything useful.
     val timeKnown = hasDuration || position > 0L || isLive
@@ -634,6 +652,16 @@ fun rememberLoadingElapsed(active: Boolean): Int {
     return seconds
 }
 
+/**
+ * Loading ring + optional subtitle + optional Retry.
+ *
+ * The ring never moves: the layout is [reserved space] / ring / [extras area]
+ * with the SAME fixed height above and below, so the ring is always at the
+ * exact centre of this composable no matter whether the subtitle or the Retry
+ * button is showing. Everything stays inside its parent's bounds, so touch on
+ * Retry works too. Empty areas have no handlers, so taps pass through to the
+ * player surface.
+ */
 @Composable
 fun PlayerLoadingIndicator(
     visible: Boolean,
@@ -661,32 +689,39 @@ fun PlayerLoadingIndicator(
         exit = fadeOut(tween(200))
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Mirror of the extras area below, so the ring stays centred.
+            Spacer(Modifier.height(LoadingExtraHeight))
+
             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
 
-            if (!subtitle.isNullOrBlank()) {
+            Column(
+                modifier = Modifier.height(LoadingExtraHeight),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    text = subtitle,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .background(
-                            Color.Black.copy(alpha = 0.65f),
-                            MaterialTheme.shapes.small
-                        )
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
-
-            if (onRetry != null) {
-                Spacer(Modifier.height(14.dp))
-                AppButton(
-                    text = "Retry",
-                    onClick = onRetry,
-                    size = AppButtonSize.Compact,
-                    modifier = Modifier.initialFocus()
-                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .background(
+                                Color.Black.copy(alpha = 0.65f),
+                                MaterialTheme.shapes.small
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                if (onRetry != null) {
+                    Spacer(Modifier.height(10.dp))
+                    AppButton(
+                        text = "Retry",
+                        onClick = onRetry,
+                        size = AppButtonSize.Compact,
+                        modifier = Modifier.initialFocus()
+                    )
+                }
             }
         }
     }
