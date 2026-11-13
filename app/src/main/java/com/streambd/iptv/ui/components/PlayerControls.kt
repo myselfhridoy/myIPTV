@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -60,14 +61,6 @@ import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
 
-/**
- * Round control over the video.
- *
- * PHONE / TABLET (premium, light): no background at rest — just the icon;
- * the centre play button can opt in to a soft glass disc with `glass = true`.
- * TV (unchanged look): every control sits on a dark glass disc, bigger.
- * Focus: solid white disc with a dark icon (clear from across the room).
- */
 @Composable
 fun PlayerIconButton(
     icon: ImageVector,
@@ -104,7 +97,6 @@ fun PlayerIconButton(
     }
 }
 
-/** Soft top/bottom darkening so controls stay readable on any picture. */
 @Composable
 fun PlayerScrim(modifier: Modifier = Modifier) {
     Box(
@@ -123,13 +115,6 @@ fun PlayerScrim(modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * Centered error card with a Retry button (auto-focused on TV).
- *
- * [compact] — for the small 16:9 video area of the portrait player:
- * single-row layout that fits inside ~200dp of height, so the Retry
- * button is never clipped when the video area is short.
- */
 @Composable
 fun PlaybackErrorPanel(
     message: String,
@@ -245,7 +230,6 @@ fun PlaybackErrorPanel(
     }
 }
 
-/** Banner shown for a few seconds after switching channel. */
 @Composable
 fun ChannelInfoCard(
     name: String,
@@ -291,7 +275,6 @@ fun ChannelInfoCard(
     }
 }
 
-/** Digits typed on the remote while "dialling" a channel number. */
 @Composable
 fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     Box(
@@ -311,16 +294,6 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
 /**
  * Low-level bar: a buffer track plus a draggable slider ONLY when
  * [seekable].
- *
- * NEW: [showTooltip] + [tooltipText] — when dragging the thumb, a small
- * floating time badge appears above the thumb so the user can preview
- * the target position before releasing.
- *
- * LAYOUT JUMP FIX:
- *   The buffer track previously had `padding(horizontal = 8.dp)` while
- *   the Slider had none. When `seekable` toggled on/off (channel switch),
- *   the visible buffer bar's width changed → visible "jump". Now both
- *   tracks span the full Box width, so toggling is invisible.
  */
 @Composable
 fun PlayerSeekBar(
@@ -336,18 +309,32 @@ fun PlayerSeekBar(
     val scheme = MaterialTheme.colorScheme
     BoxWithConstraints(modifier = modifier) {
         val barWidthPx = constraints.maxWidth
+        val density = LocalDensity.current
+        
+        // Material3 Slider has internal padding (half the thumb width).
+        // We inset the LinearProgressIndicator by the same amount so that
+        // toggling between Live (no Slider) and VOD (with Slider) doesn't
+        // change the visible track length.
+        val thumbRadiusPx = with(density) { 10.dp.toPx() }
 
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             LinearProgressIndicator(
                 progress = { bufferFraction },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 10.dp) // Matches Slider track inset
                     .height(4.dp)
                     .clip(CircleShape),
                 color = Color.White.copy(alpha = 0.4f),
                 trackColor = Color.Gray.copy(alpha = 0.3f)
             )
-            if (seekable) {
+            
+            // Fade in/out the Slider instead of popping it instantly.
+            AnimatedVisibility(
+                visible = seekable,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200))
+            ) {
                 Slider(
                     value = fraction,
                     onValueChange = onValueChange,
@@ -364,10 +351,12 @@ fun PlayerSeekBar(
 
         // ── Time tooltip above the thumb (drag only) ──
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
-            val thumbX = fraction * barWidthPx
-            val density = LocalDensity.current
+            // Correct math: account for the inset track
+            val trackWidthPx = barWidthPx - (2 * thumbRadiusPx)
+            val thumbCenter = thumbRadiusPx + (fraction * trackWidthPx)
+            
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
-            val xOffset = (thumbX - tooltipWidthPx / 2)
+            val xOffset = (thumbCenter - tooltipWidthPx / 2)
                 .coerceIn(0f, (barWidthPx - tooltipWidthPx).coerceAtLeast(0f))
 
             Box(
@@ -400,25 +389,12 @@ fun PlayerSeekBar(
 
 /**
  * Time labels + seek bar.
- *
- * [commitOnRelease]
- *  • false (live) — every slider move calls [onSeekTo] straight away
- *  • true  (VOD)  — dragging only previews the time; [onSeekTo] is called
- *    ONCE when the finger lifts, and the polled position is held
- *    ([PlayerProgress.holdPosition]) so the thumb doesn't jump while dragging
- *
- * [showLiveLabel] — show "LIVE" instead of the position when the duration
- * is unknown (live channels).
- *
- * LAYOUT JUMP FIX:
- *   • Left + right text slots are fixed 64dp wide — a channel switch no
- *     longer shifts the seek bar sideways when the text changes from
- *     "00:00" → "1:02:05" or LIVE badge → text.
- *   • playbackFraction & bufferFraction are animated over 300ms — the
- *     instant 75%→0%→new-value jumps during channel switch now slide
- *     smoothly instead of snapping.
- *   • isLive is debounced by 400ms — a channel that becomes READY
- *     within 400ms won't briefly flash the LIVE badge.
+ * 
+ * FIXES applied here:
+ * 1. 64dp Fixed Width Text Slots (prevents shifting).
+ * 2. Crossfade animations for text (LIVE <-> 00:00 smoothly fades).
+ * 3. Debounced `isLive` (prevents rapid flashing when switching channels).
+ * 4. Animated Float fractions (prevents thumb snap-jumping).
  */
 @Composable
 fun PlayerTimeline(
@@ -432,19 +408,8 @@ fun PlayerTimeline(
     val duration = progress.duration
     val isLiveRaw = showLiveLabel && progress.isLive
 
-    // ── Debounced isLive ─────────────────────────────────────────
-    // On channel switch, player.duration temporarily returns 0
-    // (clearMediaItems → resolveChannel → prepare → READY). That flips
-    // progress.isLive (duration <= 0) to TRUE for 1–3 s, then back to
-    // FALSE once the new stream is READY.
-    //
-    // Without debounce, the user sees:
-    //   seek slider visible → slider disappears (LIVE badge shows)
-    //   → slider reappears at new position
-    //
-    // With a 400ms grace period, if the new channel becomes READY
-    // within 400ms, the LIVE badge never appears at all — the seek
-    // slider just smoothly updates its thumb position.
+    // Debounce: Don't immediately switch to LIVE mode if the channel is
+    // just buffering. Wait 400ms. If it loads in 200ms, no layout jump occurs.
     var stableIsLive by remember { mutableStateOf(isLiveRaw) }
     LaunchedEffect(isLiveRaw) {
         if (!isLiveRaw) {
@@ -464,14 +429,7 @@ fun PlayerTimeline(
     val rawBufferFraction =
         if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
-    // ── Animated fractions ───────────────────────────────────────
-    // Without animation, channel switch does:
-    //   fraction = 0.75 → 0     (instant on clearMediaItems)
-    //   fraction = 0    → 0.05  (instant on new channel READY)
-    // → visible "jump". 300ms tween makes it slide smoothly.
-    //
-    // While dragging: duration = 0 (no animation), so the thumb tracks
-    // the finger 1:1.
+    // Smoothly animate fraction changes instead of snapping
     val playbackFraction by animateFloatAsState(
         targetValue = if (dragging) dragFraction else rawPlaybackFraction,
         animationSpec = tween(
@@ -489,21 +447,22 @@ fun PlayerTimeline(
     val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        // Left slot — fixed width, prevents the seek bar from shifting
-        // when the content changes (LIVE badge ↔ "00:00" ↔ "1:02:05").
+        // Left slot — fixed 64dp, perfectly centered
         Box(
             modifier = Modifier.width(64.dp),
-            contentAlignment = Alignment.CenterStart
+            contentAlignment = Alignment.Center
         ) {
-            if (isLive) {
-                LiveLabel()
-            } else {
-                Text(
-                    text = formatPlayerTime(shownPosition),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1
-                )
+            Crossfade(targetState = isLive, label = "leftSlot") { live ->
+                if (live) {
+                    LiveLabel()
+                } else {
+                    Text(
+                        text = formatPlayerTime(shownPosition),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
@@ -538,19 +497,19 @@ fun PlayerTimeline(
                 .padding(horizontal = 12.dp)
         )
 
-        // Right slot — same fixed width. Prevents the whole seek bar
-        // from shifting left/right when the duration goes from "00:00"
-        // to "1:02:05".
+        // Right slot — fixed 64dp, perfectly centered
         Box(
             modifier = Modifier.width(64.dp),
-            contentAlignment = Alignment.CenterEnd
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = if (isLive) "00:00" else formatPlayerTime(duration),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1
-            )
+            Crossfade(targetState = isLive to duration, label = "rightSlot") { (live, dur) ->
+                Text(
+                    text = if (live) "00:00" else formatPlayerTime(dur),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -574,7 +533,6 @@ private fun LiveLabel() {
     }
 }
 
-/** 83_000 ms → "01:23"; 3_725_000 ms → "1:02:05". Non-positive → "00:00". */
 fun formatPlayerTime(ms: Long): String {
     if (ms <= 0) return "00:00"
     val totalSeconds = ms / 1000
@@ -585,10 +543,6 @@ fun formatPlayerTime(ms: Long): String {
     else String.format("%02d:%02d", minutes, seconds)
 }
 
-/**
- * Elapsed seconds since [active] became true. Resets to 0 the moment
- * it goes false — so each retry / phase transition starts a fresh clock.
- */
 @Composable
 fun rememberLoadingElapsed(active: Boolean): Int {
     var seconds by remember { mutableStateOf(0) }
@@ -604,13 +558,6 @@ fun rememberLoadingElapsed(active: Boolean): Int {
     return seconds
 }
 
-/**
- * Spinner for "resolving / buffering" that does not flicker.
- *
- * [forceHide] — when true, hides IMMEDIATELY (skipping the 150ms exit
- * delay). Used when the player is confirmed READY + PLAYING, so the user
- * never sees the spinner over already-playing video.
- */
 @Composable
 fun PlayerLoadingIndicator(
     visible: Boolean,
