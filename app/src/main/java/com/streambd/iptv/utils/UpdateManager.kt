@@ -38,9 +38,7 @@ object UpdateManager {
 
     suspend fun checkForUpdate(currentVersion: String): GitHubRelease? =
         withContext(Dispatchers.IO) {
-            // Primary: GitHub API (uses the SAFE client — GitHub has valid certs).
             tryPrimaryApi(currentVersion)?.let { return@withContext it }
-            // Fallback: HTML redirect sniffing (rate-limited API, offline cache, etc.).
             tryRedirectFallback(currentVersion)
         }
 
@@ -96,28 +94,109 @@ object UpdateManager {
         }
     }
 
-    /**
-     * Semantic version compare.
-     * Accepts formats like "v4.0", "4.0.1", "4.0.0-beta2".
-     * Returns true iff remote > local.
-     */
-    private fun isNewerVersion(remote: String, local: String): Boolean {
-        fun parse(v: String): List<Int> =
-            v.trim().removePrefix("v").removePrefix("V")
-                .substringBefore('-')
-                .split('.')
-                .mapNotNull { it.toIntOrNull() }
+    // ═══════════════════════════════════════════════════════════════════
+    // SemVer (semver.org 2.0.0) — FIX #3
+    //
+    // OLD code stripped everything after "-" before comparing, so:
+    //     5.0.0-beta  →  [5, 0, 0]
+    //     5.0.0       →  [5, 0, 0]   ← considered EQUAL
+    //
+    // That meant a "beta → stable" upgrade would never trigger, because
+    // the version comparison returned false for both directions.
+    //
+    // NEW code follows semver.org 2.0.0 exactly:
+    //   • Parse "MAJOR.MINOR.PATCH[-PRERELEASE]" (optional leading "v"/"V")
+    //   • Missing minor / patch = 0 (so "5" == "5.0.0")
+    //   • Compare major → minor → patch numerically
+    //   • Then:
+    //       – stable > prerelease  (5.0.0 > 5.0.0-beta)
+    //       – both prerelease: compare identifiers dot-by-dot:
+    //           · numeric < non-numeric  (1 < alpha)
+    //           · numeric → numeric compare
+    //           · non-numeric → lexicographic (ASCII)
+    //           · shorter prerelease < longer if all prefix identifiers equal
+    //
+    // Examples verified:
+    //     1.0.0-alpha  < 1.0.0-alpha.1
+    //     1.0.0-alpha.1 < 1.0.0-alpha.beta
+    //     1.0.0-beta.2 < 1.0.0-beta.11
+    //     1.0.0-rc.1   < 1.0.0
+    // ═══════════════════════════════════════════════════════════════════
+    private data class SemVer(
+        val major: Int,
+        val minor: Int,
+        val patch: Int,
+        /** null = stable; non-null list = prerelease identifiers */
+        val prerelease: List<String>?
+    ) : Comparable<SemVer> {
 
-        val r = parse(remote)
-        val l = parse(local)
-        if (r.isEmpty()) return false
-        val n = maxOf(r.size, l.size)
-        for (i in 0 until n) {
-            val rv = r.getOrElse(i) { 0 }
-            val lv = l.getOrElse(i) { 0 }
-            if (rv != lv) return rv > lv
+        override fun compareTo(other: SemVer): Int {
+            if (major != other.major) return major.compareTo(other.major)
+            if (minor != other.minor) return minor.compareTo(other.minor)
+            if (patch != other.patch) return patch.compareTo(other.patch)
+
+            val a = prerelease
+            val b = other.prerelease
+            // No prerelease = stable > any prerelease
+            if (a == null && b == null) return 0
+            if (a == null) return 1
+            if (b == null) return -1
+
+            val n = maxOf(a.size, b.size)
+            for (i in 0 until n) {
+                val ai = a.getOrNull(i) ?: return -1 // shorter prerelease < longer
+                val bi = b.getOrNull(i) ?: return 1
+                val aNum = ai.toIntOrNull()
+                val bNum = bi.toIntOrNull()
+
+                if (aNum != null && bNum != null) {
+                    if (aNum != bNum) return aNum.compareTo(bNum)
+                } else if (aNum != null) {
+                    return -1 // numeric < non-numeric
+                } else if (bNum != null) {
+                    return 1 // non-numeric > numeric
+                } else {
+                    val cmp = ai.compareTo(bi)
+                    if (cmp != 0) return cmp
+                }
+            }
+            return 0
         }
-        return false
+
+        companion object {
+            fun parse(raw: String): SemVer? {
+                val v = raw.trim().removePrefix("v").removePrefix("V")
+                if (v.isEmpty()) return null
+
+                val dashIdx = v.indexOf('-')
+                val corePart = if (dashIdx >= 0) v.substring(0, dashIdx) else v
+                val prePart = if (dashIdx >= 0) v.substring(dashIdx + 1) else null
+
+                // Split on "+build" if present (SemVer build metadata is ignored)
+                val coreClean = corePart.substringBefore('+')
+
+                val nums = coreClean.split('.').mapNotNull { it.toIntOrNull() }
+                if (nums.isEmpty()) return null
+
+                val major = nums.getOrElse(0) { 0 }
+                val minor = nums.getOrElse(1) { 0 }
+                val patch = nums.getOrElse(2) { 0 }
+
+                val prerelease = prePart
+                    ?.substringBefore('+')
+                    ?.split('.')
+                    ?.filter { it.isNotEmpty() }
+                    ?.takeIf { it.isNotEmpty() }
+
+                return SemVer(major, minor, patch, prerelease)
+            }
+        }
+    }
+
+    private fun isNewerVersion(remote: String, local: String): Boolean {
+        val r = SemVer.parse(remote) ?: return false
+        val l = SemVer.parse(local) ?: return false
+        return r > l
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -147,7 +226,6 @@ object UpdateManager {
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val downloadId = dm.enqueue(request)
 
-        // NOT_EXPORTED: nothing outside our app should be able to trigger this receiver.
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
