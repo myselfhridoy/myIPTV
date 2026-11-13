@@ -69,24 +69,9 @@ import kotlinx.coroutines.isActive
 private val TimelineRowHeight = 48.dp
 
 /**
- * Fallback only: on a live screen, media shorter than this is treated as LIVE
- * when ExoPlayer has not (yet) flagged the item as live. The real signal is
- * [PlayerProgress.isLiveStream].
+ * On a live screen, any media shorter than this window is treated as LIVE.
  */
 private const val LIVE_WINDOW_MAX_MS = 10 * 60 * 1000L
-
-/**
- * If playback is within this distance of the live edge we show "LIVE".
- * MediaResolver deliberately plays ~20s behind the edge (target offset),
- * so this must be larger than that.
- */
-private const val LIVE_EDGE_TOLERANCE_MS = 30 * 1000L
-
-/**
- * Space reserved above and below the loading ring so the ring itself never
- * moves when the subtitle / Retry button appear.
- */
-private val LoadingExtraHeight = 96.dp
 
 @Composable
 fun PlayerIconButton(
@@ -318,9 +303,6 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Custom Canvas Seek Bar for perfect vertical and horizontal alignment.
- */
 @Composable
 fun PlayerSeekBar(
     fraction: Float,
@@ -377,7 +359,6 @@ fun PlayerSeekBar(
             val centerY = size.height / 2f
             val trackHeightPx = 4.dp.toPx()
 
-            // 1. Background Track (Dark Grey)
             drawLine(
                 color = Color.Gray.copy(alpha = 0.3f),
                 start = Offset(thumbRadiusPx, centerY),
@@ -386,7 +367,6 @@ fun PlayerSeekBar(
                 cap = StrokeCap.Round
             )
 
-            // 2. Buffer Track (Light Grey)
             if (bufferFraction > 0f) {
                 val bufferX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * bufferFraction.coerceIn(0f, 1f)
                 drawLine(
@@ -398,9 +378,8 @@ fun PlayerSeekBar(
                 )
             }
 
-            // 3. Active Track (Blue) & Thumb (Solid Circle)
             val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
-
+            
             if (fraction > 0f) {
                 drawLine(
                     color = scheme.primary,
@@ -418,7 +397,6 @@ fun PlayerSeekBar(
             )
         }
 
-        // 4. Tooltip
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
             val trackWidth = barWidthPx - 2 * thumbRadiusPx
             val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
@@ -458,41 +436,23 @@ fun PlayerTimeline(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
     commitOnRelease: Boolean = false,
-    showLiveLabel: Boolean = false,
-    /** Allow seeking inside a live DVR/time-shift window when duration is known. */
-    allowLiveSeek: Boolean = true
+    showLiveLabel: Boolean = false
 ) {
     val duration = progress.duration
-    val position = progress.position
-    val hasDuration = duration > 0L
 
-    // "Is this a live stream?" -> only decides the LIVE badge, NOT whether time is shown.
-    // Primary signal: ExoPlayer's own flag. The rest are fallbacks for streams
-    // that are not (yet) flagged as live.
-    val isLive = showLiveLabel && (
-        progress.isLiveStream ||
-            progress.isLive ||
-            !seekable ||
-            !hasDuration ||
-            duration < LIVE_WINDOW_MAX_MS
-        )
+    val isLive = showLiveLabel &&
+        (progress.isLive || !seekable || duration <= 0L || duration < LIVE_WINDOW_MAX_MS)
 
-    // Time is shown whenever we know anything useful.
-    val timeKnown = hasDuration || position > 0L || isLive
-    val canSeek = seekable && hasDuration && (allowLiveSeek || !isLive)
-
-    // How far behind the live edge we are (only meaningful when duration is known).
-    val behindLiveMs =
-        if (isLive && hasDuration) (duration - position).coerceAtLeast(0L) else 0L
-    val atLiveEdge = isLive && (!hasDuration || behindLiveMs < LIVE_EDGE_TOLERANCE_MS)
+    val timeKnown = isLive || duration > 0L
+    val canSeek = seekable && !isLive && duration > 0L
 
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
     val rawPlaybackFraction =
-        if (hasDuration) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val rawBufferFraction =
-        if (hasDuration) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
     val animate = !dragging
 
@@ -507,20 +467,19 @@ fun PlayerTimeline(
         label = "bufferFraction"
     )
 
-    val shownPosition = if (dragging) (dragFraction * duration).toLong() else position
+    val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
 
     Row(
         modifier = modifier.height(TimelineRowHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Box: LIVE label (only when no duration is known) or elapsed time
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            if (isLive && !hasDuration) {
+            if (isLive) {
                 LiveLabel()
             } else {
                 Text(
@@ -547,7 +506,7 @@ fun PlayerTimeline(
             },
             onValueChangeFinished = {
                 if (commitOnRelease && dragging) {
-                    if (hasDuration) {
+                    if (duration > 0) {
                         val target = (dragFraction * duration).toLong()
                         onSeekTo(target)
                         progress.overridePosition(target)
@@ -556,53 +515,25 @@ fun PlayerTimeline(
                     progress.holdPosition = false
                 }
             },
-            showTooltip = dragging && hasDuration,
-            tooltipText = if (dragging && hasDuration) formatPlayerTime(shownPosition) else null,
+            showTooltip = dragging && duration > 0 && !isLive,
+            tooltipText = if (dragging && duration > 0 && !isLive) formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 12.dp)
         )
 
-        // Right Box: duration / LIVE edge / time behind live / elapsed fallback
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            when {
-                // Live with a known window: show LIVE at the edge, "-mm:ss" when behind
-                isLive && hasDuration -> {
-                    if (atLiveEdge) {
-                        LiveLabel()
-                    } else {
-                        Text(
-                            text = "-" + formatPlayerTime(behindLiveMs),
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1
-                        )
-                    }
-                }
-                // Live with unknown duration: show elapsed watch time instead of "--:--"
-                isLive -> {
-                    Text(
-                        text = if (position > 0L) formatPlayerTime(position) else "--:--",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1
-                    )
-                }
-                // Normal VOD
-                else -> {
-                    Text(
-                        text = formatPlayerTime(duration),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1
-                    )
-                }
-            }
+            Text(
+                text = if (isLive) "--:--" else formatPlayerTime(duration),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1
+            )
         }
     }
 }
@@ -652,16 +583,6 @@ fun rememberLoadingElapsed(active: Boolean): Int {
     return seconds
 }
 
-/**
- * Loading ring + optional subtitle + optional Retry.
- *
- * The ring never moves: the layout is [reserved space] / ring / [extras area]
- * with the SAME fixed height above and below, so the ring is always at the
- * exact centre of this composable no matter whether the subtitle or the Retry
- * button is showing. Everything stays inside its parent's bounds, so touch on
- * Retry works too. Empty areas have no handlers, so taps pass through to the
- * player surface.
- */
 @Composable
 fun PlayerLoadingIndicator(
     visible: Boolean,
@@ -684,21 +605,23 @@ fun PlayerLoadingIndicator(
     }
     AnimatedVisibility(
         visible = show,
-        modifier = modifier,
+        modifier = modifier.fillMaxSize(), // FIXED: Take full space so ring stays perfectly centered
         enter = fadeIn(tween(150)),
         exit = fadeOut(tween(200))
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Mirror of the extras area below, so the ring stays centred.
-            Spacer(Modifier.height(LoadingExtraHeight))
-
+        Box(
+            modifier = Modifier.fillMaxSize(), // FIXED: Fill the parent Box
+            contentAlignment = Alignment.Center
+        ) {
             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
 
+            // Subtitle & Retry placed below the ring using offset to avoid layout shift
             Column(
-                modifier = Modifier.height(LoadingExtraHeight),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = 48.dp), // FIXED: Push down dynamically without breaking portrait layout
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(Modifier.height(12.dp))
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
