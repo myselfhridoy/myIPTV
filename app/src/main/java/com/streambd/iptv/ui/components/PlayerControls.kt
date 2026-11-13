@@ -311,7 +311,6 @@ fun PlayerSeekBar(
     fraction: Float,
     bufferFraction: Float,
     seekable: Boolean,
-    isLive: Boolean,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -384,32 +383,28 @@ fun PlayerSeekBar(
                 )
             }
 
-            // 3. Active Track & Thumb (Only visible if NOT live)
-            if (!isLive) {
-                val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
-                
-                // Active Track (Blue)
-                if (fraction > 0f) {
-                    drawLine(
-                        color = scheme.primary,
-                        start = Offset(thumbRadiusPx, centerY),
-                        end = Offset(progressX, centerY),
-                        strokeWidth = trackHeightPx,
-                        cap = StrokeCap.Round
-                    )
-                }
-
-                // Thumb (Solid Circle)
-                drawCircle(
-                    color = Color.White,
-                    radius = thumbRadiusPx,
-                    center = Offset(progressX, centerY)
+            // 3. Active Track (Blue) & Thumb (Solid Circle)
+            val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
+            
+            if (fraction > 0f) {
+                drawLine(
+                    color = scheme.primary,
+                    start = Offset(thumbRadiusPx, centerY),
+                    end = Offset(progressX, centerY),
+                    strokeWidth = trackHeightPx,
+                    cap = StrokeCap.Round
                 )
             }
+
+            drawCircle(
+                color = Color.White,
+                radius = thumbRadiusPx,
+                center = Offset(progressX, centerY)
+            )
         }
 
-        // 4. Tooltip (Only if NOT live and dragging)
-        if (showTooltip && tooltipText != null && seekable && !isLive && barWidthPx > 0) {
+        // 4. Tooltip
+        if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
             val trackWidth = barWidthPx - 2 * thumbRadiusPx
             val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
@@ -508,7 +503,6 @@ fun PlayerTimeline(
             fraction = playbackFraction,
             bufferFraction = bufferFraction,
             seekable = canSeek,
-            isLive = isLive,
             onValueChange = { value ->
                 if (commitOnRelease) {
                     dragging = true
@@ -536,21 +530,20 @@ fun PlayerTimeline(
                 .padding(horizontal = 12.dp)
         )
 
-        // Right Box (Duration or Blank if Live)
+        // Right Box (Duration)
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            if (!isLive) {
-                Text(
-                    text = formatPlayerTime(duration),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1
-                )
-            }
+            Text(
+                // Changed to standard "--:--" for Live TV
+                text = if (isLive) "--:--" else formatPlayerTime(duration),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1
+            )
         }
     }
 }
