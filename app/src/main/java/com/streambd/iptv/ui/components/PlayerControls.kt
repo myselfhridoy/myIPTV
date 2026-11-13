@@ -69,9 +69,13 @@ import kotlinx.coroutines.isActive
 private val TimelineRowHeight = 48.dp
 
 /**
- * On a live screen, any media shorter than this window is treated as LIVE.
+ * On a live screen, any media shorter than this window is treated as LIVE
+ * (shows the LIVE badge). Time is still displayed whenever it is known.
  */
 private const val LIVE_WINDOW_MAX_MS = 10 * 60 * 1000L
+
+/** If playback is within this distance of the live edge, we show "LIVE". */
+private const val LIVE_EDGE_TOLERANCE_MS = 10 * 1000L
 
 @Composable
 fun PlayerIconButton(
@@ -385,7 +389,7 @@ fun PlayerSeekBar(
 
             // 3. Active Track (Blue) & Thumb (Solid Circle)
             val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
-            
+
             if (fraction > 0f) {
                 drawLine(
                     color = scheme.primary,
@@ -443,23 +447,34 @@ fun PlayerTimeline(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
     commitOnRelease: Boolean = false,
-    showLiveLabel: Boolean = false
+    showLiveLabel: Boolean = false,
+    /** Allow seeking inside a live DVR/time-shift window when duration is known. */
+    allowLiveSeek: Boolean = true
 ) {
     val duration = progress.duration
+    val position = progress.position
+    val hasDuration = duration > 0L
 
+    // "Is this a live stream?" -> only decides the LIVE badge, NOT whether time is shown.
     val isLive = showLiveLabel &&
-        (progress.isLive || !seekable || duration <= 0L || duration < LIVE_WINDOW_MAX_MS)
+        (progress.isLive || !seekable || !hasDuration || duration < LIVE_WINDOW_MAX_MS)
 
-    val timeKnown = isLive || duration > 0L
-    val canSeek = seekable && !isLive && duration > 0L
+    // Time is shown whenever we know anything useful.
+    val timeKnown = hasDuration || position > 0L || isLive
+    val canSeek = seekable && hasDuration && (allowLiveSeek || !isLive)
+
+    // How far behind the live edge we are (only meaningful when duration is known).
+    val behindLiveMs =
+        if (isLive && hasDuration) (duration - position).coerceAtLeast(0L) else 0L
+    val atLiveEdge = isLive && (!hasDuration || behindLiveMs < LIVE_EDGE_TOLERANCE_MS)
 
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
     val rawPlaybackFraction =
-        if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (hasDuration) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val rawBufferFraction =
-        if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (hasDuration) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
     val animate = !dragging
 
@@ -474,20 +489,20 @@ fun PlayerTimeline(
         label = "bufferFraction"
     )
 
-    val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
+    val shownPosition = if (dragging) (dragFraction * duration).toLong() else position
 
     Row(
         modifier = modifier.height(TimelineRowHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Box (LIVE Label or Elapsed Time)
+        // Left Box: LIVE label (only when no duration is known) or elapsed time
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            if (isLive) {
+            if (isLive && !hasDuration) {
                 LiveLabel()
             } else {
                 Text(
@@ -514,7 +529,7 @@ fun PlayerTimeline(
             },
             onValueChangeFinished = {
                 if (commitOnRelease && dragging) {
-                    if (duration > 0) {
+                    if (hasDuration) {
                         val target = (dragFraction * duration).toLong()
                         onSeekTo(target)
                         progress.overridePosition(target)
@@ -523,27 +538,53 @@ fun PlayerTimeline(
                     progress.holdPosition = false
                 }
             },
-            showTooltip = dragging && duration > 0 && !isLive,
-            tooltipText = if (dragging && duration > 0 && !isLive) formatPlayerTime(shownPosition) else null,
+            showTooltip = dragging && hasDuration,
+            tooltipText = if (dragging && hasDuration) formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 12.dp)
         )
 
-        // Right Box (Duration)
+        // Right Box: duration / LIVE edge / time behind live / elapsed fallback
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                // Changed to standard "--:--" for Live TV
-                text = if (isLive) "--:--" else formatPlayerTime(duration),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1
-            )
+            when {
+                // Live with a known window: show LIVE at the edge, "-mm:ss" when behind
+                isLive && hasDuration -> {
+                    if (atLiveEdge) {
+                        LiveLabel()
+                    } else {
+                        Text(
+                            text = "-" + formatPlayerTime(behindLiveMs),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1
+                        )
+                    }
+                }
+                // Live with unknown duration: show elapsed watch time instead of "--:--"
+                isLive -> {
+                    Text(
+                        text = if (position > 0L) formatPlayerTime(position) else "--:--",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1
+                    )
+                }
+                // Normal VOD
+                else -> {
+                    Text(
+                        text = formatPlayerTime(duration),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }
