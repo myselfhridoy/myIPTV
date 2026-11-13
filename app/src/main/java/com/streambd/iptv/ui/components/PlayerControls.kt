@@ -425,14 +425,22 @@ fun PlayerTimeline(
     val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        if (isLive) {
-            LiveLabel()
-        } else {
-            Text(
-                text = formatPlayerTime(shownPosition),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium
-            )
+        // Left slot — fixed width so a channel switch (LIVE badge → time text)
+        // never shifts the seek bar's position.
+        Box(
+            modifier = Modifier.width(64.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (isLive) {
+                LiveLabel()
+            } else {
+                Text(
+                    text = formatPlayerTime(shownPosition),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1
+                )
+            }
         }
 
         PlayerSeekBar(
@@ -460,18 +468,27 @@ fun PlayerTimeline(
                 }
             },
             showTooltip = dragging && duration > 0,
-            tooltipText = if (dragging && duration > 0)
-                formatPlayerTime(shownPosition) else null,
+            tooltipText = if (dragging && duration > 0) formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 12.dp)  // reduced from 16dp — the fixed Box
+                                              // widths already add visual spacing
         )
 
-        Text(
-            text = if (isLive) "00:00" else formatPlayerTime(duration),
-            color = Color.White,
-            style = MaterialTheme.typography.labelMedium
-        )
+        // Right slot — same fixed width. Prevents the layout jump when
+        // duration goes from unknown ("00:00") to a real value like
+        // "1:02:05", and keeps things stable on VOD too.
+        Box(
+            modifier = Modifier.width(64.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Text(
+                text = if (isLive) "00:00" else formatPlayerTime(duration),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1
+            )
+        }
     }
 }
 
