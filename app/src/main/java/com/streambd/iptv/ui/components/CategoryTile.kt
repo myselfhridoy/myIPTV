@@ -21,22 +21,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Backdrop behind a logo. Subtle translucent white — logos still read, but
- *  the tile no longer has a bright white patch. For dark-text logos that fade,
- *  raise the alpha (or use Color(0xFFC7CFD8)). */
-private val LogoBackground = Color.White.copy(alpha = 0.16f)
-
 /**
- * Category / playlist tile: dark fill + hairline border, square-ish logo
- * with a thin outline (brand colour on focus), regular-weight name that
- * may wrap to two lines.
+ * Subtle radial gradient for the logo circle inside a CategoryTile.
+ * Kept low-alpha so the tile stays dark-theme friendly (only ~8-28%
+ * white), but adds depth so the logo doesn't look flat-pasted.
  */
+private val CategoryLogoBrush = Brush.radialGradient(
+    colors = listOf(
+        Color.White.copy(alpha = 0.28f),
+        Color.White.copy(alpha = 0.08f)
+    ),
+    center = Offset.Unspecified
+)
+
 @Composable
 fun CategoryTile(
     name: String,
@@ -76,7 +81,7 @@ fun CategoryTile(
                     )
                     .padding(3.dp)
                     .clip(CircleShape)
-                    .background(LogoBackground),
+                    .background(CategoryLogoBrush),
                 contentAlignment = Alignment.Center
             ) {
                 if (!logoUrl.isNullOrBlank()) {
