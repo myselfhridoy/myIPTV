@@ -311,6 +311,7 @@ fun PlayerSeekBar(
     fraction: Float,
     bufferFraction: Float,
     seekable: Boolean,
+    isLive: Boolean,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -319,7 +320,6 @@ fun PlayerSeekBar(
 ) {
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
-    // CHANGED: Reduced radius from 7.dp to 5.dp for a smaller thumb
     val thumbRadius = 5.dp
     val thumbRadiusPx = with(density) { thumbRadius.toPx() }
 
@@ -384,29 +384,32 @@ fun PlayerSeekBar(
                 )
             }
 
-            // 3. Active Track (Blue)
-            val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
-            if (fraction > 0f) {
-                drawLine(
-                    color = scheme.primary,
-                    start = Offset(thumbRadiusPx, centerY),
-                    end = Offset(progressX, centerY),
-                    strokeWidth = trackHeightPx,
-                    cap = StrokeCap.Round
+            // 3. Active Track & Thumb (Only visible if NOT live)
+            if (!isLive) {
+                val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
+                
+                // Active Track (Blue)
+                if (fraction > 0f) {
+                    drawLine(
+                        color = scheme.primary,
+                        start = Offset(thumbRadiusPx, centerY),
+                        end = Offset(progressX, centerY),
+                        strokeWidth = trackHeightPx,
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Thumb (Solid Circle)
+                drawCircle(
+                    color = Color.White,
+                    radius = thumbRadiusPx,
+                    center = Offset(progressX, centerY)
                 )
             }
-
-            // 4. Thumb (Filled Solid Circle)
-            // CHANGED: Removed Stroke() style to make it filled, using a solid white circle
-            drawCircle(
-                color = if (seekable) Color.White else Color.White.copy(alpha = 0.7f),
-                radius = thumbRadiusPx,
-                center = Offset(progressX, centerY)
-            )
         }
 
-        // 5. Tooltip
-        if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
+        // 4. Tooltip (Only if NOT live and dragging)
+        if (showTooltip && tooltipText != null && seekable && !isLive && barWidthPx > 0) {
             val trackWidth = barWidthPx - 2 * thumbRadiusPx
             val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
@@ -482,6 +485,7 @@ fun PlayerTimeline(
         modifier = modifier.height(TimelineRowHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Left Box (LIVE Label or Elapsed Time)
         Box(
             modifier = Modifier
                 .width(64.dp)
@@ -504,6 +508,7 @@ fun PlayerTimeline(
             fraction = playbackFraction,
             bufferFraction = bufferFraction,
             seekable = canSeek,
+            isLive = isLive,
             onValueChange = { value ->
                 if (commitOnRelease) {
                     dragging = true
@@ -524,25 +529,28 @@ fun PlayerTimeline(
                     progress.holdPosition = false
                 }
             },
-            showTooltip = dragging && duration > 0,
-            tooltipText = if (dragging && duration > 0) formatPlayerTime(shownPosition) else null,
+            showTooltip = dragging && duration > 0 && !isLive,
+            tooltipText = if (dragging && duration > 0 && !isLive) formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 12.dp)
         )
 
+        // Right Box (Duration or Blank if Live)
         Box(
             modifier = Modifier
                 .width(64.dp)
                 .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = if (isLive) "00:00" else formatPlayerTime(duration),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1
-            )
+            if (!isLive) {
+                Text(
+                    text = formatPlayerTime(duration),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
