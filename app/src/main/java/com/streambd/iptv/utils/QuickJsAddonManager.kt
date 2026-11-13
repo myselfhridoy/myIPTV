@@ -33,15 +33,10 @@ object QuickJsAddonManager {
     private const val ADDONS_PREF_NAME = "prysm_addons_prefs"
     private const val ADDONS_KEY = "addons_list"
 
-    // ═══════════════════════════════════════════════════════════════
-    // Overall JS execution budget.
-    // Bumped from 60s to 180s because some addons (e.g. NetMirror)
-    // run a server-side ad-verification step that alone can take
-    // 30-60 seconds on a fresh session / trial IP. A shorter budget
-    // caused the first attempt to time out mid-verification, which
-    // looked like "1st try fails, 2nd/3rd works" (session survives
-    // between attempts in the shared cookie jar).
-    // ═══════════════════════════════════════════════════════════════
+    // Overall JS execution budget (180s). Kept at 180s because some addons
+    // (e.g. NetMirror) run a server-side ad-verification step that alone can
+    // take 30-60s on a fresh session. A shorter budget caused the first
+    // attempt to time out mid-verification.
     private const val JS_EXECUTION_TIMEOUT_MS = 180_000L
 
     private var cachedAddons: List<Addon>? = null
@@ -80,11 +75,6 @@ object QuickJsAddonManager {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // safeFetchClient — used by nativeFetchStr for every JS-issued
-    // request. readTimeout bumped 30s → 60s to accommodate the slow
-    // NetMirror verify2.php call (server-side ad check).
-    // ═══════════════════════════════════════════════════════════════
     private val safeFetchClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -104,21 +94,36 @@ object QuickJsAddonManager {
                     }
                 }
             }
+
+            // FIX #1 — Cookie domain boundary bug
+            //
+            // OLD (buggy):
+            //   cookieCache.filter {
+            //       (host == it.domain || host.endsWith(it.domain)) && it.expiresAt >= now
+            //   }
+            //
+            // The endsWith() check has no domain boundary. A cookie for
+            // "example.com" would match a request to "notexample.com"
+            // (because "notexample.com".endsWith("example.com") is true),
+            // leaking session cookies between unrelated addons.
+            //
+            // OkHttp's Cookie.matches(HttpUrl) does the correct check:
+            //   • domainMatch() — verifies a dot boundary + host-only rules
+            //   • pathMatch()   — verifies the cookie's path prefix
+            //   • secure flag   — enforces HTTPS if the cookie is Secure
+            //
+            // We still remove expired cookies first, so `matches()` alone is
+            // sufficient — no separate expiresAt check needed.
             override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
                 synchronized(cookieCache) {
-                    val host = url.host
                     val now = System.currentTimeMillis()
                     cookieCache.removeAll { it.expiresAt < now }
-                    return cookieCache.filter {
-                        (host == it.domain || host.endsWith(it.domain)) && it.expiresAt >= now
-                    }
+                    return cookieCache.filter { it.matches(url) }
                 }
             }
         })
         .build()
 
-    // Honor fetch({ credentials: "omit" }) without touching the shared jar.
-    // This client inherits the same SSRF-guarded DNS and timeout settings.
     private val safeFetchNoCookiesClient = safeFetchClient.newBuilder()
         .cookieJar(okhttp3.CookieJar.NO_COOKIES)
         .build()
@@ -261,7 +266,7 @@ object QuickJsAddonManager {
                 } catch (e: Exception) {
                     Log.e("QuickJsAddonManager", "Addon ${addon.name} failed: ${e.message}", e)
                 }
-                Unit // ── explicit Unit return — kills all if-expression ambiguity ──
+                Unit
             }
         }
 
@@ -361,14 +366,6 @@ object QuickJsAddonManager {
                         result
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // nativeSleep — blocking wait, exposed to JS as sleep(ms).
-                    // Useful for addons that need to let a slow server-side
-                    // session settle between requests (e.g. after ad verify).
-                    //
-                    // Safety: caps at 5s per call so a badly written addon
-                    // can't freeze the JS worker for minutes at a time.
-                    // ═══════════════════════════════════════════════════
                     function("nativeSleep") { args ->
                         val ms = (args.getOrNull(0) as? Number)?.toLong() ?: 0L
                         if (ms in 1L..5000L) {
@@ -400,7 +397,6 @@ object QuickJsAddonManager {
                             optionsJson != "undefined"
                         ) {
                             val obj = JSONObject(optionsJson)
-                            // Standard Fetch option: omit request cookies and do not save response cookies.
                             omitCookies = obj.optString("credentials", "") == "omit"
                             if (obj.has("method")) method = obj.getString("method").uppercase()
                             if (obj.has("body")) bodyString = obj.getString("body")
