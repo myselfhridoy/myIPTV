@@ -122,7 +122,9 @@ fun VodPlayerScreen(
 
     val portraitLayout = flexible && !isLandscapeNow && !isInPiP
 
-    val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
+    // FIX 1: active = true
+    val progress = rememberPlayerProgress(exoPlayer, active = true)
+    
     var playerError by remember { mutableStateOf<androidx.media3.common.PlaybackException?>(null) }
 
     var resolveFailed by remember { mutableStateOf(false) }
@@ -609,27 +611,20 @@ fun VodPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // 1. Auto-hide timer
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
-        if (showOverlay && isPlaying) {
-            delay(if (portraitLayout) 3000 else 5000)
-            showOverlay = false
-        }
-    }
-
-    // 2. Focus management
-    LaunchedEffect(showOverlay, isLocked) {
         if (showOverlay) {
-            delay(150) // Wait for AnimatedVisibility enter animation
+            delay(100)
             try {
                 if (isLocked) unlockFocusRequester.requestFocus()
                 else playPauseFocusRequester.requestFocus()
             } catch (_: Exception) {}
+            if (isPlaying) {
+                delay(if (portraitLayout) 3000 else 5000)
+                showOverlay = false
+            }
         } else {
-            delay(300) // Wait for AnimatedVisibility exit animation to finish removing the overlay
-            try {
-                mainFocusRequester.requestFocus()
-            } catch (_: Exception) {}
+            delay(300)
+            try { mainFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -755,7 +750,6 @@ fun VodPlayerScreen(
                             view.apply {
                                 player = exoPlayer
                                 useController = false
-                                // --- CRITICAL FIX: PREVENT FOCUS STEALING ---
                                 isFocusable = false
                                 isFocusableInTouchMode = false
                                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
@@ -933,14 +927,17 @@ fun VodPlayerScreen(
             }
         }
 
-        if (portraitLayout) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (portraitLayout) MaterialTheme.colorScheme.background else Color.Black)
+        ) {
+            playerSurface(
+                if (portraitLayout) Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                else Modifier.fillMaxSize()
+            )
+            
+            if (portraitLayout) {
                 if (selectedMedia != null && availableStreams.isNotEmpty()) {
                     val m = selectedMedia!!
                     val subtitle = buildString {
@@ -977,8 +974,6 @@ fun VodPlayerScreen(
                     )
                 }
             }
-        } else {
-            playerSurface(Modifier.fillMaxSize())
         }
     }
 }
