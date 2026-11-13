@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable // NEW IMPORT
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester // NEW IMPORT
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
@@ -131,8 +133,11 @@ fun VodPlayerScreen(
     val effectiveScaleMode = if (portraitLayout) VideoScaleMode.FIT else scaleMode
 
     var isMuted by remember { mutableStateOf(exoPlayer.volume == 0f) }
+    
+    // --- Focus Requesters (Added mainFocusRequester) ---
     val playPauseFocusRequester = remember { FocusRequester() }
     val unlockFocusRequester = remember { FocusRequester() }
+    val mainFocusRequester = remember { FocusRequester() } 
 
     var hasLoggedPlayback by remember(stream, retryToken) { mutableStateOf(false) }
 
@@ -198,6 +203,7 @@ fun VodPlayerScreen(
         }
     }
 
+    // ... [Media resolution LaunchedEffect stays unchanged] ...
     LaunchedEffect(stream, retryToken) {
         isResolving = true
         isLoading = true
@@ -606,6 +612,9 @@ fun VodPlayerScreen(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
+    // --- FIX: FOCUS RECOVERY ---
+    // When the overlay auto-hides, focus must move back to the root player box,
+    // otherwise the D-pad has nothing to focus on and key events are lost.
     LaunchedEffect(showOverlay, isPlaying, isLocked) {
         if (showOverlay) {
             delay(100)
@@ -613,10 +622,13 @@ fun VodPlayerScreen(
                 if (isLocked) unlockFocusRequester.requestFocus()
                 else playPauseFocusRequester.requestFocus()
             } catch (_: Exception) {}
-        }
-        if (showOverlay && isPlaying) {
-            delay(if (portraitLayout) 3000 else 5000)
-            showOverlay = false
+            
+            if (isPlaying) {
+                delay(if (portraitLayout) 3000 else 5000)
+                showOverlay = false
+            }
+        } else {
+            try { mainFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -702,6 +714,9 @@ fun VodPlayerScreen(
                             else -> false
                         }
                     }
+                    // --- FIX: Added focusability to root box ---
+                    .focusRequester(mainFocusRequester)
+                    .focusable()
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
@@ -722,6 +737,7 @@ fun VodPlayerScreen(
                         )
                     }
             ) {
+                // ... [Rest of the Box content remains exactly the same] ...
                 val isCinema = effectiveScaleMode == VideoScaleMode.CINEMA
 
                 Box(
