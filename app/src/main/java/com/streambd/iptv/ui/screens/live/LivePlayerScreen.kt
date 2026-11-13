@@ -8,10 +8,6 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -167,7 +163,9 @@ fun LivePlayerScreen(
     }
     var failedSourceUrls by remember(channelKey) { mutableStateOf(setOf<String>()) }
 
-    val progress = rememberPlayerProgress(exoPlayer, active = showOverlay)
+    // FIX 1: active = true
+    val progress = rememberPlayerProgress(exoPlayer, active = true)
+    
     var playerError by remember { mutableStateOf<UiPlaybackError?>(null) }
     var lastHlsError by remember { mutableStateOf(false) }
 
@@ -365,14 +363,10 @@ fun LivePlayerScreen(
                     .filter { it.isNotBlank() }
                     .distinct()
 
-                // Smart failover: try the NEXT source, not the first one.
                 val currentIndex = allUrls.indexOf(currentSourceUrl)
                 var nextUrl: String? = null
                 for (i in 1..allUrls.size) {
-                    val idx = if (currentIndex != -1)
-                        (currentIndex + i) % allUrls.size
-                    else
-                        (i - 1) % allUrls.size
+                    val idx = if (currentIndex != -1) (currentIndex + i) % allUrls.size else (i - 1) % allUrls.size
                     val url = allUrls[idx]
                     if (url !in failedSourceUrls && url != currentSourceUrl) {
                         nextUrl = url
@@ -412,6 +406,9 @@ fun LivePlayerScreen(
         if (showOverlay && isPlaying) {
             delay(if (portraitLayout) 3000 else 5000)
             showOverlay = false
+        } else if (!showOverlay) {
+            delay(300)
+            try { mainFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
 
@@ -513,6 +510,9 @@ fun LivePlayerScreen(
                             view.apply {
                                 player = exoPlayer
                                 useController = false
+                                isFocusable = false
+                                isFocusableInTouchMode = false
+                                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -536,12 +536,7 @@ fun LivePlayerScreen(
                     StaticNoiseBackground(Modifier.fillMaxSize())
                 }
 
-                // ── NEW: fade the whole overlay (scrim + buttons) together ──
-                AnimatedVisibility(
-                    visible = showOverlay && !isInPiP,
-                    enter = fadeIn(tween(200)),
-                    exit = fadeOut(tween(220))
-                ) {
+                if (showOverlay && !isInPiP) {
                     LivePlayerOverlay(
                         modifier = Modifier.fillMaxSize(),
                         channelName = channel.name,
@@ -659,10 +654,12 @@ fun LivePlayerScreen(
                     )
                 }
 
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = showChannelInfoOverlay && !showOverlay && !isInPiP && !portraitLayout,
-                    enter = fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
-                    exit = fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
+                    enter = androidx.compose.animation.fadeIn() +
+                        androidx.compose.animation.slideInVertically(initialOffsetY = { -it }),
+                    exit = androidx.compose.animation.fadeOut() +
+                        androidx.compose.animation.slideOutVertically(targetOffsetY = { -it }),
                     modifier = Modifier.align(Alignment.TopStart).padding(if (portraitLayout) 12.dp else 32.dp)
                 ) {
                     ChannelInfoCard(
@@ -672,10 +669,10 @@ fun LivePlayerScreen(
                     )
                 }
 
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = channelNumberInput.isNotEmpty(),
-                    enter = fadeIn() + androidx.compose.animation.scaleIn(),
-                    exit = fadeOut() + androidx.compose.animation.scaleOut(),
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
                     modifier = Modifier.align(Alignment.TopEnd).padding(if (portraitLayout) 12.dp else 32.dp)
                 ) {
                     ChannelNumberBadge(text = channelNumberInput)
@@ -703,13 +700,17 @@ fun LivePlayerScreen(
             }
         }
 
-        if (portraitLayout) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                playerSurface(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+        // FIX 2: Single Column layout
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (portraitLayout) MaterialTheme.colorScheme.background else Color.Black)
+        ) {
+            playerSurface(
+                if (portraitLayout) Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                else Modifier.fillMaxSize()
+            )
+            if (portraitLayout) {
                 PortraitListPane(
                     heading = listContext?.heading ?: "Channels",
                     entries = listContext?.entries ?: playlistEntries,
@@ -731,8 +732,6 @@ fun LivePlayerScreen(
                         .fillMaxWidth()
                 )
             }
-        } else {
-            playerSurface(Modifier.fillMaxSize())
         }
     }
 }
