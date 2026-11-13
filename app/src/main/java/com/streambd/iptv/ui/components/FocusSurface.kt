@@ -1,6 +1,7 @@
 package com.streambd.iptv.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -21,6 +22,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -29,7 +31,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.theme.AppTheme
+import com.streambd.iptv.ui.theme.PrimeBlue
 import com.streambd.iptv.ui.theme.PrimeFocusRing
 
 /**
@@ -40,8 +44,11 @@ import com.streambd.iptv.ui.theme.PrimeFocusRing
  *
  *  • Touch      → ripple + click (+ optional long-press)
  *  • D-pad/OK   → focusable; ENTER / DPAD_CENTER trigger [onClick]
- *  • Focus look → animated ring, scale-up (TV only, via Dimens), and
- *                 the item is drawn above its neighbours (zIndex)
+ *  • Focus look → animated ring, scale-up (TV only, via Dimens), AND
+ *                 (NEW) a soft neon-blue glow on TV — Prime Video style.
+ *                 The glow is added via Modifier.shadow with ambient/
+ *                 spot colours; it silently degrades to a black shadow
+ *                 on API < 28 (still a valid focus cue).
  *  • Semantics  → proper [role], so TalkBack can announce & activate it
  *
  * [propagateMinConstraints] lets a child (e.g. a Row) stretch to the width/height
@@ -53,8 +60,8 @@ import com.streambd.iptv.ui.theme.PrimeFocusRing
  * update a hero banner, or remember the last focused item.
  *
  * NOTE: when this sits inside a LazyRow/LazyColumn, give the list a bit
- * of contentPadding — otherwise the scaled/ringed item is clipped at the
- * list edge.
+ * of contentPadding — otherwise the scaled/ringed/glowing item is clipped
+ * at the list edge.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -79,6 +86,7 @@ fun FocusSurface(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val isTv = LocalDeviceProfile.current.isTv
 
     val currentOnFocused by rememberUpdatedState(onFocused)
     LaunchedEffect(isFocused) {
@@ -102,6 +110,17 @@ fun FocusSurface(
     )
     val ringWidth = if (isFocused && showRing) AppTheme.dimens.focusBorderWidth else 1.dp
 
+    // ── TV focus glow ─────────────────────────────────────────────
+    // Animated elevation. Only TV + focused gets a non-zero value.
+    // On phones/tablets we deliberately skip the shadow — the white
+    // ring + scale are already a strong enough cue, and adding a halo
+    // would make touch interactions look busier than needed.
+    val glowElevation by animateDpAsState(
+        targetValue = if (isFocused && isTv && enabled) 12.dp else 0.dp,
+        animationSpec = tween(200),
+        label = "focusGlow"
+    )
+
     Box(
         modifier = modifier
             // focusRequester must come BEFORE the focusable node below.
@@ -112,6 +131,16 @@ fun FocusSurface(
                 scaleY = scale
                 alpha = if (enabled) 1f else 0.4f
             }
+            // Shadow paints OUTSIDE the box (extending the glow), content
+            // stays clipped to `shape` below. Ambient + spot colours give
+            // a soft, two-layer blue halo like Prime Video's TV cards.
+            .shadow(
+                elevation = glowElevation,
+                shape = shape,
+                clip = false,
+                ambientColor = PrimeBlue.copy(alpha = 0.55f),
+                spotColor = PrimeBlue.copy(alpha = 0.85f)
+            )
             .clip(shape)
             .background(background)
             .border(ringWidth, ringTint, shape)
