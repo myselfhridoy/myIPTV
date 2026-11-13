@@ -2,6 +2,7 @@ package com.streambd.iptv.ui.screens.vod
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.streambd.iptv.data.models.StreamSource
+import com.streambd.iptv.ui.components.EqualizerBars
 import com.streambd.iptv.ui.components.FocusSurface
 import com.streambd.iptv.ui.components.LiveBadge
 import com.streambd.iptv.ui.theme.PrimeGold
@@ -41,10 +43,7 @@ private val Quality4k = PrimeGold
 private val QualityFhd = Color(0xFF4CAF50)
 private val QualityCam = Color(0xFFFF5722)
 
-private fun qualityColorFor(
-    quality: String,
-    fallback: Color
-): Color {
+private fun qualityColorFor(quality: String, fallback: Color): Color {
     val q = quality.lowercase()
     return when {
         q.contains("4k") || q.contains("2160") -> Quality4k
@@ -55,16 +54,6 @@ private fun qualityColorFor(
     }
 }
 
-/**
- * Below the video in the VOD portrait player.
- *
- * Mirrors Live's `PortraitListPane` (same header shape), but the list is
- * the ADDON SOURCES of the current movie / episode (provider + quality)
- * instead of channels. Tapping a source switches playback to that URL.
- *
- * "Now playing" shows the movie title so the user keeps context after
- * scrolling through sources.
- */
 @Composable
 fun PortraitSourcePane(
     streams: List<StreamSource>,
@@ -75,7 +64,6 @@ fun PortraitSourcePane(
     modifier: Modifier = Modifier
 ) {
     val scheme = MaterialTheme.colorScheme
-    // Find the currently playing source by identity (URL + provider + quality).
     val currentIndex = remember(currentStream, streams) {
         if (currentStream == null) -1
         else streams.indexOfFirst {
@@ -159,9 +147,7 @@ fun PortraitSourcePane(
             ) {
                 itemsIndexed(
                     items = streams,
-                    key = { index, s ->
-                        "$index|${s.provider}|${s.quality}|${s.url}"
-                    }
+                    key = { index, s -> "$index|${s.provider}|${s.quality}|${s.url}" }
                 ) { index, source ->
                     SourceRow(
                         source = source,
@@ -199,7 +185,7 @@ private fun SourceRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // ── Provider icon ──
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(MaterialTheme.shapes.small)
@@ -242,24 +228,31 @@ private fun SourceRow(
                 }
             }
 
-            // ── Playing badge ──
+            // ── Playing badge — now with an animated equalizer ──
             if (isCurrent) {
-                Text(
-                    text = "Playing",
-                    color = scheme.primary,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    EqualizerBars(
+                        color = scheme.primary,
+                        barCount = 3,
+                        barWidth = 2.5.dp,
+                        maxHeight = 12.dp,
+                        minHeight = 3.dp
+                    )
+                    Text(
+                        text = "Playing",
+                        color = scheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * Below the video in the STREAM screen's portrait player.
- * Stream mode has only ONE stream in flight (no source list), so this
- * shows the URL / provider / quality so the user still has context.
- */
 @Composable
 fun PortraitStreamInfoPane(
     stream: StreamSource,
