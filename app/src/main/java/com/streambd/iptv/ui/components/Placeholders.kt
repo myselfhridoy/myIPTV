@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -105,6 +108,13 @@ fun PosterCardSkeleton(modifier: Modifier = Modifier) {
 /**
  * Empty list / no results. If an [actionLabel] is given the button is
  * auto-focused on TV, so D-pad never starts on an empty screen.
+ *
+ * PREMIUM LOOK:
+ *  • Icon sits inside a radial gradient "halo" (120dp) + circular badge
+ *    (72dp) — feels like a proper empty state rather than a floating
+ *    grey icon.
+ *  • The halo + badge both use the primary brand colour, tying the
+ *    screen back to the app's visual identity.
  */
 @Composable
 fun EmptyState(
@@ -116,6 +126,8 @@ fun EmptyState(
     onAction: (() -> Unit)? = null
 ) {
     val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -123,16 +135,42 @@ fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(56.dp)
-        )
+        // ── Halo + badge ──
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            scheme.primary.copy(alpha = 0.18f),
+                            scheme.primary.copy(alpha = 0.02f),
+                            androidx.compose.ui.graphics.Color.Transparent
+                        )
+                    ),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .background(scheme.primary.copy(alpha = 0.12f), CircleShape)
+                    .border(1.5.dp, scheme.primary.copy(alpha = 0.35f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = scheme.primary.copy(alpha = 0.92f),
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
         Spacer(Modifier.height(d.spaceLg))
         Text(
             text = title,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = scheme.onBackground,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
@@ -141,7 +179,7 @@ fun EmptyState(
             Spacer(Modifier.height(d.spaceXs))
             Text(
                 text = message,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = scheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
@@ -168,6 +206,8 @@ fun ErrorState(
     retryLabel: String = "Retry"
 ) {
     val d = AppTheme.dimens
+    val scheme = MaterialTheme.colorScheme
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -175,16 +215,42 @@ fun ErrorState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            imageVector = Icons.Outlined.ErrorOutline,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(56.dp)
-        )
+        // ── Red-tinted halo + badge for errors ──
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            scheme.error.copy(alpha = 0.18f),
+                            scheme.error.copy(alpha = 0.02f),
+                            androidx.compose.ui.graphics.Color.Transparent
+                        )
+                    ),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .background(scheme.error.copy(alpha = 0.12f), CircleShape)
+                    .border(1.5.dp, scheme.error.copy(alpha = 0.35f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    tint = scheme.error.copy(alpha = 0.92f),
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
         Spacer(Modifier.height(d.spaceLg))
         Text(
             text = title,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = scheme.onBackground,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
@@ -192,7 +258,7 @@ fun ErrorState(
         Spacer(Modifier.height(d.spaceXs))
         Text(
             text = message,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = scheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
