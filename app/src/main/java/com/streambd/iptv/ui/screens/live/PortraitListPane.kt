@@ -27,17 +27,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.streambd.iptv.ui.components.EqualizerBars
 import com.streambd.iptv.ui.components.FocusSurface
 import com.streambd.iptv.ui.components.LiveBadge
 import com.streambd.iptv.ui.components.RemoteImage
 import com.streambd.iptv.ui.viewmodels.PlayerListEntry
 
-/**
- * Below the video in the portrait player: what is playing now, then a list to
- * switch to. The list is generic ([PlayerListEntry]) so the same pane serves
- * playlist channels, live events, and later VOD sources.
- * Phones / tablets only (LazyColumn is fine without a D-pad).
- */
 @Composable
 fun PortraitListPane(
     heading: String,
@@ -56,7 +51,6 @@ fun PortraitListPane(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = (currentIndex - 1).coerceAtLeast(0)
     )
-    // Follow the playing item when it changes (next/prev buttons, swipe, list tap).
     LaunchedEffect(currentIndex) {
         if (currentIndex >= 0) listState.animateScrollToItem((currentIndex - 1).coerceAtLeast(0))
     }
@@ -179,13 +173,27 @@ private fun ListRow(entry: PlayerListEntry, isCurrent: Boolean, onClick: () -> U
                     )
                 }
             }
+
+            // ── Playing: animated equalizer + "Playing". Live: dot-tag. ──
             if (isCurrent) {
-                Text(
-                    text = "Playing",
-                    color = scheme.primary,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    EqualizerBars(
+                        color = scheme.primary,
+                        barCount = 3,
+                        barWidth = 2.5.dp,
+                        maxHeight = 12.dp,
+                        minHeight = 3.dp
+                    )
+                    Text(
+                        text = "Playing",
+                        color = scheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             } else if (entry.live) {
                 Text(
                     text = "LIVE",
