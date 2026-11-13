@@ -7,6 +7,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,8 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -68,7 +71,6 @@ private val TimelineRowHeight = 48.dp
 
 /**
  * On a live screen, any media shorter than this window is treated as LIVE.
- * (HLS often reports a tiny fake duration like 00:24 while loading.)
  */
 private const val LIVE_WINDOW_MAX_MS = 10 * 60 * 1000L
 
@@ -303,9 +305,7 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A completely custom Seek Bar drawn from scratch.
- * This completely avoids Material3 Slider's internal padding and top-alignment issues,
- * ensuring the thumb ring, buffer bar, and active progress are all perfectly centered.
+ * Custom Canvas Seek Bar for perfect vertical and horizontal alignment.
  */
 @Composable
 fun PlayerSeekBar(
@@ -324,104 +324,88 @@ fun PlayerSeekBar(
     val thumbRadiusPx = with(density) { thumbRadius.toPx() }
 
     BoxWithConstraints(
-        modifier = modifier
-            .height(TimelineRowHeight)
-            .then(
-                if (seekable) {
-                    Modifier
-                        .pointerInput(Unit) {
-                            detectTapGestures { offset ->
-                                val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
-                                    .coerceIn(0f, 1f)
-                                onValueChange(f)
-                                onValueChangeFinished()
-                            }
-                        }
-                        .pointerInput(Unit) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { offset ->
-                                    val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
-                                        .coerceIn(0f, 1f)
-                                    onValueChange(f)
-                                },
-                                onDragEnd = { onValueChangeFinished() },
-                                onDragCancel = { onValueChangeFinished() }
-                            ) { change, _ ->
-                                change.consume()
-                                val f = ((change.position.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
-                                    .coerceIn(0f, 1f)
-                                onValueChange(f)
-                            }
-                        }
-                } else Modifier
-            ),
-        contentAlignment = Alignment.Center
+        modifier = modifier.height(TimelineRowHeight),
+        contentAlignment = Alignment.CenterStart
     ) {
         val barWidthPx = constraints.maxWidth
 
-        // 1. Track Background (Grey)
-        Box(
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = thumbRadius)
-                .height(4.dp)
-                .clip(CircleShape)
-                .background(Color.Gray.copy(alpha = 0.3f))
-        )
-
-        // 2. Buffer Track (Light Grey)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = thumbRadius)
-                .height(4.dp)
-                .clip(CircleShape),
-            contentAlignment = Alignment.CenterStart
+                .height(TimelineRowHeight)
+                .then(
+                    if (seekable) {
+                        Modifier
+                            .pointerInput(Unit) {
+                                detectTapGestures { offset ->
+                                    val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx)).coerceIn(0f, 1f)
+                                    onValueChange(f)
+                                    onValueChangeFinished()
+                                }
+                            }
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = { offset ->
+                                        val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx)).coerceIn(0f, 1f)
+                                        onValueChange(f)
+                                    },
+                                    onDragEnd = { onValueChangeFinished() },
+                                    onDragCancel = { onValueChangeFinished() }
+                                ) { change, _ ->
+                                    change.consume()
+                                    val f = ((change.position.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx)).coerceIn(0f, 1f)
+                                    onValueChange(f)
+                                }
+                            }
+                    } else Modifier
+                )
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(bufferFraction.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(Color.White.copy(alpha = 0.4f))
+            val centerY = size.height / 2f
+            val trackHeightPx = 4.dp.toPx()
+
+            // 1. Background Track (Dark Grey)
+            drawLine(
+                color = Color.Gray.copy(alpha = 0.3f),
+                start = Offset(thumbRadiusPx, centerY),
+                end = Offset(size.width - thumbRadiusPx, centerY),
+                strokeWidth = trackHeightPx,
+                cap = StrokeCap.Round
+            )
+
+            // 2. Buffer Track (Light Grey)
+            if (bufferFraction > 0f) {
+                val bufferX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * bufferFraction.coerceIn(0f, 1f)
+                drawLine(
+                    color = Color.White.copy(alpha = 0.4f),
+                    start = Offset(thumbRadiusPx, centerY),
+                    end = Offset(bufferX, centerY),
+                    strokeWidth = trackHeightPx,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // 3. Active Track (Blue)
+            val progressX = thumbRadiusPx + (size.width - 2 * thumbRadiusPx) * fraction.coerceIn(0f, 1f)
+            if (fraction > 0f) {
+                drawLine(
+                    color = scheme.primary,
+                    start = Offset(thumbRadiusPx, centerY),
+                    end = Offset(progressX, centerY),
+                    strokeWidth = trackHeightPx,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            // 4. Thumb (Ring)
+            drawCircle(
+                color = if (seekable) Color.White else Color.White.copy(alpha = 0.7f),
+                radius = thumbRadiusPx,
+                center = Offset(progressX, centerY),
+                style = Stroke(width = 2.dp.toPx())
             )
         }
 
-        // 3. Active Progress (Blue)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = thumbRadius)
-                .height(4.dp)
-                .clip(CircleShape),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(scheme.primary)
-            )
-        }
-
-        // 4. Thumb (Ring)
-        if (barWidthPx > 0) {
-            val trackWidth = barWidthPx - 2 * thumbRadiusPx
-            val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
-            val thumbX = thumbCenterX - thumbRadiusPx
-
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset(thumbX.toInt(), 0) }
-                    .size(thumbRadius * 2)
-                    .border(
-                        width = 2.dp,
-                        color = if (seekable) Color.White else Color.White.copy(alpha = 0.7f),
-                        shape = CircleShape
-                    )
-            )
-        }
-
-        // 5. Tooltip (During Drag)
+        // 5. Tooltip
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
             val trackWidth = barWidthPx - 2 * thumbRadiusPx
             val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
