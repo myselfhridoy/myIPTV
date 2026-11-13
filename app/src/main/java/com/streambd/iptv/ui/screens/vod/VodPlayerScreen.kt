@@ -69,7 +69,6 @@ import kotlinx.coroutines.launch
 
 private const val MAX_SNIFF_BYTES = 2L * 1024 * 1024
 
-/** Which side of the screen the seek feedback indicator should appear on. */
 private enum class SeekSide { Left, Right }
 
 @OptIn(UnstableApi::class)
@@ -114,11 +113,8 @@ fun VodPlayerScreen(
     var isInPiP by remember { mutableStateOf(false) }
     var wasInPiP by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
-
-    // Loading spinner fix
     var isPlayerReady by remember { mutableStateOf(false) }
 
-    // ── Seek feedback (double-tap + continuous D-pad) ──
     var seekFeedbackText by remember { mutableStateOf<String?>(null) }
     var seekFeedbackSide by remember { mutableStateOf(SeekSide.Left) }
     var seekFeedbackKey by remember { mutableIntStateOf(0) }
@@ -144,14 +140,12 @@ fun VodPlayerScreen(
 
     val seekAmount = 10_000L
 
-    // ── Seek feedback helper ──
     val showSeekFeedback: (String, SeekSide) -> Unit = { text, side ->
         seekFeedbackText = text
         seekFeedbackSide = side
         seekFeedbackKey++
     }
 
-    // ── Auto-clear tap feedback after 700ms ──
     LaunchedEffect(seekFeedbackKey) {
         if (seekFeedbackText == null) return@LaunchedEffect
         delay(700)
@@ -160,7 +154,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Continuous D-pad seek (5s every 250ms while held) ──
     LaunchedEffect(continuousSeekDirection) {
         if (continuousSeekDirection == 0) return@LaunchedEffect
         if (!exoPlayer.isCurrentMediaItemSeekable) return@LaunchedEffect
@@ -207,7 +200,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // ── Resolve + setup media source ──
     LaunchedEffect(stream, retryToken) {
         isResolving = true
         isLoading = true
@@ -770,7 +762,12 @@ fun VodPlayerScreen(
                     )
                 }
 
-                if (showOverlay && !isInPiP) {
+                // ── NEW: fade the whole overlay together ──
+                AnimatedVisibility(
+                    visible = showOverlay && !isInPiP,
+                    enter = fadeIn(tween(200)),
+                    exit = fadeOut(tween(220))
+                ) {
                     VodPlayerOverlay(
                         modifier = Modifier.fillMaxSize(),
                         title = videoTitle,
@@ -822,7 +819,6 @@ fun VodPlayerScreen(
                     )
                 }
 
-                // ── Loading diagnostic ──
                 val showSpinner = isLoading && !isLocked && !isInPiP
                 val loadingSeconds = rememberLoadingElapsed(showSpinner)
                 val loadingSubtitle = when {
@@ -878,7 +874,6 @@ fun VodPlayerScreen(
                     )
                 }
 
-                // ── Seek feedback (double-tap + continuous D-pad) ──
                 AnimatedVisibility(
                     visible = seekFeedbackText != null,
                     enter = fadeIn(tween(150)),
