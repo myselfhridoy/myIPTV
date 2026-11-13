@@ -9,11 +9,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,12 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +48,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -303,14 +303,10 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Seek bar with a FIXED height (48dp).
- * 
- * FIXED: 
- * - Added back the grey buffer progress bar.
- * - Used a custom smaller thumb (12dp) so it doesn't look bulky.
- * - Thumb is visible on Live TV as well (just slightly transparent).
+ * A completely custom Seek Bar drawn from scratch.
+ * This completely avoids Material3 Slider's internal padding and top-alignment issues,
+ * ensuring the thumb ring, buffer bar, and active progress are all perfectly centered.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerSeekBar(
     fraction: Float,
@@ -323,65 +319,114 @@ fun PlayerSeekBar(
     tooltipText: String? = null
 ) {
     val scheme = MaterialTheme.colorScheme
-    BoxWithConstraints(modifier = modifier.height(TimelineRowHeight)) {
-        val barWidthPx = constraints.maxWidth
-        val density = LocalDensity.current
-        val thumbRadiusPx = with(density) { 6.dp.toPx() }
+    val density = LocalDensity.current
+    val thumbRadius = 7.dp
+    val thumbRadiusPx = with(density) { thumbRadius.toPx() }
 
+    BoxWithConstraints(
+        modifier = modifier
+            .height(TimelineRowHeight)
+            .then(
+                if (seekable) {
+                    Modifier
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
+                                    .coerceIn(0f, 1f)
+                                onValueChange(f)
+                                onValueChangeFinished()
+                            }
+                        }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { offset ->
+                                    val f = ((offset.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
+                                        .coerceIn(0f, 1f)
+                                    onValueChange(f)
+                                },
+                                onDragEnd = { onValueChangeFinished() },
+                                onDragCancel = { onValueChangeFinished() }
+                            ) { change, _ ->
+                                change.consume()
+                                val f = ((change.position.x - thumbRadiusPx) / (size.width - 2 * thumbRadiusPx))
+                                    .coerceIn(0f, 1f)
+                                onValueChange(f)
+                            }
+                        }
+                } else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        val barWidthPx = constraints.maxWidth
+
+        // 1. Track Background (Grey)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(TimelineRowHeight),
-            contentAlignment = Alignment.Center
-        ) {
-            // 1. Grey Buffer Progress (Always visible)
-            LinearProgressIndicator(
-                progress = { bufferFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp)
-                    .height(4.dp)
-                    .clip(CircleShape),
-                color = Color.White.copy(alpha = 0.4f),
-                trackColor = Color.Gray.copy(alpha = 0.3f)
-            )
+                .padding(horizontal = thumbRadius)
+                .height(4.dp)
+                .clip(CircleShape)
+                .background(Color.Gray.copy(alpha = 0.3f))
+        )
 
-            // 2. Slider with Custom Small Thumb
-            Slider(
-                value = fraction,
-                onValueChange = onValueChange,
-                onValueChangeFinished = onValueChangeFinished,
-                enabled = seekable,
-                modifier = Modifier.fillMaxWidth(),
-                thumb = {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .background(
-                                color = if (seekable) Color.White else Color.White.copy(alpha = 0.6f),
-                                shape = CircleShape
-                            )
-                    )
-                },
-                track = { sliderState ->
-                    SliderDefaults.Track(
-                        sliderState = sliderState,
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = scheme.primary,
-                            inactiveTrackColor = Color.Transparent
-                        )
-                    )
-                }
+        // 2. Buffer Track (Light Grey)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = thumbRadius)
+                .height(4.dp)
+                .clip(CircleShape),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(bufferFraction.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(Color.White.copy(alpha = 0.4f))
             )
         }
 
-        // ── Time tooltip above the thumb (drag only) ──
-        if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
-            val trackWidthPx = barWidthPx - (2 * with(density) { 10.dp.toPx() })
-            val thumbCenter = with(density) { 10.dp.toPx() } + (fraction * trackWidthPx)
+        // 3. Active Progress (Blue)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = thumbRadius)
+                .height(4.dp)
+                .clip(CircleShape),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(scheme.primary)
+            )
+        }
 
+        // 4. Thumb (Ring)
+        if (barWidthPx > 0) {
+            val trackWidth = barWidthPx - 2 * thumbRadiusPx
+            val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
+            val thumbX = thumbCenterX - thumbRadiusPx
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(thumbX.toInt(), 0) }
+                    .size(thumbRadius * 2)
+                    .border(
+                        width = 2.dp,
+                        color = if (seekable) Color.White else Color.White.copy(alpha = 0.7f),
+                        shape = CircleShape
+                    )
+            )
+        }
+
+        // 5. Tooltip (During Drag)
+        if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
+            val trackWidth = barWidthPx - 2 * thumbRadiusPx
+            val thumbCenterX = thumbRadiusPx + fraction.coerceIn(0f, 1f) * trackWidth
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
-            val xOffset = (thumbCenter - tooltipWidthPx / 2)
+            val xOffset = (thumbCenterX - tooltipWidthPx / 2)
                 .coerceIn(0f, (barWidthPx - tooltipWidthPx).coerceAtLeast(0f))
 
             Box(
@@ -393,10 +438,7 @@ fun PlayerSeekBar(
                         )
                     }
                     .width(56.dp)
-                    .background(
-                        Color.Black.copy(alpha = 0.9f),
-                        RoundedCornerShape(6.dp)
-                    )
+                    .background(Color.Black.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
                     .padding(vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -412,9 +454,6 @@ fun PlayerSeekBar(
     }
 }
 
-/**
- * Time labels + seek bar.
- */
 @Composable
 fun PlayerTimeline(
     progress: PlayerProgress,
