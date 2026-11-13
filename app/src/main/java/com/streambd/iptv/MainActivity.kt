@@ -33,7 +33,6 @@ class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
     private val tmdbViewModel: TmdbViewModel by viewModels()
 
-    // Runtime permission for Android 13+ notifications
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             Log.d("MainActivity", "POST_NOTIFICATIONS granted: $granted")
@@ -42,33 +41,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ─────────────────────────────────────────────────────────────────
         // INSTALL CONSCRYPT FIRST — before any network client is created.
-        //
-        // WHY THIS IS THE VERY FIRST THING IN onCreate
-        // --------------------------------------------
-        // Cloudflare's Bot Management inspects the TLS handshake's JA3
-        // fingerprint. On high-risk ISP IPs (some WiFi networks flagged
-        // for bot traffic), Cloudflare only accepts handshakes whose JA3
-        // matches a whitelisted client — curl (OpenSSL), Chrome, Firefox.
-        //
-        // OkHttp's default BoringSSL on Android has a JA3 that is NOT on
-        // that whitelist, so those requests get a 403 — even with perfect
-        // headers. That's why the same app works on mobile data (trusted
-        // IP) but fails on some WiFi networks (flagged IP).
-        //
-        // Conscrypt is Android's official JSSE provider that uses
-        // Google's BoringSSL with the SAME JA3 as Chrome / Android
-        // System WebView. Installing it here, before any HTTPS call
-        // anywhere in the app, makes every subsequent TLS handshake
-        // inherit the browser-equivalent fingerprint — so Cloudflare
-        // accepts the request and the WiFi 403 disappears.
-        //
-        // Must run BEFORE:
-        //   • RemoteConfigManager.init() — may fetch remote config
-        //   • mainViewModel.initTvMode()  — may hit Firebase
-        //   • Any OkHttp / Retrofit / Coil client creation
-        // ─────────────────────────────────────────────────────────────────
+        // (See the original comment: this fixes Cloudflare JA3 fingerprint
+        // blocking on high-risk ISP IPs. Must run before any HTTPS call.)
         try {
             val conscryptProvider = org.conscrypt.Conscrypt.newProvider()
             java.security.Security.insertProviderAt(conscryptProvider, 1)
@@ -93,13 +68,31 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) {}
         }
 
-        // Configure Coil's global image loader (safe-for-IPTV-logos).
-        // NOTE: the Conscrypt provider installed above is already active,
-        // so this client inherits the browser-equivalent TLS fingerprint
-        // automatically. No extra TLS configuration needed here.
+        // ────────────────────────────────────────────────────────────
+        // Coil image loader — FIX #2
+        //
+        // CHANGED: previously used UnsafeOkHttpClient.getUnsafeOkHttpClient()
+        // (trust-all TLS) for every logo image. That meant any image URL
+        // — including one inside a malicious playlist — could be served
+        // with a self-signed cert and the app would still trust it.
+        // Logo images are just bitmaps, but a MITM could:
+        //   • swap a channel's logo for a phishing graphic
+        //   • exfiltrate the logo URL (which may carry a token in the
+        //     query string) to a fake server
+        //
+        // We now use UnsafeOkHttpClient.safe (default certificate
+        // validation). The Browser User-Agent + 403-retry logic is kept
+        // EXACTLY as before — those are needed because some IPTV CDNs
+        // reject the default UA / require browser fingerprints.
+        //
+        // Trade-off: a handful of logos hosted on servers with expired /
+        // self-signed certs will fail to load and show the initials
+        // fallback. That is the correct security trade — the same
+        // reason browsers refuse to load images over bad TLS.
+        // ────────────────────────────────────────────────────────────
         val imageLoader = coil.ImageLoader.Builder(applicationContext)
             .okHttpClient {
-                com.streambd.iptv.utils.UnsafeOkHttpClient.getUnsafeOkHttpClient().newBuilder()
+                com.streambd.iptv.utils.UnsafeOkHttpClient.safe.newBuilder()
                     .addInterceptor { chain ->
                         val req = chain.request()
                         val newReq = req.newBuilder()
