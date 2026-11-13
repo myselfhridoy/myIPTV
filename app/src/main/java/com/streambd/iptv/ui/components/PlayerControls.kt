@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -303,7 +304,13 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
 
 /**
  * Seek bar with a FIXED height (48dp).
+ * 
+ * FIXED: 
+ * - Added back the grey buffer progress bar.
+ * - Used a custom smaller thumb (12dp) so it doesn't look bulky.
+ * - Thumb is visible on Live TV as well (just slightly transparent).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerSeekBar(
     fraction: Float,
@@ -319,8 +326,7 @@ fun PlayerSeekBar(
     BoxWithConstraints(modifier = modifier.height(TimelineRowHeight)) {
         val barWidthPx = constraints.maxWidth
         val density = LocalDensity.current
-
-        val thumbRadiusPx = with(density) { 10.dp.toPx() }
+        val thumbRadiusPx = with(density) { 6.dp.toPx() }
 
         Box(
             modifier = Modifier
@@ -328,6 +334,7 @@ fun PlayerSeekBar(
                 .height(TimelineRowHeight),
             contentAlignment = Alignment.Center
         ) {
+            // 1. Grey Buffer Progress (Always visible)
             LinearProgressIndicator(
                 progress = { bufferFraction },
                 modifier = Modifier
@@ -339,26 +346,40 @@ fun PlayerSeekBar(
                 trackColor = Color.Gray.copy(alpha = 0.3f)
             )
 
+            // 2. Slider with Custom Small Thumb
             Slider(
                 value = fraction,
                 onValueChange = onValueChange,
                 onValueChangeFinished = onValueChangeFinished,
                 enabled = seekable,
                 modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
-                    activeTrackColor = scheme.primary,
-                    inactiveTrackColor = Color.Transparent,
-                    disabledThumbColor = Color.Transparent,
-                    disabledActiveTrackColor = Color.Transparent,
-                    disabledInactiveTrackColor = Color.Transparent
-                )
+                thumb = {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(
+                                color = if (seekable) Color.White else Color.White.copy(alpha = 0.6f),
+                                shape = CircleShape
+                            )
+                    )
+                },
+                track = { sliderState ->
+                    SliderDefaults.Track(
+                        sliderState = sliderState,
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = scheme.primary,
+                            inactiveTrackColor = Color.Transparent
+                        ),
+                        drawStopIndicator = null
+                    )
+                }
             )
         }
 
+        // ── Time tooltip above the thumb (drag only) ──
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
-            val trackWidthPx = barWidthPx - (2 * thumbRadiusPx)
-            val thumbCenter = thumbRadiusPx + (fraction * trackWidthPx)
+            val trackWidthPx = barWidthPx - (2 * 10.dp.toPx())
+            val thumbCenter = 10.dp.toPx() + (fraction * trackWidthPx)
 
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
             val xOffset = (thumbCenter - tooltipWidthPx / 2)
@@ -392,6 +413,9 @@ fun PlayerSeekBar(
     }
 }
 
+/**
+ * Time labels + seek bar.
+ */
 @Composable
 fun PlayerTimeline(
     progress: PlayerProgress,
@@ -412,12 +436,14 @@ fun PlayerTimeline(
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
+    // FIXED: Removed the `!isLive` condition so the thumb and buffer 
+    // animate/move even on Live TV as long as there is a duration.
     val rawPlaybackFraction =
-        if (duration > 0 && !isLive) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val rawBufferFraction =
-        if (duration > 0 && !isLive) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
-    val animate = canSeek && !dragging
+    val animate = !dragging
 
     val playbackFraction by animateFloatAsState(
         targetValue = if (dragging) dragFraction else rawPlaybackFraction,
@@ -426,7 +452,7 @@ fun PlayerTimeline(
     )
     val bufferFraction by animateFloatAsState(
         targetValue = rawBufferFraction,
-        animationSpec = if (canSeek) tween(300, easing = FastOutSlowInEasing) else snap(),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "bufferFraction"
     )
 
