@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -33,18 +35,23 @@ import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
 
-/** Channel logos are usually designed for light backgrounds. */
+/**
+ * Flat base colour for a logo tile (used as the FocusSurface container,
+ * so focus animation still works).
+ */
 private val LogoTileColor = Color(0xFFEDF1F5)
 
 /**
- * Channel tile: 16:9 logo + name underneath.
- * Takes plain values (not the Channel model) so it works for Live TV,
- * Playlists, Events and Search alike.
- *
- *     ChannelCard(name = channel.name, logoUrl = channel.logo, onClick = { … })
- *
- * Width comes from the parent (grid cell / `Modifier.width(...)`).
+ * Radial "spotlight" gradient painted BEHIND the logo.
+ * Gives solid-white logos (Sony, Star, etc.) a soft contour against the
+ * otherwise flat grey tile — the same trick used by Prime Video on TV.
+ * Skipped while the card is focused (surface is already white).
  */
+private val LogoTileBrush = Brush.radialGradient(
+    colors = listOf(Color.White, Color(0xFFD9E2EC)),
+    center = Offset.Unspecified
+)
+
 @Composable
 fun ChannelCard(
     name: String,
@@ -58,7 +65,6 @@ fun ChannelCard(
     onFocused: (() -> Unit)? = null
 ) {
     val d = AppTheme.dimens
-    // One merged node for TalkBack: "<name>, button".
     Column(modifier = modifier.semantics(mergeDescendants = true) {}) {
         FocusSurface(
             onClick = onClick,
@@ -69,16 +75,24 @@ fun ChannelCard(
             containerColor = LogoTileColor,
             focusedContainerColor = Color.White,
             restingBorderColor = Color.Black.copy(alpha = 0.08f),
-            // Light tile → a near-white ring would vanish; use the brand colour.
             ringColor = MaterialTheme.colorScheme.primary,
             focusRequester = focusRequester,
             onFocused = onFocused
-        ) { _ ->
+        ) { focused ->
+            // Radial gradient behind the logo — subtle 3D pop.
+            // While focused the surface turns solid white; the gradient
+            // would just add noise there, so we skip it.
+            if (!focused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(LogoTileBrush)
+                )
+            }
             RemoteImage(
                 url = logoUrl,
                 label = name,
                 contentScale = ContentScale.Fit,
-                // When the title is shown below, the image itself stays silent.
                 describe = !showTitle,
                 modifier = Modifier
                     .fillMaxSize()
@@ -106,9 +120,6 @@ fun ChannelCard(
     }
 }
 
-/**
- * Movie / series poster (2:3) with title and optional rating badge.
- */
 @Composable
 fun PosterCard(
     title: String,
@@ -197,10 +208,6 @@ fun RatingBadge(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * Network image with a text fallback (initials) for missing / failed URLs.
- * The ImageRequest is remembered per URL so scrolling doesn't rebuild it.
- */
 @Composable
 fun RemoteImage(
     url: String?,
