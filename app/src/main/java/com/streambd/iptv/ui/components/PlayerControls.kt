@@ -49,7 +49,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -320,7 +319,8 @@ fun PlayerSeekBar(
 ) {
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
-    val thumbRadius = 7.dp
+    // CHANGED: Reduced radius from 7.dp to 5.dp for a smaller thumb
+    val thumbRadius = 5.dp
     val thumbRadiusPx = with(density) { thumbRadius.toPx() }
 
     BoxWithConstraints(
@@ -396,12 +396,12 @@ fun PlayerSeekBar(
                 )
             }
 
-            // 4. Thumb (Ring)
+            // 4. Thumb (Filled Solid Circle)
+            // CHANGED: Removed Stroke() style to make it filled, using a solid white circle
             drawCircle(
                 color = if (seekable) Color.White else Color.White.copy(alpha = 0.7f),
                 radius = thumbRadiusPx,
-                center = Offset(progressX, centerY),
-                style = Stroke(width = 2.dp.toPx())
+                center = Offset(progressX, centerY)
             )
         }
 
