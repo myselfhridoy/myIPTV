@@ -7,6 +7,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
@@ -313,6 +315,12 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
  * NEW: [showTooltip] + [tooltipText] — when dragging the thumb, a small
  * floating time badge appears above the thumb so the user can preview
  * the target position before releasing.
+ *
+ * LAYOUT JUMP FIX:
+ *   The buffer track previously had `padding(horizontal = 8.dp)` while
+ *   the Slider had none. When `seekable` toggled on/off (channel switch),
+ *   the visible buffer bar's width changed → visible "jump". Now both
+ *   tracks span the full Box width, so toggling is invisible.
  */
 @Composable
 fun PlayerSeekBar(
@@ -334,7 +342,6 @@ fun PlayerSeekBar(
                 progress = { bufferFraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
                     .height(4.dp)
                     .clip(CircleShape),
                 color = Color.White.copy(alpha = 0.4f),
@@ -402,6 +409,16 @@ fun PlayerSeekBar(
  *
  * [showLiveLabel] — show "LIVE" instead of the position when the duration
  * is unknown (live channels).
+ *
+ * LAYOUT JUMP FIX:
+ *   • Left + right text slots are fixed 64dp wide — a channel switch no
+ *     longer shifts the seek bar sideways when the text changes from
+ *     "00:00" → "1:02:05" or LIVE badge → text.
+ *   • playbackFraction & bufferFraction are animated over 300ms — the
+ *     instant 75%→0%→new-value jumps during channel switch now slide
+ *     smoothly instead of snapping.
+ *   • isLive is debounced by 400ms — a channel that becomes READY
+ *     within 400ms won't briefly flash the LIVE badge.
  */
 @Composable
 fun PlayerTimeline(
@@ -413,20 +430,67 @@ fun PlayerTimeline(
     showLiveLabel: Boolean = false
 ) {
     val duration = progress.duration
-    val isLive = showLiveLabel && progress.isLive
+    val isLiveRaw = showLiveLabel && progress.isLive
+
+    // ── Debounced isLive ─────────────────────────────────────────
+    // On channel switch, player.duration temporarily returns 0
+    // (clearMediaItems → resolveChannel → prepare → READY). That flips
+    // progress.isLive (duration <= 0) to TRUE for 1–3 s, then back to
+    // FALSE once the new stream is READY.
+    //
+    // Without debounce, the user sees:
+    //   seek slider visible → slider disappears (LIVE badge shows)
+    //   → slider reappears at new position
+    //
+    // With a 400ms grace period, if the new channel becomes READY
+    // within 400ms, the LIVE badge never appears at all — the seek
+    // slider just smoothly updates its thumb position.
+    var stableIsLive by remember { mutableStateOf(isLiveRaw) }
+    LaunchedEffect(isLiveRaw) {
+        if (!isLiveRaw) {
+            stableIsLive = false
+        } else {
+            delay(400)
+            stableIsLive = true
+        }
+    }
+    val isLive = stableIsLive
 
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
-    val playbackFraction =
+    val rawPlaybackFraction =
         if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    val bufferFraction =
+    val rawBufferFraction =
         if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
+    // ── Animated fractions ───────────────────────────────────────
+    // Without animation, channel switch does:
+    //   fraction = 0.75 → 0     (instant on clearMediaItems)
+    //   fraction = 0    → 0.05  (instant on new channel READY)
+    // → visible "jump". 300ms tween makes it slide smoothly.
+    //
+    // While dragging: duration = 0 (no animation), so the thumb tracks
+    // the finger 1:1.
+    val playbackFraction by animateFloatAsState(
+        targetValue = if (dragging) dragFraction else rawPlaybackFraction,
+        animationSpec = tween(
+            durationMillis = if (dragging) 0 else 300,
+            easing = FastOutSlowInEasing
+        ),
+        label = "playbackFraction"
+    )
+    val bufferFraction by animateFloatAsState(
+        targetValue = rawBufferFraction,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "bufferFraction"
+    )
+
     val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        // Left slot — fixed width so a channel switch (LIVE badge → time text)
-        // never shifts the seek bar's position.
+        // Left slot — fixed width, prevents the seek bar from shifting
+        // when the content changes (LIVE badge ↔ "00:00" ↔ "1:02:05").
         Box(
             modifier = Modifier.width(64.dp),
             contentAlignment = Alignment.CenterStart
@@ -444,7 +508,7 @@ fun PlayerTimeline(
         }
 
         PlayerSeekBar(
-            fraction = if (dragging) dragFraction else playbackFraction,
+            fraction = playbackFraction,
             bufferFraction = bufferFraction,
             seekable = seekable && duration > 0,
             onValueChange = { value ->
@@ -471,13 +535,12 @@ fun PlayerTimeline(
             tooltipText = if (dragging && duration > 0) formatPlayerTime(shownPosition) else null,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 12.dp)  // reduced from 16dp — the fixed Box
-                                              // widths already add visual spacing
+                .padding(horizontal = 12.dp)
         )
 
-        // Right slot — same fixed width. Prevents the layout jump when
-        // duration goes from unknown ("00:00") to a real value like
-        // "1:02:05", and keeps things stable on VOD too.
+        // Right slot — same fixed width. Prevents the whole seek bar
+        // from shifting left/right when the duration goes from "00:00"
+        // to "1:02:05".
         Box(
             modifier = Modifier.width(64.dp),
             contentAlignment = Alignment.CenterEnd
