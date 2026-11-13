@@ -1,17 +1,13 @@
 package com.streambd.iptv.ui.components
 
-import androidx.compose.foundation.background
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,19 +27,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
@@ -60,6 +59,17 @@ import com.streambd.iptv.ui.adaptive.LocalDeviceProfile
 import com.streambd.iptv.ui.theme.AppTheme
 import com.streambd.iptv.ui.theme.PrimeGold
 import com.streambd.iptv.ui.theme.PrimeLive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+/** Fixed height of the whole timeline row. Never changes => nothing can jump. */
+private val TimelineRowHeight = 48.dp
+
+/**
+ * On a live screen, any media shorter than this window is treated as LIVE.
+ * (HLS often reports a tiny fake duration like 00:24 while loading.)
+ */
+private const val LIVE_WINDOW_MAX_MS = 10 * 60 * 1000L
 
 @Composable
 fun PlayerIconButton(
@@ -292,8 +302,7 @@ fun ChannelNumberBadge(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Low-level bar: a buffer track plus a draggable slider ONLY when
- * [seekable].
+ * Seek bar with a FIXED height (48dp).
  */
 @Composable
 fun PlayerSeekBar(
@@ -307,54 +316,50 @@ fun PlayerSeekBar(
     tooltipText: String? = null
 ) {
     val scheme = MaterialTheme.colorScheme
-    BoxWithConstraints(modifier = modifier) {
+    BoxWithConstraints(modifier = modifier.height(TimelineRowHeight)) {
         val barWidthPx = constraints.maxWidth
         val density = LocalDensity.current
-        
-        // Material3 Slider has internal padding (half the thumb width).
-        // We inset the LinearProgressIndicator by the same amount so that
-        // toggling between Live (no Slider) and VOD (with Slider) doesn't
-        // change the visible track length.
+
         val thumbRadiusPx = with(density) { 10.dp.toPx() }
 
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TimelineRowHeight),
+            contentAlignment = Alignment.Center
+        ) {
             LinearProgressIndicator(
                 progress = { bufferFraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp) // Matches Slider track inset
+                    .padding(horizontal = 10.dp)
                     .height(4.dp)
                     .clip(CircleShape),
                 color = Color.White.copy(alpha = 0.4f),
                 trackColor = Color.Gray.copy(alpha = 0.3f)
             )
-            
-            // Fade in/out the Slider instead of popping it instantly.
-            AnimatedVisibility(
-                visible = seekable,
-                enter = fadeIn(tween(200)),
-                exit = fadeOut(tween(200))
-            ) {
-                Slider(
-                    value = fraction,
-                    onValueChange = onValueChange,
-                    onValueChangeFinished = onValueChangeFinished,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = scheme.primary,
-                        inactiveTrackColor = Color.Transparent
-                    )
+
+            Slider(
+                value = fraction,
+                onValueChange = onValueChange,
+                onValueChangeFinished = onValueChangeFinished,
+                enabled = seekable,
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = scheme.primary,
+                    inactiveTrackColor = Color.Transparent,
+                    disabledThumbColor = Color.Transparent,
+                    disabledActiveTrackColor = Color.Transparent,
+                    disabledInactiveTrackColor = Color.Transparent
                 )
-            }
+            )
         }
 
-        // ── Time tooltip above the thumb (drag only) ──
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
-            // Correct math: account for the inset track
             val trackWidthPx = barWidthPx - (2 * thumbRadiusPx)
             val thumbCenter = thumbRadiusPx + (fraction * trackWidthPx)
-            
+
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
             val xOffset = (thumbCenter - tooltipWidthPx / 2)
                 .coerceIn(0f, (barWidthPx - tooltipWidthPx).coerceAtLeast(0f))
@@ -387,15 +392,6 @@ fun PlayerSeekBar(
     }
 }
 
-/**
- * Time labels + seek bar.
- * 
- * FIXES applied here:
- * 1. 64dp Fixed Width Text Slots (prevents shifting).
- * 2. Crossfade animations for text (LIVE <-> 00:00 smoothly fades).
- * 3. Debounced `isLive` (prevents rapid flashing when switching channels).
- * 4. Animated Float fractions (prevents thumb snap-jumping).
- */
 @Composable
 fun PlayerTimeline(
     progress: PlayerProgress,
@@ -406,70 +402,62 @@ fun PlayerTimeline(
     showLiveLabel: Boolean = false
 ) {
     val duration = progress.duration
-    val isLiveRaw = showLiveLabel && progress.isLive
 
-    // Debounce: Don't immediately switch to LIVE mode if the channel is
-    // just buffering. Wait 400ms. If it loads in 200ms, no layout jump occurs.
-    var stableIsLive by remember { mutableStateOf(isLiveRaw) }
-    LaunchedEffect(isLiveRaw) {
-        if (!isLiveRaw) {
-            stableIsLive = false
-        } else {
-            delay(400)
-            stableIsLive = true
-        }
-    }
-    val isLive = stableIsLive
+    val isLive = showLiveLabel &&
+        (progress.isLive || !seekable || duration <= 0L || duration < LIVE_WINDOW_MAX_MS)
+
+    val timeKnown = isLive || duration > 0L
+    val canSeek = seekable && !isLive && duration > 0L
 
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
     val rawPlaybackFraction =
-        if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0 && !isLive) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val rawBufferFraction =
-        if (duration > 0) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        if (duration > 0 && !isLive) (progress.buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
-    // Smoothly animate fraction changes instead of snapping
+    val animate = canSeek && !dragging
+
     val playbackFraction by animateFloatAsState(
         targetValue = if (dragging) dragFraction else rawPlaybackFraction,
-        animationSpec = tween(
-            durationMillis = if (dragging) 0 else 300,
-            easing = FastOutSlowInEasing
-        ),
+        animationSpec = if (animate) tween(300, easing = FastOutSlowInEasing) else snap(),
         label = "playbackFraction"
     )
     val bufferFraction by animateFloatAsState(
         targetValue = rawBufferFraction,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        animationSpec = if (canSeek) tween(300, easing = FastOutSlowInEasing) else snap(),
         label = "bufferFraction"
     )
 
     val shownPosition = if (dragging) (dragFraction * duration).toLong() else progress.position
 
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        // Left slot — fixed 64dp, perfectly centered
+    Row(
+        modifier = modifier.height(TimelineRowHeight),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Box(
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier
+                .width(64.dp)
+                .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            Crossfade(targetState = isLive, label = "leftSlot") { live ->
-                if (live) {
-                    LiveLabel()
-                } else {
-                    Text(
-                        text = formatPlayerTime(shownPosition),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1
-                    )
-                }
+            if (isLive) {
+                LiveLabel()
+            } else {
+                Text(
+                    text = formatPlayerTime(shownPosition),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1
+                )
             }
         }
 
         PlayerSeekBar(
             fraction = playbackFraction,
             bufferFraction = bufferFraction,
-            seekable = seekable && duration > 0,
+            seekable = canSeek,
             onValueChange = { value ->
                 if (commitOnRelease) {
                     dragging = true
@@ -497,19 +485,18 @@ fun PlayerTimeline(
                 .padding(horizontal = 12.dp)
         )
 
-        // Right slot — fixed 64dp, perfectly centered
         Box(
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier
+                .width(64.dp)
+                .alpha(if (timeKnown) 1f else 0f),
             contentAlignment = Alignment.Center
         ) {
-            Crossfade(targetState = isLive to duration, label = "rightSlot") { (live, dur) ->
-                Text(
-                    text = if (live) "00:00" else formatPlayerTime(dur),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1
-                )
-            }
+            Text(
+                text = if (isLive) "00:00" else formatPlayerTime(duration),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1
+            )
         }
     }
 }
@@ -528,7 +515,8 @@ private fun LiveLabel() {
             text = "LIVE",
             color = PrimeLive,
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }
