@@ -369,8 +369,7 @@ fun PlayerSeekBar(
                         colors = SliderDefaults.colors(
                             activeTrackColor = scheme.primary,
                             inactiveTrackColor = Color.Transparent
-                        ),
-                        drawStopIndicator = null
+                        )
                     )
                 }
             )
@@ -378,8 +377,8 @@ fun PlayerSeekBar(
 
         // ── Time tooltip above the thumb (drag only) ──
         if (showTooltip && tooltipText != null && seekable && barWidthPx > 0) {
-            val trackWidthPx = barWidthPx - (2 * 10.dp.toPx())
-            val thumbCenter = 10.dp.toPx() + (fraction * trackWidthPx)
+            val trackWidthPx = barWidthPx - (2 * with(density) { 10.dp.toPx() })
+            val thumbCenter = with(density) { 10.dp.toPx() } + (fraction * trackWidthPx)
 
             val tooltipWidthPx = with(density) { 56.dp.toPx() }
             val xOffset = (thumbCenter - tooltipWidthPx / 2)
@@ -436,8 +435,6 @@ fun PlayerTimeline(
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf(0f) }
 
-    // FIXED: Removed the `!isLive` condition so the thumb and buffer 
-    // animate/move even on Live TV as long as there is a duration.
     val rawPlaybackFraction =
         if (duration > 0) (progress.position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val rawBufferFraction =
